@@ -9,6 +9,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.doOnPreDraw
 import androidx.graphics.lowlatency.LowLatencyCanvasView
 import androidx.input.motionprediction.MotionEventPredictor
 
@@ -39,6 +40,7 @@ fun DrawComponent(
                         }
 
 
+
                     }
 
                     @WorkerThread
@@ -47,7 +49,6 @@ fun DrawComponent(
                         width: Int,
                         height: Int
                     ) {
-
                     }
                 })
 
@@ -69,7 +70,6 @@ fun DrawComponent(
                 }
                 addOnLayoutChangeListener(drawViewModel.onLayoutChange)
 
-                addView(DrawView(context, drawViewModel))
 
 
             }

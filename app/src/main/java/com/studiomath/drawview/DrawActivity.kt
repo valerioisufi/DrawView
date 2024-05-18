@@ -10,7 +10,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -20,48 +19,25 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.systemBars
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Redo
 import androidx.compose.material.icons.automirrored.outlined.Undo
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Draw
-import androidx.compose.material.icons.filled.GridView
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.MoreHoriz
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.North
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.ViewCozy
-import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Draw
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.MoreHoriz
-import androidx.compose.material.icons.outlined.Redo
-import androidx.compose.material.icons.outlined.Undo
-import androidx.compose.material.icons.outlined.ViewCozy
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ShapeDefaults
-import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
-import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -76,6 +52,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import com.studiomath.drawview.document.DrawComponent
+import com.studiomath.drawview.document.DrawViewModel
 import com.studiomath.drawview.ui.theme.DrawViewTheme
 
 class DrawActivity : ComponentActivity() {
@@ -96,11 +74,6 @@ class DrawActivity : ComponentActivity() {
                 }
             }
         }.value
-
-//        WindowInsetsControllerCompat(window, window.decorView).let { controller ->
-//            controller.hide(WindowInsetsCompat.Type.systemBars())
-//            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-//        }
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContent {
@@ -123,7 +96,6 @@ fun DrawActivity(modifier: Modifier = Modifier, drawViewModel: DrawViewModel) {
     ) {
         Surface(
             modifier = Modifier
-//                .background(MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp))
         ) {
             Column(
                 modifier = Modifier,
@@ -140,7 +112,7 @@ fun DrawActivity(modifier: Modifier = Modifier, drawViewModel: DrawViewModel) {
                 ) {
                     Row(
                         modifier = Modifier
-                    ){
+                    ) {
                         SmallButtonIcon(
                             icon = Icons.AutoMirrored.Outlined.ArrowBack,
                             onClick = {
@@ -162,7 +134,7 @@ fun DrawActivity(modifier: Modifier = Modifier, drawViewModel: DrawViewModel) {
                             .height(36.dp),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 1.dp),
                         onClick = {}
-                    ){
+                    ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxSize(),
@@ -188,7 +160,7 @@ fun DrawActivity(modifier: Modifier = Modifier, drawViewModel: DrawViewModel) {
 
                     Row(
                         modifier = Modifier
-                    ){
+                    ) {
                         SmallButtonIcon(
                             icon = Icons.Outlined.Draw,
                             onClick = {
@@ -199,25 +171,6 @@ fun DrawActivity(modifier: Modifier = Modifier, drawViewModel: DrawViewModel) {
                             onClick = {
                             }
                         )
-
-//                        IconButton(
-//                            modifier = Modifier
-//                            ,
-//                            onClick = {
-//                                activity.finish()
-//                            }
-//                        ) {
-//                            Icon(
-//                                imageVector = Icons.Outlined.Draw,
-//                                contentDescription = "Localized description"
-//                            )
-//                        }
-//                        IconButton(
-//                            modifier = Modifier,
-//                            onClick = { /*TODO*/ }
-//                        ) {
-//                            Icon(imageVector = Icons.Outlined.MoreHoriz, contentDescription = "")
-//                        }
                     }
                 }
 
@@ -234,7 +187,6 @@ fun DrawActivity(modifier: Modifier = Modifier, drawViewModel: DrawViewModel) {
                             .fillMaxWidth()
                             .height(48.dp)
                             .padding(horizontal = 4.dp),
-//                    .background(MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         SmallButtonIcon(
@@ -286,7 +238,7 @@ fun DrawActivity(modifier: Modifier = Modifier, drawViewModel: DrawViewModel) {
         }
 
 
-        DrawCompose(
+        DrawComponent(
             drawViewModel = drawViewModel
         )
     }
@@ -298,8 +250,8 @@ fun SmallButtonIcon(
     modifier: Modifier = Modifier,
     icon: ImageVector,
     onClick: () -> Unit,
-    contentDescription: String  = "Localized description"
-){
+    contentDescription: String = "Localized description"
+) {
     Icon(
         imageVector = icon,
         contentDescription = contentDescription,
@@ -313,14 +265,15 @@ fun SmallButtonIcon(
             .padding(8.dp),
     )
 }
+
 @Composable
 fun SmallButtonIcon(
     modifier: Modifier = Modifier,
     icon: Painter,
     onClick: () -> Unit,
-    contentDescription: String  = "Localized description",
+    contentDescription: String = "Localized description",
     enabled: Boolean = true
-){
+) {
     Icon(
         painter = icon,
         contentDescription = contentDescription,

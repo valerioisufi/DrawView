@@ -621,26 +621,29 @@ class DrawViewModel(
 //        }
 //    }
 
+    fun makeScalingTranslate(canvas: Canvas) {
+
+    }
+
     /**
-     * onLayoutChange
+     * onSizeChanged
      */
 
-    var onLayoutChange =
-        OnLayoutChangeListener { v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
-            val width = right - left
-            val height = bottom - top
+    fun onSizeChanged(width: Int, height: Int) {
 
-            if (::drawViewBitmap.isInitialized) drawViewBitmap.recycle()
-            drawViewBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        if (::drawViewBitmap.isInitialized) drawViewBitmap.recycle()
+        drawViewBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
 
-            if (::onDrawBitmap.isInitialized) onDrawBitmap.recycle()
-            onDrawBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        if (::onDrawBitmap.isInitialized) onDrawBitmap.recycle()
+        onDrawBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
 
-            windowRect = RectF(0f, 0f, width.toFloat(), height.toFloat())
+        windowRect = RectF(0f, 0f, width.toFloat(), height.toFloat())
+
+        fastRenderer.onSizeChanged(width, height)
 
 
-            draw(redraw = true, scaling = false)
-        }
+        draw(redraw = true, scaling = false)
+    }
 
 
     /**
@@ -655,9 +658,14 @@ class DrawViewModel(
 
 
     /**
-     * onTouchHover
+     * onTouchHover: gestione onTouchListener e onHoverListener
      */
     var onTouchHover = OnTouchHover(this)
+
+    /**
+     * fastRenderer: surfaceView con CanvasFrontBufferedRenderer
+     */
+    var fastRenderer: FastRenderer = FastRenderer(this)
 
     /**
      * invalidate drawView when onDrawBitmap change

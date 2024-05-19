@@ -30,15 +30,16 @@ class OnTouchHover(
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
 
-                    drawViewModel.data.addPathData(
-                        strokeType = drawViewModel.activeTool,
+                    drawViewModel.data.addStrokeData(
                         point = DrawDocumentData.Stroke.Point(
                             event.x, event.y
                         ).apply {
                             pressure = event.getAxisValue(MotionEvent.AXIS_PRESSURE)
                             orientation = event.getAxisValue(MotionEvent.AXIS_ORIENTATION)
                             tilt = event.getAxisValue(MotionEvent.AXIS_TILT)
-                        }
+                        },
+                        strokeType = drawViewModel.activeTool,
+                        isNewStroke = true
                     )
 
                     /**
@@ -61,9 +62,7 @@ class OnTouchHover(
 
                 MotionEvent.ACTION_MOVE -> {
                     for (historyIndex in 1 until event.historySize) {
-                        drawViewModel.data.addPathData(
-                            isLastPath = true,
-                            strokeType = drawViewModel.activeTool,
+                        drawViewModel.data.addStrokeData(
                             point = DrawDocumentData.Stroke.Point(
                                 event.getHistoricalX(historyIndex),
                                 event.getHistoricalY(historyIndex)
@@ -80,20 +79,20 @@ class OnTouchHover(
                                     MotionEvent.AXIS_TILT,
                                     historyIndex
                                 )
-                            }
+                            },
+                            strokeType = drawViewModel.activeTool
                         )
                     }
 
-                    drawViewModel.data.addPathData(
-                        isLastPath = true,
-                        strokeType = drawViewModel.activeTool,
+                    drawViewModel.data.addStrokeData(
                         point = DrawDocumentData.Stroke.Point(
                             event.x, event.y
                         ).apply {
                             pressure = event.getAxisValue(MotionEvent.AXIS_PRESSURE)
                             orientation = event.getAxisValue(MotionEvent.AXIS_ORIENTATION)
                             tilt = event.getAxisValue(MotionEvent.AXIS_TILT)
-                        }
+                        },
+                        strokeType = drawViewModel.activeTool
                     )
 
                     /**
@@ -128,6 +127,7 @@ class OnTouchHover(
                 }
 
                 MotionEvent.ACTION_UP -> {
+                    drawViewModel.data.updateStrokeData()
                     drawViewModel.draw(redraw = true)
 
                 }

@@ -208,22 +208,24 @@ class DrawDocumentData(
     }
 
 
-    fun addPathData(
-        isLastPath: Boolean = false,
+    var newStrokeData = mutableListOf<Stroke>()
+    fun addStrokeData(
+        point: Stroke.Point,
         strokeType: Stroke.StrokeType = Stroke.StrokeType.PENNA,
-        point: Stroke.Point
+        strokeIndex: Int = newStrokeData.lastIndex,
+        isNewStroke: Boolean = false
     ) {
-        if (isLastPath) {
-            document.pages[pageIndexNow].strokeData.last().points.add(point)
-            document.pages[pageIndexNow].strokeData.last().vec2ds.add(
+        if (!isNewStroke) {
+            newStrokeData[strokeIndex].points.add(point)
+            newStrokeData[strokeIndex].vec2ds.add(
                 Vec2d(
                     point.x.toDouble(),
                     point.y.toDouble(),
-                    point.pressure!!.toDouble()
+                    point.pressure.toDouble()
                 )
             )
         } else {
-            document.pages[pageIndexNow].strokeData.add(
+            newStrokeData.add(
                 Stroke(
                     zIndex = 100,
                     type = strokeType
@@ -238,12 +240,18 @@ class DrawDocumentData(
                     )
 
                 }
-
-
-
             )
+
         }
     }
+    fun updateStrokeData(){
+        for(stroke in newStrokeData){
+            document.pages[pageIndexNow].strokeData.add(stroke)
+        }
+        newStrokeData.clear()
+    }
+
+
 
     fun addColorResource(color: Int) {
         val resourceId = (document.resources.lastIndex + 1).toString()

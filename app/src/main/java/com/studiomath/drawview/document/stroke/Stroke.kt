@@ -444,7 +444,7 @@ fun getStrokePoints(
     }
 
     // Strip points that are too close to the first point.
-    var pt: Vec2d? = pts[1]
+    var pt: Vec2d? = pts.getOrNull(1)
     while (pt != null && Vec2d.Dist(pt, pts[0]) <= size / 3) {
         pts[0].z = max(pts[0].z, pt.z) // Use maximum pressure
         pts = pts.drop(1)

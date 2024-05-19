@@ -34,11 +34,7 @@ class OnScaleTranslate(
                     )
 
                 } else if (value.size == 2) {
-                    distance = sqrt(
-                        (pointers[1].x - pointers[0].x).pow(2) + (pointers[1].y - pointers[0].y).pow(
-                            2
-                        )
-                    )
+                    distance = sqrt((pointers[1].x - pointers[0].x).pow(2) + (pointers[1].y - pointers[0].y).pow(2))
                     focusPos = PointF(
                         (pointers[0].x + pointers[1].x) / 2,
                         (pointers[0].y + pointers[1].y) / 2

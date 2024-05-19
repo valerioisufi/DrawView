@@ -126,10 +126,16 @@ class DrawViewModel(
      */
     lateinit var drawViewBitmap: Bitmap
 
+    /**
+     * onDrawBitmap = bitmap temp per richieste di disegno
+     */
     lateinit var onDrawBitmap: Bitmap
     lateinit var redrawPageRect: RectF
 
-
+    /**
+     * onScaleBitmap = bitmap temp per richieste di scale
+     */
+    lateinit var onScaleBitmap: Bitmap
     lateinit var jobRedraw: Job
     var scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
@@ -173,8 +179,11 @@ class DrawViewModel(
         } else if (scaling) {
             if (::jobRedraw.isInitialized) jobRedraw.cancel()
 
+            if (::onScaleBitmap.isInitialized) onScaleBitmap.recycle()
+            onScaleBitmap = Bitmap.createBitmap(onDrawBitmap.width, onDrawBitmap.height, Bitmap.Config.ARGB_8888)
+
             scalingPageRect = data.calcPageRect(windowRect)
-            val canvas = Canvas(onDrawBitmap)
+            val canvas = Canvas(onScaleBitmap)
             canvas.drawColor(Color.WHITE)
 
             /**
@@ -223,7 +232,7 @@ class DrawViewModel(
             }
             canvas.drawBitmap(drawViewBitmap, windowMatrixTransform, null)
 
-            updateDrawView()
+            updateDrawView(onScaleBitmap)
 
         } else if (changePage) {
             if (::jobRedraw.isInitialized) jobRedraw.cancel()
@@ -621,10 +630,6 @@ class DrawViewModel(
 //        }
 //    }
 
-    fun makeScalingTranslate(canvas: Canvas) {
-
-    }
-
     /**
      * onSizeChanged
      */
@@ -672,8 +677,8 @@ class DrawViewModel(
      */
     var onDrawBitmapChanged: (() -> Unit)? = null
 
-    fun updateDrawView() {
-        drawViewBitmap = Bitmap.createBitmap(onDrawBitmap)
+    fun updateDrawView(bitmapSource: Bitmap = onDrawBitmap) {
+        drawViewBitmap = Bitmap.createBitmap(bitmapSource)
         onDrawBitmapChanged?.let { it() } // Raise the event here; any subscriber will receive this.
     }
 

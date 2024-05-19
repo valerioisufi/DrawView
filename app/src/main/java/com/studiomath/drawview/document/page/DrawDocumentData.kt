@@ -250,6 +250,9 @@ class DrawDocumentData(
         }
         newStrokeData.clear()
     }
+    fun cancelStrokeData(){
+        newStrokeData.clear()
+    }
 
 
 

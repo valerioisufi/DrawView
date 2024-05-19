@@ -150,6 +150,11 @@ class OnTouchHover(
         if ((event.pointerCount == 1 || event.pointerCount == 2) && event.getToolType(0) != MotionEvent.TOOL_TYPE_STYLUS) {
             onScaleTranslate.onScaleTranslate(event)
 
+            if(!isStylusActive) {
+                drawViewModel.fastRenderer.frontBufferRenderer!!.cancel()
+                drawViewModel.data.cancelStrokeData()
+            }
+
         }
 
         return@OnTouchListener true

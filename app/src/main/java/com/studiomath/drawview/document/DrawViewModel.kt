@@ -8,8 +8,6 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.util.DisplayMetrics
-import android.view.View.OnLayoutChangeListener
-import androidx.core.graphics.transform
 import androidx.lifecycle.ViewModel
 import com.studiomath.drawview.document.motion.OnTouchHover
 import com.studiomath.drawview.document.page.DrawDocumentData
@@ -20,6 +18,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import android.graphics.Path as AndroidPath
@@ -42,7 +42,7 @@ class DrawViewModel(
 
         if (stroke.size < 4) {
             // the stroke will be 3 points as a sort of shrugging fail state, so let's draw a dot instead
-            val r = vec2ds.size / 2.0
+            val r = vec2ds[vec2ds.size / 2].z * 8f
             val x = vec2ds[vec2ds.size - 1].x
             val y = vec2ds[vec2ds.size - 1].y
 
@@ -120,25 +120,18 @@ class DrawViewModel(
     }
     lateinit var scalingPageRect: RectF
 
-
-    /**
-     * drawViewBitmap = ciò che viene mostrato a schermo
-     */
-    lateinit var drawViewBitmap: Bitmap
-
     /**
      * onDrawBitmap = bitmap temp per richieste di disegno
      */
     lateinit var onDrawBitmap: Bitmap
     lateinit var redrawPageRect: RectF
 
-    /**
-     * onScaleBitmap = bitmap temp per richieste di scale
-     */
-    lateinit var onScaleBitmap: Bitmap
     lateinit var jobRedraw: Job
     var scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
+    var redrawOnDraw = false
+    var scalingOnDraw = false
+    var changePageOnDraw = false
     fun draw(
         redraw: Boolean = false,
         scaling: Boolean = false,
@@ -152,7 +145,7 @@ class DrawViewModel(
             if (::jobRedraw.isInitialized) jobRedraw.cancel()
 
             jobRedraw = scope.launch {
-                redrawPageRect = data.calcPageRect(windowRect)
+                redrawPageRect = data.calcPageOnWindowRect(windowRect)
 
                 /**
                  * disegno la pagina sulla Bitmap
@@ -164,6 +157,9 @@ class DrawViewModel(
                 windowMatrix =
                     Matrix(data.document.pages[data.pageIndexNow].matrix)
 
+                redrawOnDraw = true
+                scalingOnDraw = false
+                changePageOnDraw = false
                 updateDrawView()
 
                 /**
@@ -179,101 +175,19 @@ class DrawViewModel(
         } else if (scaling) {
             if (::jobRedraw.isInitialized) jobRedraw.cancel()
 
-            if (::onScaleBitmap.isInitialized) onScaleBitmap.recycle()
-            onScaleBitmap = Bitmap.createBitmap(onDrawBitmap.width, onDrawBitmap.height, Bitmap.Config.ARGB_8888)
+            scalingPageRect = data.calcPageOnWindowRect(windowRect)
 
-            scalingPageRect = data.calcPageRect(windowRect)
-            val canvas = Canvas(onScaleBitmap)
-            canvas.drawColor(Color.WHITE)
-
-            /**
-             * make il colore di fondo della view
-             */
-            makePageBackground(canvas, scalingPageRect)
-
-            /**
-             * make lo sfondo bianco della pagina
-             */
-            // TODO: 31/12/2021 in seguito implementerò anche la possibilità di scegliere tra diversi tipi di pagine
-            val paintSfondoPaginaBianco = Paint().apply {
-                color = Color.WHITE
-                style = Paint.Style.FILL
-                setShadowLayer(
-                    data.document.pages[data.pageIndexNow].dimension!!.calcPxFromPt(
-                        24f,
-                        scalingPageRect.width().toInt()
-                    ),
-                    0f,
-                    8f,
-                    Color.parseColor("#BF959DA5")
-                )
-            }
-            canvas.drawRect(scalingPageRect, paintSfondoPaginaBianco)
-
-            /**
-             * trasformo e disegno la pagina intera memorizzata nella cache
-             */
-            canvas.drawBitmap(
-                data.document.pages[data.pageIndexNow].bitmapPage!!,
-                null,
-                scalingPageRect,
-                null
-            )
-
-            // TODO: non utilizzare onDrawBitmap ma una copia
-            // trasformo e disegno l'area di disegno già pronta
-            val startRect =
-                RectF(windowRect).apply { transform(windowMatrix) }
-            val endRect =
-                RectF(windowRect).apply { transform(moveMatrix) }
-
-            val windowMatrixTransform = Matrix().apply {
-                setRectToRect(startRect, endRect, Matrix.ScaleToFit.CENTER)
-            }
-            canvas.drawBitmap(drawViewBitmap, windowMatrixTransform, null)
-
-            updateDrawView(onScaleBitmap)
+            redrawOnDraw = false
+            scalingOnDraw = true
+            changePageOnDraw = false
+            updateDrawView()
 
         } else if (changePage) {
             if (::jobRedraw.isInitialized) jobRedraw.cancel()
 
-            scalingPageRect = data.calcPageRect(windowRect)
-            val canvas = Canvas(onDrawBitmap)
-
-            /**
-             * make il colore di fondo della view
-             */
-            makePageBackground(canvas, scalingPageRect)
-
-            /**
-             * make lo sfondo bianco della pagina
-             */
-            // TODO: 31/12/2021 in seguito implementerò anche la possibilità di scegliere tra diversi tipi di pagine
-            val paintSfondoPaginaBianco = Paint().apply {
-                color = Color.WHITE
-                style = Paint.Style.FILL
-                setShadowLayer(
-                    data.document.pages[data.pageIndexNow].dimension!!.calcPxFromPt(
-                        24f,
-                        scalingPageRect.width().toInt()
-                    ),
-                    0f,
-                    8f,
-                    Color.parseColor("#BF959DA5")
-                )
-            }
-            canvas.drawRect(scalingPageRect, paintSfondoPaginaBianco)
-
-            /**
-             * trasformo e disegno la pagina intera memorizzata nella cache
-             */
-            canvas.drawBitmap(
-                data.document.pages[data.pageIndexNow].bitmapPage!!,
-                null,
-                scalingPageRect,
-                null
-            )
-
+            redrawOnDraw = true
+            scalingOnDraw = false
+            changePageOnDraw = true
             updateDrawView()
 
             draw(redraw = true)
@@ -305,6 +219,21 @@ class DrawViewModel(
         }
     }
 
+    val paintFreehand = Paint(paint).apply {
+        color = Color.parseColor("#3F51B5")
+        // Smooths out edges of what is drawn without affecting shape.
+        isAntiAlias = true
+        // Dithering affects how colors with higher-precision than the device are down-sampled.
+        isDither = true
+        isFilterBitmap = true
+        style = Paint.Style.FILL
+
+    }
+
+    fun cancelJobRedraw(){
+        if (::jobRedraw.isInitialized) jobRedraw.cancel()
+    }
+
 
     var activeTool = DrawDocumentData.Stroke.StrokeType.PENNA
 
@@ -316,6 +245,7 @@ class DrawViewModel(
      * prefisso make- semplicemente per distinguerle
      * dalle funzioni draw-
      */
+    val mutex = Mutex()
     suspend fun makePage(
         bitmapSource: Bitmap,
         rect: RectF? = null,
@@ -478,39 +408,23 @@ class DrawViewModel(
             // TODO: 31/12/2021 poi valuterò l'idea di utlizzare una funzione a parte che richiama i metodi make- dei singoli strumenti
             data.preparePage(pageIndex)
 
-            var paintFreehand = Paint(paint).apply {
-                color = Color.parseColor("#3F51B5")
-                // Smooths out edges of what is drawn without affecting shape.
-                isAntiAlias = true
-                // Dithering affects how colors with higher-precision than the device are down-sampled.
-                isDither = true
-                isFilterBitmap = true
-                style = Paint.Style.STROKE
+            mutex.withLock {
+                val iterator = data.document.pages[pageIndex].strokeData.iterator()
+                while (iterator.hasNext()) {
+                    val stroke = iterator.next()
 
-            }
-            for (stroke in data.document.pages[pageIndex].strokeData) {
+                    val strokePathMatrix = Matrix().apply {
+                        setRectToRect(windowRect, rect, Matrix.ScaleToFit.CENTER)
+                    }
 
-                val strokePaint: Paint = Paint(paint).apply {
-                    strokeWidth = data.document.pages[pageIndex].dimension!!.calcPxFromPt(
-                        stroke.width,
-                        rect.width().toInt()
-                    )
+                    val strokePath = getPathGraphic((stroke.vec2ds).toList())
+                    strokePath.transform(strokePathMatrix)
+
+
+                    canvas.drawPath(strokePath, paintFreehand)
                 }
-//                val rectTracciato: RectF = tracciato.rectObject!!
-
-//                val pathTracciatoMatrix = Matrix().apply {
-//                    setRectToRect(rectTracciato, rect, Matrix.ScaleToFit.CENTER)
-//                }
-//                pathTracciato.transform(pathTracciatoMatrix)
-//                canvas.drawPath(pathTracciato, paintTracciato)
-
-
-                canvas.drawPath(getPathGraphic((stroke.vec2ds).toList()), paintFreehand)
-
-//                val strokeRenderer = StrokeRenderer(stroke)
-//                strokeRenderer.renderStroke(canvas, strokePaint)
-
             }
+
 
 
             /**
@@ -550,7 +464,7 @@ class DrawViewModel(
 
     }
 
-    fun makeStroke(/*strokeRenderer: StrokeRenderer,*/ paint: Paint) {
+    fun makeStroke(paint: Paint) {
 
         val onDrawCanvas = Canvas(onDrawBitmap)
         onDrawCanvas.clipRect(redrawPageRect)
@@ -597,7 +511,7 @@ class DrawViewModel(
 //    fun makeCursore(canvas: Canvas) {
 //        if (mEvent.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS) {
 //            val pageRect =
-//                if (scalingOnDraw) scalingPageRect else if (::redrawPageRect.isInitialized) redrawPageRect else calcPageRect()
+//                if (scalingOnDraw) scalingPageRect else if (::redrawPageRect.isInitialized) redrawPageRect else calcPageOnWindowRect()
 //
 //            if (mEvent.action == MotionEvent.ACTION_MOVE) {
 //                canvas.drawPoint(mEvent.x, mEvent.y, cursorePaint.apply {
@@ -635,9 +549,6 @@ class DrawViewModel(
      */
 
     fun onSizeChanged(width: Int, height: Int) {
-
-        if (::drawViewBitmap.isInitialized) drawViewBitmap.recycle()
-        drawViewBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
 
         if (::onDrawBitmap.isInitialized) onDrawBitmap.recycle()
         onDrawBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
@@ -677,12 +588,9 @@ class DrawViewModel(
      */
     var onDrawBitmapChanged: (() -> Unit)? = null
 
-    fun updateDrawView(bitmapSource: Bitmap = onDrawBitmap) {
-        drawViewBitmap = Bitmap.createBitmap(bitmapSource)
+    fun updateDrawView() {
         onDrawBitmapChanged?.let { it() } // Raise the event here; any subscriber will receive this.
     }
-
-    fun isDrawViewBitmapInitialized() = ::drawViewBitmap.isInitialized && !drawViewBitmap.isRecycled
 
 
 }

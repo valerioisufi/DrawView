@@ -168,8 +168,8 @@ class OnScaleTranslate(
                 /**
                  * translate max/min
                  */
-                val pageRectNow = drawViewModel.data.calcPageRect(drawViewModel.windowRect, matrix = drawViewModel.moveMatrix)
-                val pageRectModel = drawViewModel.data.calcPageRect(drawViewModel.windowRect, matrix = Matrix())
+                val pageRectNow = drawViewModel.data.calcPageOnWindowRect(drawViewModel.windowRect, matrix = drawViewModel.moveMatrix)
+                val pageRectModel = drawViewModel.data.calcPageOnWindowRect(drawViewModel.windowRect, matrix = Matrix())
 
                 if (pageRectNow.left + translate.x >= pageRectModel.left) {
                     translate.x = pageRectModel.left - pageRectNow.left
@@ -225,12 +225,6 @@ class OnScaleTranslate(
             }
         }
 
-//    if (!isStylusActive)
-//    {
-////                drawLastPath = false
-//
-//
-//    }
         continueScaleTranslate = true
     }
 }

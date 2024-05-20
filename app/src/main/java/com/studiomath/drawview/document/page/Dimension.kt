@@ -2,7 +2,7 @@ package com.studiomath.drawview.document.page
 
 import android.graphics.RectF
 
-var risoluzionePxInchPagePredefinito = 1200
+var risoluzionePxInchPagePredefinito = 300
 
 class Measure(size: Float, type: Unit) {
     enum class Unit {

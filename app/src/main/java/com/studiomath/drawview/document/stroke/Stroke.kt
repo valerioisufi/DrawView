@@ -19,10 +19,10 @@ import kotlin.math.pow
  * @property last Se gestire i punti come tratto completato.
  */
 data class StrokeOptions(
-    val size: Double = 16.0,
-    val thinning: Double = 0.5,
-    val smoothing: Double = 0.5,
-    val streamline: Double = 0.32,
+    val size: Double = 7.0,
+    val thinning: Double = 0.35,
+    val smoothing: Double = 0.35,
+    val streamline: Double = 0.55,
     val easing: ((pressure: Double) -> Double) = Easing.linear,
     val simulatePressure: Boolean = false,
 
@@ -40,7 +40,7 @@ data class StrokeOptions(
  */
 data class StartOptions(
     val cap: Boolean = true,
-    val taper: Double = 0.0,
+    val taper: Double = 35.0,
     val easing: ((distance: Double) -> Double) = Easing.easeOutQuad
 )
 
@@ -53,7 +53,7 @@ data class StartOptions(
  */
 data class EndOptions(
     val cap: Boolean = true,
-    val taper: Double = 0.0,
+    val taper: Double = 35.0,
     val easing: ((distance: Double) -> Double) = Easing.easeOutCubic
 )
 

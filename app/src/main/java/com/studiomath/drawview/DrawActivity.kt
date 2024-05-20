@@ -2,7 +2,9 @@ package com.studiomath.drawview
 
 import android.app.Activity
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
@@ -55,6 +57,11 @@ import androidx.lifecycle.ViewModelProvider
 import com.studiomath.drawview.document.DrawComponent
 import com.studiomath.drawview.document.DrawViewModel
 import com.studiomath.drawview.ui.theme.DrawViewTheme
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 class DrawActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -81,7 +88,45 @@ class DrawActivity : ComponentActivity() {
                 DrawActivity(drawViewModel = drawViewModel)
             }
         }
+
+        /**
+         * Impedisco all'utente di abbandonare l'activity con il tasto back
+         */
+        val callback: OnBackPressedCallback = object : OnBackPressedCallback(
+            true // default to enabled
+        ) {
+            override fun handleOnBackPressed() {
+                isEnabled = false
+                toast = Toast.makeText(
+                    this@DrawActivity,
+                    "Tap back button in order to exit",
+                    Toast.LENGTH_SHORT
+                )
+                toast.show()
+
+                CoroutineScope(Dispatchers.Main + SupervisorJob()).launch {
+                    delay(1500)
+                    isEnabled = true
+                }
+            }
+        }
+        onBackPressedDispatcher.addCallback(
+            this,  // LifecycleOwner
+            callback
+        )
     }
+
+    /**
+     * Elimino il toast visualizzato quando l'activity viene distrutta
+     */
+    lateinit var toast: Toast
+    override fun onDestroy() {
+        super.onDestroy()
+        if (::toast.isInitialized) {
+            toast.cancel()
+        }
+    }
+
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

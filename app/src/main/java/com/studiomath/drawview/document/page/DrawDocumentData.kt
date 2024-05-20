@@ -92,8 +92,9 @@ class DrawDocumentData(
         @Transient
         var dimension: Dimension? = null
 
-        @Transient
-        var rect: RectF = RectF()
+        fun rect(): RectF{
+            return RectF(0f, 0f, width, height)
+        }
 
         @Transient
         var matrix: Matrix = Matrix()
@@ -245,6 +246,7 @@ class DrawDocumentData(
         }
     }
     fun updateStrokeData(){
+        drawViewModel.cancelJobRedraw()
         for(stroke in newStrokeData){
             document.pages[pageIndexNow].strokeData.add(stroke)
         }
@@ -279,7 +281,7 @@ class DrawDocumentData(
      * e il loro scopo è quello di determinare alcune
      * caratteristiche della pagina
      */
-    fun calcPageRect(
+    fun calcPageOnWindowRect(
         windowRect: RectF,
         matrix: Matrix = document.pages[pageIndexNow].matrix,
         paddingDp: Float = 8f

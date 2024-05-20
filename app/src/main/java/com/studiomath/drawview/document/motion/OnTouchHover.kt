@@ -1,6 +1,7 @@
 package com.studiomath.drawview.document.motion
 
 import android.annotation.SuppressLint
+import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 import androidx.input.motionprediction.MotionEventPredictor
@@ -20,6 +21,7 @@ class OnTouchHover(
         motionEventPredictor?.record(event)
 
         if (event.action == MotionEvent.ACTION_DOWN) onScaleTranslate.continueScaleTranslate = false
+        if (!isStylusActive && event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS) isStylusActive = true
 
         /**
          * gestione degli input provenienti da TOOL_TYPE_STYLUS
@@ -61,28 +63,28 @@ class OnTouchHover(
                 }
 
                 MotionEvent.ACTION_MOVE -> {
-                    for (historyIndex in 1 until event.historySize) {
-                        drawViewModel.data.addStrokeData(
-                            point = DrawDocumentData.Stroke.Point(
-                                event.getHistoricalX(historyIndex),
-                                event.getHistoricalY(historyIndex)
-                            ).apply {
-                                pressure = event.getHistoricalAxisValue(
-                                    MotionEvent.AXIS_PRESSURE,
-                                    historyIndex
-                                )
-                                orientation = event.getHistoricalAxisValue(
-                                    MotionEvent.AXIS_ORIENTATION,
-                                    historyIndex
-                                )
-                                tilt = event.getHistoricalAxisValue(
-                                    MotionEvent.AXIS_TILT,
-                                    historyIndex
-                                )
-                            },
-                            strokeType = drawViewModel.activeTool
-                        )
-                    }
+//                    for (historyIndex in 1 until event.historySize) {
+//                        drawViewModel.data.addStrokeData(
+//                            point = DrawDocumentData.Stroke.Point(
+//                                event.getHistoricalX(historyIndex),
+//                                event.getHistoricalY(historyIndex)
+//                            ).apply {
+//                                pressure = event.getHistoricalAxisValue(
+//                                    MotionEvent.AXIS_PRESSURE,
+//                                    historyIndex
+//                                )
+//                                orientation = event.getHistoricalAxisValue(
+//                                    MotionEvent.AXIS_ORIENTATION,
+//                                    historyIndex
+//                                )
+//                                tilt = event.getHistoricalAxisValue(
+//                                    MotionEvent.AXIS_TILT,
+//                                    historyIndex
+//                                )
+//                            },
+//                            strokeType = drawViewModel.activeTool
+//                        )
+//                    }
 
                     drawViewModel.data.addStrokeData(
                         point = DrawDocumentData.Stroke.Point(
@@ -98,6 +100,8 @@ class OnTouchHover(
                     /**
                      * strokeRenderer
                      */
+//                    drawViewModel.fastRenderer.frontBufferRenderer!!.cancel()
+                    drawViewModel.fastRenderer.frontBufferRenderer?.renderFrontBufferedLayer(drawViewModel.data.newStrokeData.last())
 //                    val point = DrawViewModel.Stroke.Point(
 //                        event.x, event.y
 //                    ).apply {
@@ -127,6 +131,7 @@ class OnTouchHover(
                 }
 
                 MotionEvent.ACTION_UP -> {
+                    drawViewModel.fastRenderer.frontBufferRenderer!!.cancel()
                     drawViewModel.data.updateStrokeData()
                     drawViewModel.draw(redraw = true)
 
@@ -187,6 +192,9 @@ class OnTouchHover(
                 return true
             }
         }
+
+        drawViewModel.fastRenderer.frontBufferRenderer!!.cancel()
+        drawViewModel.data.cancelStrokeData()
         return false
     }
 }

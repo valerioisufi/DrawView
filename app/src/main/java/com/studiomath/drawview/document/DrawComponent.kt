@@ -14,10 +14,15 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.RectF
+import android.util.Log
 import android.view.SurfaceView
+import androidx.compose.foundation.layout.Box
+import androidx.core.content.res.ResourcesCompat
+import androidx.core.graphics.transform
 import androidx.graphics.lowlatency.CanvasFrontBufferedRenderer
 import androidx.input.motionprediction.MotionEventPredictor
 import com.studiomath.drawview.document.page.DrawDocumentData
@@ -28,17 +33,28 @@ fun DrawComponent(
 ){
     val backgroundColor = MaterialTheme.colorScheme.background.toArgb()
 
-    AndroidView(
-        modifier = Modifier
-            .fillMaxSize(),
+    Box {
+        AndroidView(
+            modifier = Modifier
+                .fillMaxSize(),
 
-        factory = { context ->
-            LowLatencySurfaceView(
-                context = context,
-                drawViewModel = drawViewModel
-            )
-        }
-    )
+            factory = { context ->
+                DrawView(context = context, drawViewModel = drawViewModel)
+            }
+        )
+
+        AndroidView(
+            modifier = Modifier
+                .fillMaxSize(),
+
+            factory = { context ->
+                LowLatencySurfaceView(
+                    context = context,
+                    drawViewModel = drawViewModel
+                )
+            }
+        )
+    }
 
 
 }
@@ -76,6 +92,8 @@ class FastRenderer(
         bufferHeight: Int,
         param: DrawDocumentData.Stroke
     ) {
+        val strokePath = drawViewModel.getPathGraphic((param.vec2ds).toList().takeLast(10))
+        canvas.drawPath(strokePath, drawViewModel.paintFreehand)
 //        paint.apply {
 //            color = lastPath.paint.color
 
@@ -110,9 +128,7 @@ class FastRenderer(
         bufferHeight: Int,
         params: Collection<DrawDocumentData.Stroke>
     ) {
-        if (drawViewModel.isDrawViewBitmapInitialized()){
-            canvas.drawBitmap(drawViewModel.drawViewBitmap, 0f, 0f, null)
-        }
+
     }
 
     fun clear(){
@@ -148,23 +164,6 @@ class LowLatencySurfaceView(context: Context, private val drawViewModel: DrawVie
         setZOrderOnTop(true)
         holder.setFormat(PixelFormat.TRANSPARENT)
 
-        /**
-         * Imposto gli onTouch e onHoverListener della view
-         */
-        setOnTouchListener(drawViewModel.onTouchHover.onTouchListener)
-        setOnHoverListener(drawViewModel.onTouchHover.onHoverListener)
-
-        drawViewModel.onTouchHover.motionEventPredictor = MotionEventPredictor.newInstance(this)
-
-        /**
-         * Imposto la funzione che gestisce il refresh della view
-         */
-        drawViewModel.onDrawBitmapChanged = {
-            // The ViewModel raises an event, do something here about it...
-            drawViewModel.fastRenderer.frontBufferRenderer?.renderMultiBufferedLayer(emptyList())
-        }
-
-
     }
 
     override fun onAttachedToWindow() {
@@ -175,13 +174,5 @@ class LowLatencySurfaceView(context: Context, private val drawViewModel: DrawVie
     override fun onDetachedFromWindow() {
         drawViewModel.fastRenderer.release()
         super.onDetachedFromWindow()
-    }
-
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        super.onSizeChanged(w, h, oldw, oldh)
-
-        drawViewModel.onSizeChanged(w, h)
-
-//        drawViewModel.fastRenderer.onSizeChanged(w, h)
     }
 }

@@ -50,20 +50,25 @@ class DrawViewModel(
         } else {
             // If we do have a stroke, then draw the stroke path
             path.apply {
+                var previousPointX = 0f
+                var previousPointY = 0f
+
                 for ((index, point) in stroke.withIndex()) {
                     val x = point.x.toFloat()
                     val y = point.y.toFloat()
 
                     if (index == 0) {
                         moveTo(x, y)
-                        continue
+                    } else{
+                        quadTo((previousPointX+x)/2, (previousPointY+y)/2,x, y)
                     }
+
+                    previousPointX = x
+                    previousPointY = y
+
 //                    if (index == stroke.lastIndex){
 //                        close()
 //                    }
-
-                    lineTo(x, y)
-
 
                 }
             }

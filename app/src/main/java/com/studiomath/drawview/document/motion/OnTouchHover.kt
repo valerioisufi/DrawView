@@ -27,7 +27,8 @@ class OnTouchHover(
          * gestione degli input provenienti da TOOL_TYPE_STYLUS
          */
         if (event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS || (event.pointerCount == 1 && !isStylusActive && !onScaleTranslate.continueScaleTranslate)) {
-            var descriptorInputDevice = event.device.descriptor
+            // Deliver input events as soon as they arrive.
+            view.requestUnbufferedDispatch(event)
 
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
@@ -43,21 +44,6 @@ class OnTouchHover(
                         strokeType = drawViewModel.activeTool,
                         isNewStroke = true
                     )
-
-                    /**
-                     * strokeRenderer
-                     */
-//                    val point = DrawViewModel.Stroke.Point(
-//                        event.x, event.y
-//                    ).apply {
-//                        pressure = event.getAxisValue(MotionEvent.AXIS_PRESSURE)
-//                        orientation = event.getAxisValue(MotionEvent.AXIS_ORIENTATION)
-//                        tilt = event.getAxisValue(MotionEvent.AXIS_TILT)
-//                    }
-//                    strokeRenderer = StrokeRenderer(10, DrawViewModel.Stroke.StrokeType.PENNA)
-//                    if (strokeRenderer!!.addPointInternal(point))
-//                        drawViewModel.fastRenderer.frontBufferRenderer?.renderFrontBufferedLayer(strokeRenderer!!)
-
 
 
                 }
@@ -100,17 +86,7 @@ class OnTouchHover(
                     /**
                      * strokeRenderer
                      */
-//                    drawViewModel.fastRenderer.frontBufferRenderer!!.cancel()
                     drawViewModel.fastRenderer.frontBufferRenderer?.renderFrontBufferedLayer(drawViewModel.data.newStrokeData.last())
-//                    val point = DrawViewModel.Stroke.Point(
-//                        event.x, event.y
-//                    ).apply {
-//                        pressure = event.getAxisValue(MotionEvent.AXIS_PRESSURE)
-//                        orientation = event.getAxisValue(MotionEvent.AXIS_ORIENTATION)
-//                        tilt = event.getAxisValue(MotionEvent.AXIS_TILT)
-//                    }
-//
-//
 //                    val eventPredicted = motionEventPredictor?.predict()
 //                    if(eventPredicted != null){
 //                        val pointPredicted = DrawViewModel.Stroke.Point(
@@ -122,11 +98,6 @@ class OnTouchHover(
 //                        }
 //                        strokeRenderer!!.pointPredicted = pointPredicted
 //                    }
-//
-//                    if (strokeRenderer!!.addPointInternal(point))
-//                        drawViewModel.fastRenderer.frontBufferRenderer?.renderFrontBufferedLayer(strokeRenderer!!)
-
-//                    drawViewModel.draw(redraw = true)
 
                 }
 

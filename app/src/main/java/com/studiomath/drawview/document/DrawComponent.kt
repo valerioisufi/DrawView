@@ -92,6 +92,7 @@ class FastRenderer(
         bufferHeight: Int,
         param: DrawDocumentData.Stroke
     ) {
+        canvas.clipRect(drawViewModel.redrawPageRect)
         val strokePath = drawViewModel.getPathGraphic((param.vec2ds).toList().takeLast(10))
         canvas.drawPath(strokePath, drawViewModel.paintFreehand)
 //        paint.apply {

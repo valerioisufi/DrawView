@@ -41,6 +41,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,6 +60,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.studiomath.drawview.document.DrawComponent
 import com.studiomath.drawview.document.DrawViewModel
+import com.studiomath.drawview.ui.composeComponents.ColorWheel
+import com.studiomath.drawview.ui.composeComponents.ToolSettingsSheet
 import com.studiomath.drawview.ui.theme.DrawViewTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -221,6 +227,13 @@ fun DrawActivity(modifier: Modifier = Modifier, drawViewModel: DrawViewModel) {
 
                 HorizontalDivider()
 
+                var penSettingsExpanded by remember { mutableStateOf(false) }
+                if (penSettingsExpanded){
+                    ToolSettingsSheet(onDismissRequest = { penSettingsExpanded = false }) {
+
+                    }
+                }
+
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -254,6 +267,7 @@ fun DrawActivity(modifier: Modifier = Modifier, drawViewModel: DrawViewModel) {
                         SmallButtonIcon(
                             icon = painterResource(id = R.drawable.icon_ink_pen),
                             onClick = {
+                                penSettingsExpanded = true
                             }
                         )
                         SmallButtonIcon(

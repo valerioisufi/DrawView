@@ -180,7 +180,7 @@ fun getStrokeOutlinePoints(
         val nextDpr = if (i < strokePoints.size - 1) nextVector.dpr(strokePoint.vector) else 1.0
 
         val isPointSharpCorner = prevDpr < 0 && !isPrevPointSharpCorner
-        val isNextPointSharpCorner = nextDpr != null && nextDpr < 0.2
+        val isNextPointSharpCorner = nextDpr < 0.2
 
         if (isPointSharpCorner || isNextPointSharpCorner) {
             // It's a sharp corner. Draw a rounded cap and move on to the next point

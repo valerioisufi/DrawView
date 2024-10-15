@@ -62,6 +62,13 @@ dependencies {
     implementation(libs.androidx.graphics.core)
     implementation(libs.androidx.input.motionprediction)
 
+    implementation(libs.androidx.ink.authoring)
+    implementation(libs.androidx.ink.brush)
+    implementation(libs.androidx.ink.geometry)
+    implementation(libs.androidx.ink.nativeloader)
+    implementation(libs.androidx.ink.rendering)
+    implementation(libs.androidx.ink.strokes)
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx.v286)
     implementation(libs.androidx.activity.compose.v192)

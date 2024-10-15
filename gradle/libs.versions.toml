@@ -5,6 +5,7 @@ androidxJunit = "1.2.1"
 coreSplashscreen = "1.0.1"
 espressoCoreVersion = "3.6.1"
 graphicsCore = "1.0.1"
+inkVersion = "1.0.0-alpha01"
 inputMotionprediction = "1.0.0-beta05"
 kotlin = "2.0.20"
 coreKtx = "1.13.1"
@@ -25,6 +26,12 @@ androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = 
 androidx-core-splashscreen = { module = "androidx.core:core-splashscreen", version.ref = "coreSplashscreen" }
 androidx-espresso-core-v361 = { module = "androidx.test.espresso:espresso-core", version.ref = "espressoCoreVersion" }
 androidx-graphics-core = { module = "androidx.graphics:graphics-core", version.ref = "graphicsCore" }
+androidx-ink-authoring = { module = "androidx.ink:ink-authoring", version.ref = "inkVersion" }
+androidx-ink-brush = { module = "androidx.ink:ink-brush", version.ref = "inkVersion" }
+androidx-ink-geometry = { module = "androidx.ink:ink-geometry", version.ref = "inkVersion" }
+androidx-ink-nativeloader = { module = "androidx.ink:ink-nativeloader", version.ref = "inkVersion" }
+androidx-ink-rendering = { module = "androidx.ink:ink-rendering", version.ref = "inkVersion" }
+androidx-ink-strokes = { module = "androidx.ink:ink-strokes", version.ref = "inkVersion" }
 androidx-input-motionprediction = { module = "androidx.input:input-motionprediction", version.ref = "inputMotionprediction" }
 androidx-junit-v121 = { module = "androidx.test.ext:junit", version.ref = "androidxJunit" }
 androidx-lifecycle-runtime-ktx-v286 = { module = "androidx.lifecycle:lifecycle-runtime-ktx", version.ref = "lifecycleRuntimeKtxVersion" }

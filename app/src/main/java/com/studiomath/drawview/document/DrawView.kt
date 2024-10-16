@@ -128,13 +128,6 @@ class DrawView(context: Context, val drawViewModel: DrawViewModel) : View(contex
 
 
     init {
-        /**
-         * Imposto gli onTouch e onHoverListener della view
-         */
-        setOnTouchListener(drawViewModel.onTouchHover.onTouchListener)
-        setOnHoverListener(drawViewModel.onTouchHover.onHoverListener)
-
-        drawViewModel.onTouchHover.motionEventPredictor = MotionEventPredictor.newInstance(this)
     }
 
 

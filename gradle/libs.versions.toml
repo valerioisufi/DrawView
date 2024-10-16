@@ -1,6 +1,6 @@
 [versions]
 activityComposeVersion = "1.9.2"
-agp = "8.5.2"
+agp = "8.7.1"
 androidxJunit = "1.2.1"
 coreSplashscreen = "1.0.1"
 espressoCoreVersion = "3.6.1"

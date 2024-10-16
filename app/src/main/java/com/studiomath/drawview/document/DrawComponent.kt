@@ -20,18 +20,28 @@ import android.graphics.PixelFormat
 import android.graphics.RectF
 import android.util.Log
 import android.view.SurfaceView
+import android.widget.FrameLayout
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.core.content.res.ResourcesCompat
 import androidx.core.graphics.transform
 import androidx.graphics.lowlatency.CanvasFrontBufferedRenderer
+import androidx.ink.authoring.InProgressStrokesView
 import androidx.input.motionprediction.MotionEventPredictor
+import com.studiomath.drawview.document.motion.OnTouchHover
 import com.studiomath.drawview.document.page.DrawDocumentData
 
 @Composable
 fun DrawComponent(
-    drawViewModel: DrawViewModel
+    drawViewModel: DrawViewModel,
+    inProgressStrokesView: InProgressStrokesView
 ){
     val backgroundColor = MaterialTheme.colorScheme.background.toArgb()
+
+    /**
+     * onTouchHover: gestione onTouchListener e onHoverListener
+     */
+    var onTouchHover = OnTouchHover(drawViewModel)
 
     Box {
         AndroidView(
@@ -42,138 +52,47 @@ fun DrawComponent(
                 DrawView(context = context, drawViewModel = drawViewModel)
             }
         )
-
         AndroidView(
             modifier = Modifier
                 .fillMaxSize(),
 
             factory = { context ->
-                LowLatencySurfaceView(
-                    context = context,
-                    drawViewModel = drawViewModel
-                )
+                val rootView = FrameLayout(context)
+                inProgressStrokesView.apply {
+                    layoutParams =
+                        FrameLayout.LayoutParams(
+                            FrameLayout.LayoutParams.MATCH_PARENT,
+                            FrameLayout.LayoutParams.MATCH_PARENT,
+                        )
+                }
+
+                drawViewModel.startStrokeInProgress = { event, pointerId, brush ->
+                    inProgressStrokesView.startStroke(event, pointerId, brush)
+                }
+                drawViewModel.addToStrokeInProgress = { event, pointerId, strokeId, predictedEvent ->
+                    inProgressStrokesView.addToStroke(event, pointerId, strokeId, predictedEvent
+                    )
+                }
+                drawViewModel.finishStrokeInProgress = { event, pointerId, strokeId ->
+                    inProgressStrokesView.finishStroke(event, pointerId, strokeId)
+                }
+                drawViewModel.cancelStrokeInProgress = { strokeId, event ->
+                    inProgressStrokesView.cancelStroke(strokeId, event)
+                }
+
+                /**
+                 * Imposto gli onTouch e onHoverListener della view
+                 */
+                onTouchHover.motionEventPredictor = MotionEventPredictor.newInstance(rootView)
+                rootView.setOnTouchListener(onTouchHover.onTouchListener)
+                rootView.setOnHoverListener(onTouchHover.onHoverListener)
+                rootView.addView(inProgressStrokesView)
+                rootView
+
             }
         )
-    }
-
-
-}
-
-
-
-
-
-class FastRenderer(
-    private var drawViewModel: DrawViewModel
-) : CanvasFrontBufferedRenderer.Callback<DrawDocumentData.Stroke> {
-
-    var frontBufferRenderer: CanvasFrontBufferedRenderer<DrawDocumentData.Stroke>? = null
-
-    private lateinit var pageRect: RectF
-
-    private var paint = Paint().apply {
-        style = Paint.Style.STROKE
-        color = Color.parseColor("#3F51B5")
-        // Smooths out edges of what is drawn without affecting shape.
-        isAntiAlias = true
-        // Dithering affects how colors with higher-precision than the device are down-sampled.
-        isDither = false
-        isFilterBitmap = true
-        strokeJoin = Paint.Join.ROUND // default: MITER
-        strokeCap = Paint.Cap.ROUND // default: BUTT
-        strokeWidth = 10f // default: Hairline-width (really thin)
-    }
-
-    private lateinit var onDrawFastRenderer: Bitmap
-
-    override fun onDrawFrontBufferedLayer(
-        canvas: Canvas,
-        bufferWidth: Int,
-        bufferHeight: Int,
-        param: DrawDocumentData.Stroke
-    ) {
-        canvas.clipRect(drawViewModel.redrawPageRect)
-        val strokePath = drawViewModel.getPathGraphic((param.vec2ds).toList().takeLast(10))
-        canvas.drawPath(strokePath, drawViewModel.paintFreehand)
-//        paint.apply {
-//            color = lastPath.paint.color
-
-//            strokeWidth = drawViewModel.pageNow.dimension!!.calcPxFromPt(
-//                8f,
-//                pageRect.width().toInt()
-//            )
-//        }
-
-//        canvas.drawPath(stringToPath(lastPath.path), drawLastPathPaint)
-
-//        val errorCalc = drawFile.body[pageAttuale].dimensioni.calcPxFromPt(0.01f, redrawPageRect.width().toInt())
-//        canvas.drawPath(
-//            stringToPath(pathFitCurve(lastPath.path, errorCalc)),
-//            drawLastPathPaint
-//        )
-//
-//        val path = drawViewModel.computePath()
-//        canvas.drawPath(path, paint)
-
-//        param.renderPoints(Canvas(onDrawFastRenderer), drawViewModel.paint)
-//        canvas.drawBitmap(onDrawFastRenderer, 0f, 0f, null)
-
-//        param.renderPredictedPoint(canvas, drawViewModel.paint)
-
 
     }
 
-    override fun onDrawMultiBufferedLayer(
-        canvas: Canvas,
-        bufferWidth: Int,
-        bufferHeight: Int,
-        params: Collection<DrawDocumentData.Stroke>
-    ) {
 
-    }
-
-    fun clear(){
-        frontBufferRenderer!!.clear()
-        Canvas(onDrawFastRenderer).apply {
-            drawColor(Color.parseColor("#00FFFFFF"))
-        }
-    }
-
-    fun attachSurfaceView(surfaceView: SurfaceView) {
-        frontBufferRenderer = CanvasFrontBufferedRenderer(surfaceView, this)
-
-    }
-
-    fun release() {
-        frontBufferRenderer?.release(true)
-
-    }
-
-    fun onSizeChanged(width: Int, height: Int) {
-
-        if (::onDrawFastRenderer.isInitialized) onDrawFastRenderer.recycle()
-        onDrawFastRenderer = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-    }
-}
-
-
-@SuppressLint("ViewConstructor")
-class LowLatencySurfaceView(context: Context, private val drawViewModel: DrawViewModel) :
-    SurfaceView(context) {
-
-    init {
-        setZOrderOnTop(true)
-        holder.setFormat(PixelFormat.TRANSPARENT)
-
-    }
-
-    override fun onAttachedToWindow() {
-        super.onAttachedToWindow()
-        drawViewModel.fastRenderer.attachSurfaceView(this)
-    }
-
-    override fun onDetachedFromWindow() {
-        drawViewModel.fastRenderer.release()
-        super.onDetachedFromWindow()
-    }
 }

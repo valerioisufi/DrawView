@@ -5,12 +5,13 @@ import android.graphics.Canvas
 import android.graphics.Matrix
 import android.graphics.RectF
 import android.util.DisplayMetrics
+import android.view.MotionEvent
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.util.TypedValueCompat
+import androidx.ink.authoring.InProgressStrokeId
 import com.studiomath.drawview.document.DrawViewModel
-import com.studiomath.drawview.document.stroke.Vec2d
 import com.studiomath.drawview.file.FileManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -68,9 +69,6 @@ class DrawDocumentData(
         var points = mutableListOf<Point>()
         var width: Float = 8f
         var color: Int = 0xFFFFFF
-
-        @Transient
-        var vec2ds = mutableListOf<Vec2d>()
     }
 
     @Serializable
@@ -189,71 +187,71 @@ class DrawDocumentData(
             )
             canvasPage = Canvas(bitmapPage!!)
 
-            for (stroke in strokeData){
-                stroke.vec2ds.clear()
-                for(point in stroke.points){
-                    stroke.vec2ds.add(
-                        Vec2d(
-                            point.x.toDouble(),
-                            point.y.toDouble(),
-                            point.pressure.toDouble()
-                        )
-                    )
-
-                }
-
-            }
+//            for (stroke in strokeData){
+//                stroke.vec2ds.clear()
+//                for(point in stroke.points){
+//                    stroke.vec2ds.add(
+//                        Vec2d(
+//                            point.x.toDouble(),
+//                            point.y.toDouble(),
+//                            point.pressure.toDouble()
+//                        )
+//                    )
+//
+//                }
+//
+//            }
 
 
         }
     }
 
 
-    var newStrokeData = mutableListOf<Stroke>()
-    fun addStrokeData(
-        point: Stroke.Point,
-        strokeType: Stroke.StrokeType = Stroke.StrokeType.PENNA,
-        strokeIndex: Int = newStrokeData.lastIndex,
-        isNewStroke: Boolean = false
-    ) {
-        if (!isNewStroke) {
-            newStrokeData[strokeIndex].points.add(point)
-            newStrokeData[strokeIndex].vec2ds.add(
-                Vec2d(
-                    point.x.toDouble(),
-                    point.y.toDouble(),
-                    point.pressure.toDouble()
-                )
-            )
-        } else {
-            newStrokeData.add(
-                Stroke(
-                    zIndex = 100,
-                    type = strokeType
-                ).apply {
-                    points.add(point)
-                    vec2ds.add(
-                        Vec2d(
-                            point.x.toDouble(),
-                            point.y.toDouble(),
-                            point.pressure.toDouble()
-                        )
-                    )
-
-                }
-            )
-
-        }
-    }
-    fun updateStrokeData(){
-        drawViewModel.cancelJobRedraw()
-        for(stroke in newStrokeData){
-            document.pages[pageIndexNow].strokeData.add(stroke)
-        }
-        newStrokeData.clear()
-    }
-    fun cancelStrokeData(){
-        newStrokeData.clear()
+//    var newStrokeData = mutableListOf<Stroke>()
+//    fun addStrokeData(
+//        point: Stroke.Point,
+//        strokeType: Stroke.StrokeType = Stroke.StrokeType.PENNA,
+//        strokeIndex: Int = newStrokeData.lastIndex,
+//        isNewStroke: Boolean = false
+//    ) {
+//        if (!isNewStroke) {
+//            newStrokeData[strokeIndex].points.add(point)
+//            newStrokeData[strokeIndex].vec2ds.add(
+//                Vec2d(
+//                    point.x.toDouble(),
+//                    point.y.toDouble(),
+//                    point.pressure.toDouble()
+//                )
+//            )
+//        } else {
+//            newStrokeData.add(
+//                Stroke(
+//                    zIndex = 100,
+//                    type = strokeType
+//                ).apply {
+//                    points.add(point)
+//                    vec2ds.add(
+//                        Vec2d(
+//                            point.x.toDouble(),
+//                            point.y.toDouble(),
+//                            point.pressure.toDouble()
+//                        )
+//                    )
+//
+//                }
+//            )
+//
+//        }
+//    }
+//    fun updateStrokeData(){
+//        drawViewModel.cancelJobRedraw()
+//        for(stroke in newStrokeData){
+//            document.pages[pageIndexNow].strokeData.add(stroke)
+//        }
+//        newStrokeData.clear()
+//    }
+    fun cancelStrokeData(currentStrokeId: InProgressStrokeId, event: MotionEvent){
+        drawViewModel.cancelStrokeInProgress?.let { it(currentStrokeId, event) }
     }
 
 

@@ -56,6 +56,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
+import androidx.ink.authoring.InProgressStrokesView
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.studiomath.drawview.document.DrawComponent
@@ -70,8 +71,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class DrawActivity : ComponentActivity() {
+    private lateinit var inProgressStrokesView: InProgressStrokesView
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        inProgressStrokesView = InProgressStrokesView(this)
 
         val intent = intent
         val filePath = intent.getStringExtra("filePath")
@@ -91,7 +96,7 @@ class DrawActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContent {
             DrawViewTheme {
-                DrawActivity(drawViewModel = drawViewModel)
+                DrawActivity(drawViewModel = drawViewModel, inProgressStrokesView = inProgressStrokesView)
             }
         }
 
@@ -137,7 +142,11 @@ class DrawActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DrawActivity(modifier: Modifier = Modifier, drawViewModel: DrawViewModel) {
+fun DrawActivity(
+    modifier: Modifier = Modifier,
+    drawViewModel: DrawViewModel,
+    inProgressStrokesView: InProgressStrokesView
+) {
     val activity = LocalContext.current as Activity
     Column(
         modifier = Modifier
@@ -298,7 +307,8 @@ fun DrawActivity(modifier: Modifier = Modifier, drawViewModel: DrawViewModel) {
 
 
         DrawComponent(
-            drawViewModel = drawViewModel
+            drawViewModel = drawViewModel,
+            inProgressStrokesView = inProgressStrokesView
         )
     }
 

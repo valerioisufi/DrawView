@@ -8,11 +8,19 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.util.DisplayMetrics
+import android.view.MotionEvent
+import androidx.annotation.UiThread
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.ink.authoring.InProgressStrokeId
+import androidx.ink.authoring.InProgressStrokesFinishedListener
+import androidx.ink.authoring.InProgressStrokesView
+import androidx.ink.brush.Brush
+import androidx.ink.brush.StockBrushes
+import androidx.ink.strokes.Stroke
 import androidx.lifecycle.ViewModel
 import com.studiomath.drawview.document.motion.OnTouchHover
 import com.studiomath.drawview.document.page.DrawDocumentData
-import com.studiomath.drawview.document.stroke.Vec2d
-import com.studiomath.drawview.document.stroke.getStroke
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -28,62 +36,10 @@ class DrawViewModel(
     val filesDir: File,
     var filePath: String,
     var displayMetrics: DisplayMetrics
-) : ViewModel() {
+) : ViewModel(), InProgressStrokesFinishedListener {
 
 
     var data: DrawDocumentData = DrawDocumentData(filesDir, filePath, displayMetrics, this)
-
-
-
-
-    fun getPathGraphic(vec2ds: List<Vec2d>): Path {
-        val stroke = getStroke(vec2ds)
-        val path = Path()
-
-        if (stroke.size < 4) {
-            // the stroke will be 3 points as a sort of shrugging fail state, so let's draw a dot instead
-            val r = vec2ds[vec2ds.size / 2].z * 8f
-            val x = vec2ds[vec2ds.size - 1].x
-            val y = vec2ds[vec2ds.size - 1].y
-
-            path.addCircle(x.toFloat(), y.toFloat(), r.toFloat(), Path.Direction.CW)
-        } else {
-            // If we do have a stroke, then draw the stroke path
-            path.apply {
-                var previousPointX = 0f
-                var previousPointY = 0f
-
-                for ((index, point) in stroke.withIndex()) {
-                    val x = point.x.toFloat()
-                    val y = point.y.toFloat()
-
-                    if (index == 0) {
-                        moveTo(x, y)
-                    } else{
-                        quadTo((previousPointX+x)/2, (previousPointY+y)/2,x, y)
-                    }
-
-                    previousPointX = x
-                    previousPointY = y
-
-//                    if (index == stroke.lastIndex){
-//                        close()
-//                    }
-
-                }
-            }
-        }
-
-        return path
-    }
-
-
-
-
-
-
-
-
 
 //    fun computePath(pathIndex: Int = document.pages[pageIndexNow].strokeData.lastIndex): Path {
 //        val path: Path = Path().apply {
@@ -422,11 +378,11 @@ class DrawViewModel(
                         setRectToRect(windowRect, rect, Matrix.ScaleToFit.CENTER)
                     }
 
-                    val strokePath = getPathGraphic((stroke.vec2ds).toList())
-                    strokePath.transform(strokePathMatrix)
-
-
-                    canvas.drawPath(strokePath, paintFreehand)
+//                    val strokePath = getPathGraphic((stroke.vec2ds).toList())
+//                    strokePath.transform(strokePathMatrix)
+//
+//
+//                    canvas.drawPath(strokePath, paintFreehand)
                 }
             }
 
@@ -549,6 +505,18 @@ class DrawViewModel(
 //        }
 //    }
 
+    val defaultBrush = Brush.createWithColorIntArgb(
+        family = StockBrushes.pressurePenLatest,
+        colorIntArgb = Color.BLACK,
+        size = 5F,
+        epsilon = 0.1F
+    )
+
+    var startStrokeInProgress: ((event: MotionEvent, pointerId: Int, brush: Brush) -> InProgressStrokeId)? = null
+    var addToStrokeInProgress: ((event: MotionEvent, pointerId: Int, strokeId: InProgressStrokeId, predictedEvent: MotionEvent?) -> Unit)? = null
+    var finishStrokeInProgress: ((event: MotionEvent, pointerId: Int, strokeId: InProgressStrokeId) -> Unit)? = null
+    var cancelStrokeInProgress: ((strokeId: InProgressStrokeId, event: MotionEvent) -> Unit)? = null
+
     /**
      * onSizeChanged
      */
@@ -559,9 +527,6 @@ class DrawViewModel(
         onDrawBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
 
         windowRect = RectF(0f, 0f, width.toFloat(), height.toFloat())
-
-        fastRenderer.onSizeChanged(width, height)
-
 
         draw(redraw = true, scaling = false)
     }
@@ -577,16 +542,6 @@ class DrawViewModel(
     var windowMatrix = Matrix()
     var moveMatrix = Matrix()
 
-
-    /**
-     * onTouchHover: gestione onTouchListener e onHoverListener
-     */
-    var onTouchHover = OnTouchHover(this)
-
-    /**
-     * fastRenderer: surfaceView con CanvasFrontBufferedRenderer
-     */
-    var fastRenderer: FastRenderer = FastRenderer(this)
 
     /**
      * invalidate drawView when onDrawBitmap change

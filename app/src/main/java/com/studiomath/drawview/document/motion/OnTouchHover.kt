@@ -4,6 +4,9 @@ import android.annotation.SuppressLint
 import android.util.Log
 import android.view.MotionEvent
 import android.view.View
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.ink.authoring.InProgressStrokeId
 import androidx.input.motionprediction.MotionEventPredictor
 import com.studiomath.drawview.document.DrawViewModel
 import com.studiomath.drawview.document.page.DrawDocumentData
@@ -16,6 +19,9 @@ class OnTouchHover(
     var motionEventPredictor: MotionEventPredictor? = null
     private var isStylusActive = false
 
+    val currentPointerId = mutableStateOf<Int?>(null)
+    val currentStrokeId = mutableStateOf<InProgressStrokeId?>(null)
+
     @SuppressLint("ClickableViewAccessibility")
     val onTouchListener = View.OnTouchListener { view, event ->
         motionEventPredictor?.record(event)
@@ -27,85 +33,76 @@ class OnTouchHover(
          * gestione degli input provenienti da TOOL_TYPE_STYLUS
          */
         if (event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS || (event.pointerCount == 1 && !isStylusActive && !onScaleTranslate.continueScaleTranslate)) {
-            // Deliver input events as soon as they arrive.
-            view.requestUnbufferedDispatch(event)
 
-            when (event.action) {
+            when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    // Deliver input events as soon as they arrive.
+                    view.requestUnbufferedDispatch(event)
 
-                    drawViewModel.data.addStrokeData(
-                        point = DrawDocumentData.Stroke.Point(
-                            event.x, event.y
-                        ).apply {
-                            pressure = event.getAxisValue(MotionEvent.AXIS_PRESSURE)
-                            orientation = event.getAxisValue(MotionEvent.AXIS_ORIENTATION)
-                            tilt = event.getAxisValue(MotionEvent.AXIS_TILT)
-                        },
-                        strokeType = drawViewModel.activeTool,
-                        isNewStroke = true
-                    )
+//                    drawViewModel.data.addStrokeData(
+//                        point = DrawDocumentData.Stroke.Point(
+//                            event.x, event.y
+//                        ).apply {
+//                            pressure = event.getAxisValue(MotionEvent.AXIS_PRESSURE)
+//                            orientation = event.getAxisValue(MotionEvent.AXIS_ORIENTATION)
+//                            tilt = event.getAxisValue(MotionEvent.AXIS_TILT)
+//                        },
+//                        strokeType = drawViewModel.activeTool,
+//                        isNewStroke = true
+//                    )
 
+                    val pointerIndex = event.actionIndex
+                    val pointerId = event.getPointerId(pointerIndex)
+                    currentPointerId.value = pointerId
+                    currentStrokeId.value =
+                        drawViewModel.startStrokeInProgress?.let {
+                            it(event, pointerId, drawViewModel.defaultBrush)
+                        }
 
                 }
 
                 MotionEvent.ACTION_MOVE -> {
-//                    for (historyIndex in 1 until event.historySize) {
-//                        drawViewModel.data.addStrokeData(
-//                            point = DrawDocumentData.Stroke.Point(
-//                                event.getHistoricalX(historyIndex),
-//                                event.getHistoricalY(historyIndex)
-//                            ).apply {
-//                                pressure = event.getHistoricalAxisValue(
-//                                    MotionEvent.AXIS_PRESSURE,
-//                                    historyIndex
-//                                )
-//                                orientation = event.getHistoricalAxisValue(
-//                                    MotionEvent.AXIS_ORIENTATION,
-//                                    historyIndex
-//                                )
-//                                tilt = event.getHistoricalAxisValue(
-//                                    MotionEvent.AXIS_TILT,
-//                                    historyIndex
-//                                )
-//                            },
-//                            strokeType = drawViewModel.activeTool
-//                        )
-//                    }
 
-                    drawViewModel.data.addStrokeData(
-                        point = DrawDocumentData.Stroke.Point(
-                            event.x, event.y
-                        ).apply {
-                            pressure = event.getAxisValue(MotionEvent.AXIS_PRESSURE)
-                            orientation = event.getAxisValue(MotionEvent.AXIS_ORIENTATION)
-                            tilt = event.getAxisValue(MotionEvent.AXIS_TILT)
-                        },
-                        strokeType = drawViewModel.activeTool
-                    )
-
-                    /**
-                     * strokeRenderer
-                     */
-                    drawViewModel.fastRenderer.frontBufferRenderer?.renderFrontBufferedLayer(drawViewModel.data.newStrokeData.last())
-//                    val eventPredicted = motionEventPredictor?.predict()
-//                    if(eventPredicted != null){
-//                        val pointPredicted = DrawViewModel.Stroke.Point(
-//                            eventPredicted.x, eventPredicted.y
+//                    drawViewModel.data.addStrokeData(
+//                        point = DrawDocumentData.Stroke.Point(
+//                            event.x, event.y
 //                        ).apply {
-//                            pressure = eventPredicted.getAxisValue(MotionEvent.AXIS_PRESSURE)
-//                            orientation = eventPredicted.getAxisValue(MotionEvent.AXIS_ORIENTATION)
-//                            tilt = eventPredicted.getAxisValue(MotionEvent.AXIS_TILT)
-//                        }
-//                        strokeRenderer!!.pointPredicted = pointPredicted
-//                    }
+//                            pressure = event.getAxisValue(MotionEvent.AXIS_PRESSURE)
+//                            orientation = event.getAxisValue(MotionEvent.AXIS_ORIENTATION)
+//                            tilt = event.getAxisValue(MotionEvent.AXIS_TILT)
+//                        },
+//                        strokeType = drawViewModel.activeTool
+//                    )
+
+                    val pointerId = checkNotNull(currentPointerId.value)
+                    val strokeId = checkNotNull(currentStrokeId.value)
+                    drawViewModel.addToStrokeInProgress?.let {
+                        it(event, pointerId, strokeId, motionEventPredictor!!.predict())
+                    }
 
                 }
 
                 MotionEvent.ACTION_UP -> {
-                    drawViewModel.fastRenderer.frontBufferRenderer!!.cancel()
-                    drawViewModel.data.updateStrokeData()
-                    drawViewModel.draw(redraw = true)
+                    val pointerIndex = event.actionIndex
+                    val pointerId = event.getPointerId(pointerIndex)
+                    check(pointerId == currentPointerId.value)
+                    val currentStrokeId = checkNotNull(currentStrokeId.value)
+                    drawViewModel.finishStrokeInProgress?.let {
+                        it(event, pointerId, currentStrokeId)
+                    }
+                    view.performClick()
+//                    drawViewModel.data.updateStrokeData()
+//                    drawViewModel.draw(redraw = true)
 
+                }
+
+                MotionEvent.ACTION_CANCEL -> {
+                    val pointerIndex = event.actionIndex
+                    val pointerId = event.getPointerId(pointerIndex)
+                    check(pointerId == currentPointerId.value)
+
+                    val currentStrokeId = checkNotNull(currentStrokeId.value)
+                    drawViewModel.data.cancelStrokeData(currentStrokeId, event)
                 }
             }
 
@@ -127,8 +124,12 @@ class OnTouchHover(
             onScaleTranslate.onScaleTranslate(event)
 
             if(!isStylusActive) {
-                drawViewModel.fastRenderer.frontBufferRenderer!!.cancel()
-                drawViewModel.data.cancelStrokeData()
+                val pointerIndex = event.actionIndex
+                val pointerId = event.getPointerId(pointerIndex)
+                check(pointerId == currentPointerId.value)
+
+                val currentStrokeId = checkNotNull(currentStrokeId.value)
+                drawViewModel.data.cancelStrokeData(currentStrokeId, event)
             }
 
         }
@@ -155,8 +156,8 @@ class OnTouchHover(
      * funzine che restituisce TRUE quando viene appoggiato sullo schermo il palmo della mano
      */
     // TODO: 23/01/2022 qui devo tener conto del fatto che, quando viene
-    //  rilevato il palmo, alcune azioni come oo scale siano già iniziate.
-    //  Per cui io dovrei ultimare quelle azioni
+    //  rilevato il palmo, alcune azioni come lo scale potrebbero aver avuto inizio.
+    //  Per cui devo ultimare tali azioni
     private fun palmRejection(event: MotionEvent): Boolean {
         for (i in 0 until event.pointerCount) {
             if (event.getToolMinor(i) / event.getToolMajor(i) < 0.5) {
@@ -164,8 +165,12 @@ class OnTouchHover(
             }
         }
 
-        drawViewModel.fastRenderer.frontBufferRenderer!!.cancel()
-        drawViewModel.data.cancelStrokeData()
+//        val pointerIndex = event.actionIndex
+//        val pointerId = event.getPointerId(pointerIndex)
+//        check(pointerId == currentPointerId.value)
+//
+//        val currentStrokeId = checkNotNull(currentStrokeId.value)
+//        drawViewModel.data.cancelStrokeData(currentStrokeId, event)
         return false
     }
 }

@@ -126,10 +126,11 @@ class OnTouchHover(
             if(!isStylusActive) {
                 val pointerIndex = event.actionIndex
                 val pointerId = event.getPointerId(pointerIndex)
-                check(pointerId == currentPointerId.value)
+                if(pointerId == currentPointerId.value && currentStrokeId.value != null){
+                    drawViewModel.data.cancelStrokeData(currentStrokeId.value!!, event)
+                }
 
-                val currentStrokeId = checkNotNull(currentStrokeId.value)
-                drawViewModel.data.cancelStrokeData(currentStrokeId, event)
+
             }
 
         }

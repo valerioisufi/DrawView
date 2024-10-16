@@ -1,35 +1,16 @@
 package com.studiomath.drawview.document
 
-import androidx.compose.runtime.Composable
-import android.graphics.Canvas
-
-import androidx.annotation.WorkerThread
+import android.widget.FrameLayout
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.graphics.lowlatency.LowLatencyCanvasView
-import android.annotation.SuppressLint
-import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.Color
-import android.graphics.Matrix
-import android.graphics.Paint
-import android.graphics.PixelFormat
-import android.graphics.RectF
-import android.util.Log
-import android.view.SurfaceView
-import android.widget.FrameLayout
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.core.content.res.ResourcesCompat
-import androidx.core.graphics.transform
-import androidx.graphics.lowlatency.CanvasFrontBufferedRenderer
 import androidx.ink.authoring.InProgressStrokesView
 import androidx.input.motionprediction.MotionEventPredictor
 import com.studiomath.drawview.document.motion.OnTouchHover
-import com.studiomath.drawview.document.page.DrawDocumentData
 
 @Composable
 fun DrawComponent(
@@ -70,8 +51,7 @@ fun DrawComponent(
                     inProgressStrokesView.startStroke(event, pointerId, brush)
                 }
                 drawViewModel.addToStrokeInProgress = { event, pointerId, strokeId, predictedEvent ->
-                    inProgressStrokesView.addToStroke(event, pointerId, strokeId, predictedEvent
-                    )
+                    inProgressStrokesView.addToStroke(event, pointerId, strokeId, predictedEvent)
                 }
                 drawViewModel.finishStrokeInProgress = { event, pointerId, strokeId ->
                     inProgressStrokesView.finishStroke(event, pointerId, strokeId)
@@ -79,6 +59,10 @@ fun DrawComponent(
                 drawViewModel.cancelStrokeInProgress = { strokeId, event ->
                     inProgressStrokesView.cancelStroke(strokeId, event)
                 }
+                drawViewModel.removeFinishedStrokes = { strokeKeys ->
+                    inProgressStrokesView.removeFinishedStrokes(strokeKeys)
+                }
+
 
                 /**
                  * Imposto gli onTouch e onHoverListener della view

@@ -76,8 +76,6 @@ class DrawActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        inProgressStrokesView = InProgressStrokesView(this)
-
         val intent = intent
         val filePath = intent.getStringExtra("filePath")
 
@@ -92,6 +90,9 @@ class DrawActivity : ComponentActivity() {
                 }
             }
         }.value
+
+        inProgressStrokesView = InProgressStrokesView(this)
+        inProgressStrokesView.addFinishedStrokesListener(drawViewModel)
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContent {

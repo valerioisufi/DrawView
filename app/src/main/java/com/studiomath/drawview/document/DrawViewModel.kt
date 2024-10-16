@@ -17,6 +17,7 @@ import androidx.ink.authoring.InProgressStrokesFinishedListener
 import androidx.ink.authoring.InProgressStrokesView
 import androidx.ink.brush.Brush
 import androidx.ink.brush.StockBrushes
+import androidx.ink.rendering.android.canvas.CanvasStrokeRenderer
 import androidx.ink.strokes.Stroke
 import androidx.lifecycle.ViewModel
 import com.studiomath.drawview.document.motion.OnTouchHover
@@ -146,7 +147,7 @@ class DrawViewModel(
         } else if (changePage) {
             if (::jobRedraw.isInitialized) jobRedraw.cancel()
 
-            redrawOnDraw = true
+            redrawOnDraw = false
             scalingOnDraw = false
             changePageOnDraw = true
             updateDrawView()
@@ -172,11 +173,11 @@ class DrawViewModel(
 //            dragAndDropOnDraw = true
 //            invalidate()
 //
-//        } else {
-//            redrawOnDraw = false
-//            scalingOnDraw = false
-//            makeCursoreOnDraw = false
-//            invalidate()
+        } else {
+            redrawOnDraw = false
+            scalingOnDraw = false
+            changePageOnDraw = false
+            updateDrawView()
         }
     }
 
@@ -200,6 +201,8 @@ class DrawViewModel(
 
 
     lateinit var windowRect: RectF
+
+    val canvasStrokeRenderer = CanvasStrokeRenderer.create()
 
     /**
      * le funzioni seguenti avranno il
@@ -505,6 +508,22 @@ class DrawViewModel(
 //        }
 //    }
 
+//    private val finishedStrokesState = mutableStateOf(emptySet<Stroke>())
+    @UiThread
+    override fun onStrokesFinished(strokes: Map<InProgressStrokeId, Stroke>) {
+//        finishedStrokesState.value += strokes.values
+
+        val canvas = Canvas(onDrawBitmap)
+        strokes.values.forEach { stroke ->
+            canvasStrokeRenderer.draw(stroke = stroke, canvas = canvas, strokeToScreenTransform = Matrix())
+        }
+
+        draw()
+
+
+        removeFinishedStrokes?.let { it(strokes.keys) }
+    }
+
     val defaultBrush = Brush.createWithColorIntArgb(
         family = StockBrushes.pressurePenLatest,
         colorIntArgb = Color.BLACK,
@@ -516,6 +535,7 @@ class DrawViewModel(
     var addToStrokeInProgress: ((event: MotionEvent, pointerId: Int, strokeId: InProgressStrokeId, predictedEvent: MotionEvent?) -> Unit)? = null
     var finishStrokeInProgress: ((event: MotionEvent, pointerId: Int, strokeId: InProgressStrokeId) -> Unit)? = null
     var cancelStrokeInProgress: ((strokeId: InProgressStrokeId, event: MotionEvent) -> Unit)? = null
+    var removeFinishedStrokes: ((strokeKeys: Set<InProgressStrokeId>) -> Unit)? = null
 
     /**
      * onSizeChanged

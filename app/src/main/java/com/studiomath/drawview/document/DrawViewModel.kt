@@ -6,12 +6,16 @@ import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.PointF
 import android.graphics.RectF
 import android.util.DisplayMetrics
+import android.util.Log
 import android.view.MotionEvent
 import androidx.annotation.UiThread
+import androidx.compose.material.icons.materialIcon
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.core.graphics.withMatrix
 import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.authoring.InProgressStrokesFinishedListener
 import androidx.ink.authoring.InProgressStrokesView
@@ -27,10 +31,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
+import kotlin.apply
+import kotlin.math.log
 import android.graphics.Path as AndroidPath
 
 class DrawViewModel(
@@ -108,6 +115,12 @@ class DrawViewModel(
 
             jobRedraw = scope.launch {
                 redrawPageRect = data.calcPageOnWindowRect(windowRect)
+                maskPath?.invoke(Path().apply{
+                    addRect(windowRect, Path.Direction.CW)
+                    op(Path().apply {
+                        addRect(redrawPageRect, Path.Direction.CW)
+                    }, Path.Op.DIFFERENCE)
+                })
 
                 /**
                  * disegno la pagina sulla Bitmap
@@ -197,7 +210,7 @@ class DrawViewModel(
     }
 
 
-    var activeTool = DrawDocumentData.Stroke.StrokeType.PENNA
+//    var activeTool = DrawDocumentData.Stroke.StrokeType.PENNA
 
 
     lateinit var windowRect: RectF
@@ -372,21 +385,21 @@ class DrawViewModel(
             // TODO: 31/12/2021 poi valuterò l'idea di utlizzare una funzione a parte che richiama i metodi make- dei singoli strumenti
             data.preparePage(pageIndex)
 
-            mutex.withLock {
-                val iterator = data.document.pages[pageIndex].strokeData.iterator()
-                while (iterator.hasNext()) {
-                    val stroke = iterator.next()
+            val strokePathMatrix = Matrix().apply {
+                setRectToRect(data.document.pages[pageIndex].rect(), rect, Matrix.ScaleToFit.CENTER)
+            }
+            canvas.withMatrix(strokePathMatrix){
+                mutex.withLock {
+                    val iterator = data.document.pages[pageIndex].strokeData.iterator()
+                    while (iterator.hasNext()) {
+                        val stroke = iterator.next()
 
-                    val strokePathMatrix = Matrix().apply {
-                        setRectToRect(windowRect, rect, Matrix.ScaleToFit.CENTER)
+                        Log.d("matrix", "matrix red: $strokePathMatrix")
+
+                        canvasStrokeRenderer.draw(stroke = stroke.stroke!!, canvas = canvas, strokeToScreenTransform = strokePathMatrix)
                     }
-
-//                    val strokePath = getPathGraphic((stroke.vec2ds).toList())
-//                    strokePath.transform(strokePathMatrix)
-//
-//
-//                    canvas.drawPath(strokePath, paintFreehand)
                 }
+
             }
 
 
@@ -511,15 +524,40 @@ class DrawViewModel(
 //    private val finishedStrokesState = mutableStateOf(emptySet<Stroke>())
     @UiThread
     override fun onStrokesFinished(strokes: Map<InProgressStrokeId, Stroke>) {
-//        finishedStrokesState.value += strokes.values
 
         val canvas = Canvas(onDrawBitmap)
+        canvas.clipRect(redrawPageRect)
         strokes.values.forEach { stroke ->
             canvasStrokeRenderer.draw(stroke = stroke, canvas = canvas, strokeToScreenTransform = Matrix())
         }
 
-        draw()
+        jobRedraw = scope.launch {
+            mutex.withLock{
+                val matrix = Matrix().apply {
+                    setRectToRect(redrawPageRect, data.pageNow.rect(), Matrix.ScaleToFit.CENTER)
+                }
 
+                strokes.values.forEach{ stroke ->
+                    var serializedStroke = DrawDocumentData.Stroke(0).apply {
+                        this.stroke = stroke
+                        toSerializedStroke()
+                        inputs.forEach{ input ->
+                            var point = floatArrayOf(input.x, input.y)
+                            matrix.mapPoints(point)
+                            input.apply {
+                                x = point[0]
+                                y = point[1]
+                            }
+                        }
+                        size = matrix.mapRadius(size)
+                        toInkStroke()
+                    }
+                    data.pageNow.strokeData.add(serializedStroke)
+                }
+            }
+        }
+
+        draw()
 
         removeFinishedStrokes?.let { it(strokes.keys) }
     }
@@ -536,6 +574,8 @@ class DrawViewModel(
     var finishStrokeInProgress: ((event: MotionEvent, pointerId: Int, strokeId: InProgressStrokeId) -> Unit)? = null
     var cancelStrokeInProgress: ((strokeId: InProgressStrokeId, event: MotionEvent) -> Unit)? = null
     var removeFinishedStrokes: ((strokeKeys: Set<InProgressStrokeId>) -> Unit)? = null
+
+    var maskPath: ((path: Path) -> Unit)? = null
 
     /**
      * onSizeChanged

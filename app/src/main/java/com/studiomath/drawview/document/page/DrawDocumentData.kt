@@ -11,6 +11,11 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.util.TypedValueCompat
 import androidx.ink.authoring.InProgressStrokeId
+import androidx.ink.brush.Brush
+import androidx.ink.brush.InputToolType
+import androidx.ink.brush.StockBrushes
+import androidx.ink.strokes.MutableStrokeInputBatch
+import androidx.ink.strokes.StrokeInput
 import com.studiomath.drawview.document.DrawViewModel
 import com.studiomath.drawview.file.FileManager
 import kotlinx.coroutines.CoroutineScope
@@ -23,6 +28,7 @@ import kotlinx.serialization.Transient
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
+import kotlin.collections.forEach
 import kotlin.math.sqrt
 
 class DrawDocumentData(
@@ -44,31 +50,116 @@ class DrawDocumentData(
     }
 
     enum class DataType(val value: Int) {
-        PATH(0), IMAGE(1), TEXT(2), PDF(3)
+        STROKE(0), IMAGE(1), TEXT(2), PDF(3)
     }
 
     @Serializable
-    data class Stroke(val zIndex: Int, var type: StrokeType) {
-        fun transform(pathStrokeMatrix: Matrix) {
+    data class Stroke(val zIndex: Int) {
+        fun toSerializedStroke() {
+            if (stroke == null) return
+            color = stroke!!.brush.colorIntArgb
+            size = stroke!!.brush.size
+
+            brush =
+                when (stroke!!.brush.family){
+                    StockBrushes.pressurePenLatest -> BrushFamily.PRESSURE_PEN
+                    StockBrushes.highlighterLatest -> BrushFamily.HIGHLIGHTER
+                    StockBrushes.markerLatest -> BrushFamily.MARKER
+                    else -> BrushFamily.MARKER
+                }
+
+            toolType =
+                when (stroke!!.inputs.getToolType()){
+                    InputToolType.STYLUS -> ToolType.STYLUS
+                    InputToolType.TOUCH -> ToolType.TOUCH
+                    InputToolType.MOUSE -> ToolType.MOUSE
+                    else -> ToolType.UNKNOWN
+                }
+
+            val scratchInput = androidx.ink.strokes.StrokeInput()
+            for (i in 0 until stroke!!.inputs.size) {
+                stroke!!.inputs.populate(i, scratchInput)
+                inputs.add(
+                    StrokeInput(
+                        x = scratchInput.x,
+                        y = scratchInput.y
+                    ).apply {
+                        timeMillis = scratchInput.elapsedTimeMillis.toFloat()
+                        strokeUnitLengthCm = if(scratchInput.strokeUnitLengthCm != androidx.ink.strokes.StrokeInput.NO_STROKE_UNIT_LENGTH) scratchInput.strokeUnitLengthCm else null
+                        pressure = if(scratchInput.pressure != androidx.ink.strokes.StrokeInput.NO_PRESSURE) scratchInput.pressure else null
+                        tilt = if(scratchInput.tiltRadians != androidx.ink.strokes.StrokeInput.NO_TILT) scratchInput.tiltRadians else null
+                        orientation = if(scratchInput.orientationRadians != androidx.ink.strokes.StrokeInput.NO_ORIENTATION) scratchInput.orientationRadians else null
+                    }
+                )
+            }
 
         }
+        fun toInkStroke() {
+            val toolType =
+                when (toolType){
+                    ToolType.STYLUS -> InputToolType.STYLUS
+                    ToolType.TOUCH -> InputToolType.TOUCH
+                    ToolType.MOUSE -> InputToolType.MOUSE
+                    else -> InputToolType.UNKNOWN
+                }
+            val batch = MutableStrokeInputBatch()
+            inputs.forEach { input ->
+                batch.addOrThrow(
+                    type = toolType,
+                    x = input.x,
+                    y = input.y,
+                    elapsedTimeMillis = input.timeMillis.toLong(),
+                    strokeUnitLengthCm = if(input.strokeUnitLengthCm != null) input.strokeUnitLengthCm!! else androidx.ink.strokes.StrokeInput.NO_STROKE_UNIT_LENGTH,
+                    pressure = if(input.pressure != null) input.pressure!! else androidx.ink.strokes.StrokeInput.NO_PRESSURE,
+                    tiltRadians  = if(input.tilt != null) input.tilt!! else androidx.ink.strokes.StrokeInput.NO_TILT,
+                    orientationRadians = if(input.orientation != null) input.orientation!! else androidx.ink.strokes.StrokeInput.NO_ORIENTATION
+                )
+            }
 
-        enum class StrokeType {
-            PENNA, EVIDENZIATORE
+            val brushFamily =
+                when (brush){
+                    BrushFamily.PRESSURE_PEN -> StockBrushes.pressurePenLatest
+                    BrushFamily.HIGHLIGHTER -> StockBrushes.highlighterLatest
+                    BrushFamily.MARKER -> StockBrushes.markerLatest
+                }
+            val brush = Brush.createWithColorIntArgb(
+                family = brushFamily,
+                colorIntArgb = color,
+                size = size,
+                epsilon = 0.005f,
+            )
+
+            stroke = androidx.ink.strokes.Stroke(brush, batch)
+        }
+
+        enum class ToolType {
+            STYLUS, TOUCH, MOUSE, UNKNOWN
+        }
+
+        enum class BrushFamily {
+            PRESSURE_PEN, HIGHLIGHTER, MARKER
         }
 
         @Serializable
-        data class Point(
+        data class StrokeInput(
             var x: Float = 0f, var y: Float = 0f
         ) {
-            var pressure: Float = 1f
+            var timeMillis: Float = 0f
+            var strokeUnitLengthCm: Float? = null
+            var pressure: Float? = null
             var tilt: Float? = null
             var orientation: Float? = null
         }
 
-        var points = mutableListOf<Point>()
-        var width: Float = 8f
+        var toolType = ToolType.UNKNOWN
+        var brush: BrushFamily = BrushFamily.PRESSURE_PEN
+        var inputs = mutableListOf<StrokeInput>()
+
+        var size: Float = 8f
         var color: Int = 0xFFFFFF
+
+        @Transient
+        var stroke: androidx.ink.strokes.Stroke? = null
     }
 
     @Serializable
@@ -186,6 +277,9 @@ class DrawDocumentData(
                 Bitmap.Config.ARGB_8888
             )
             canvasPage = Canvas(bitmapPage!!)
+            strokeData.forEach { stroke ->
+                stroke.toInkStroke()
+            }
 
 //            for (stroke in strokeData){
 //                stroke.vec2ds.clear()

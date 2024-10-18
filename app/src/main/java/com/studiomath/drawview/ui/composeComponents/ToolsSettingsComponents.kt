@@ -3,6 +3,7 @@ package com.studiomath.drawview.ui.composeComponents
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.material3.AlertDialogDefaults
@@ -28,7 +29,7 @@ fun ToolSettingsSheet(
     BasicAlertDialog(onDismissRequest = onDismissRequest) {
         Surface(
             modifier = Modifier
-                .wrapContentWidth()
+                .width(360.dp)
                 .wrapContentHeight(),
             shape = MaterialTheme.shapes.large,
             tonalElevation = AlertDialogDefaults.TonalElevation

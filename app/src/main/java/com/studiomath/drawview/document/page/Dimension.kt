@@ -9,11 +9,11 @@ class Measure(size: Float, type: Unit) {
         INCH, DOT, CM, MM
     }
 
-    var inch = 0f
-    var pt = 0f
+    val inch: Float
+    val pt: Float
 
-    var cm = 0f
-    var mm = 0f
+    val cm: Float
+    val mm: Float
 
     init {
         when (type) {

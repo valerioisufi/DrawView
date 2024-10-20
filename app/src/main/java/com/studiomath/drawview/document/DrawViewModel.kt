@@ -25,7 +25,11 @@ import androidx.ink.rendering.android.canvas.CanvasStrokeRenderer
 import androidx.ink.strokes.Stroke
 import androidx.lifecycle.ViewModel
 import com.studiomath.drawview.document.motion.OnTouchHover
+import com.studiomath.drawview.document.page.Dimension
+import com.studiomath.drawview.document.page.Dimension.Companion.Length
 import com.studiomath.drawview.document.page.DrawDocumentData
+import com.studiomath.drawview.document.page.pt
+import com.studiomath.drawview.document.page.px
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -64,29 +68,11 @@ class DrawViewModel(
 //
 //    }
 
-
-
-
     /**
      * funzioni il cui compito è quello di disegnare il contenuto della View
      */
 
-    var paint = Paint().apply {
-        color = Color.parseColor("#3F51B5")
-        // Smooths out edges of what is drawn without affecting shape.
-        isAntiAlias = true
-        // Dithering affects how colors with higher-precision than the device are down-sampled.
-        isDither = true
-        isFilterBitmap = true
-        strokeJoin = Paint.Join.ROUND // default: MITER
-        strokeCap = Paint.Cap.ROUND // default: BUTT
-        strokeWidth = 3f // default: Hairline-width (really thin)
-    }
 
-
-    var drawLastPathPaint = Paint(paint).apply {
-        style = Paint.Style.STROKE
-    }
     lateinit var scalingPageRect: RectF
 
     /**
@@ -194,17 +180,6 @@ class DrawViewModel(
         }
     }
 
-    val paintFreehand = Paint(paint).apply {
-        color = Color.parseColor("#3F51B5")
-        // Smooths out edges of what is drawn without affecting shape.
-        isAntiAlias = true
-        // Dithering affects how colors with higher-precision than the device are down-sampled.
-        isDither = true
-        isFilterBitmap = true
-        style = Paint.Style.FILL
-
-    }
-
     fun cancelJobRedraw(){
         if (::jobRedraw.isInitialized) jobRedraw.cancel()
     }
@@ -263,9 +238,10 @@ class DrawViewModel(
                 color = Color.WHITE
                 style = Paint.Style.FILL
                 setShadowLayer(
-                    data.document.pages[pageIndex].dimension!!.calcPxFromPt(
-                        24f,
-                        rect.width().toInt()
+                    data.document.pages[pageIndex].dimension!!.calcPxFromDim(
+                        24f.pt,
+                        rect.width().px,
+                        Length.WIDTH
                     ),
                     0f,
                     8f,
@@ -447,9 +423,10 @@ class DrawViewModel(
         onDrawCanvas.clipRect(redrawPageRect)
 
         var strokePaint = Paint(paint).apply {
-            strokeWidth = data.document.pages[data.pageIndexNow].dimension!!.calcPxFromPt(
-                paint.strokeWidth,
-                redrawPageRect.width().toInt()
+            strokeWidth = data.document.pages[data.pageIndexNow].dimension!!.calcPxFromDim(
+                paint.strokeWidth.pt,
+                redrawPageRect.width().px,
+                Length.WIDTH
             )
         }
 //        strokeRenderer.renderStroke(onDrawCanvas, strokePaint)
@@ -469,9 +446,10 @@ class DrawViewModel(
 //        strokeRenderer.stroke.transform(pathStrokeMatrix)
 
         strokePaint = Paint(paint).apply {
-            strokeWidth = data.document.pages[data.pageIndexNow].dimension!!.calcPxFromPt(
-                paint.strokeWidth,
-                data.document.pages[data.pageIndexNow].bitmapPage!!.width
+            strokeWidth = data.document.pages[data.pageIndexNow].dimension!!.calcPxFromDim(
+                paint.strokeWidth.pt,
+                data.document.pages[data.pageIndexNow].bitmapPage!!.width.px,
+                Length.WIDTH
             )
         }
 //        strokeRenderer.renderStroke(onDrawCanvas, strokePaint)
@@ -562,11 +540,18 @@ class DrawViewModel(
         removeFinishedStrokes?.let { it(strokes.keys) }
     }
 
-    val defaultBrush = Brush.createWithColorIntArgb(
+    var activeBrush = Brush.createWithColorIntArgb(
         family = StockBrushes.pressurePenLatest,
         colorIntArgb = Color.BLACK,
-        size = 5F,
+        size = 5F, // pt
         epsilon = 0.1F
+    )
+    fun getActiveBrushScaled() = activeBrush.copy(
+        size = data.document.pages[data.pageIndexNow].dimension!!.calcPxFromDim(
+            activeBrush.size.pt,
+            redrawPageRect.width().px,
+            Length.WIDTH
+        )
     )
 
     var startStrokeInProgress: ((event: MotionEvent, pointerId: Int, brush: Brush) -> InProgressStrokeId)? = null

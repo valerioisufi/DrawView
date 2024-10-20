@@ -1,9 +1,13 @@
 package com.studiomath.drawview.document.page
 
 import android.graphics.RectF
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.Stable
 
-var risoluzionePxInchPagePredefinito = 300
+var resolutionPxInchPageDefault = 300
 
+@Stable
+@Immutable
 class Measure(size: Float, type: Unit) {
     enum class Unit {
         INCH, DOT, CM, MM
@@ -48,24 +52,45 @@ class Measure(size: Float, type: Unit) {
     }
 }
 
+@Stable
 inline val Int.mm: Measure get() = Measure(size = this.toFloat(), type = Measure.Unit.MM)
+@Stable
 inline val Int.cm: Measure get() = Measure(size = this.toFloat(), type = Measure.Unit.CM)
+@Stable
 inline val Int.pt: Measure get() = Measure(size = this.toFloat(), type = Measure.Unit.DOT)
+@Stable
 inline val Int.inch: Measure get() = Measure(size = this.toFloat(), type = Measure.Unit.INCH)
 
+@Stable
 inline val Float.mm: Measure get() = Measure(size = this, type = Measure.Unit.MM)
+@Stable
 inline val Float.cm: Measure get() = Measure(size = this, type = Measure.Unit.CM)
+@Stable
 inline val Float.pt: Measure get() = Measure(size = this, type = Measure.Unit.DOT)
+@Stable
 inline val Float.inch: Measure get() = Measure(size = this, type = Measure.Unit.INCH)
+
+@Stable
+@Immutable
+data class Px(val px: Float)
+@Stable
+inline val Int.px: Px get() = Px(this.toFloat())
+@Stable
+inline val Float.px: Px get() = Px(this)
 
 /**
  * Classe per le funzioni che controllano le dimensioni della pagina
  */
-class Dimension(var width: Measure, var height: Measure) {
+@Stable
+@Immutable
+class Dimension(val width: Measure, val height: Measure) {
     /**
      * Formati Pagina prestabiliti
      */
     companion object {
+        enum class  Length{
+            WIDTH, HEIGHT
+        }
         enum class Orientation {
             VERTICAL, HORIZONTAL
         }
@@ -101,44 +126,47 @@ class Dimension(var width: Measure, var height: Measure) {
      * Funzioni per il calcolo delle dimensioni,
      * indipendenti o meno dalla risoluzione della pagina
      */
-    fun calcHeightFromWidthPx(widthPx: Int): Float {
-        return (height.mm * widthPx) / width.mm
+    fun calcHeightFromWidthPx(widthPx: Px): Float {
+        return (height.mm * widthPx.px) / width.mm
     }
 
-    fun calcWidthFromHeightPx(heightPx: Int): Float {
-        return (width.mm * heightPx) / height.mm
+    fun calcWidthFromHeightPx(heightPx: Px): Float {
+        return (width.mm * heightPx.px) / height.mm
     }
 
     // TODO: 15/11/2021 Considerare la possibiltà di utilizzare i valori in px come Float
-    fun calcHeightFromRisoluzionePxInch(risoluzionePxInch: Int): Float {
+    fun calcHeightFromResolutionPxInch(risoluzionePxInch: Int): Float {
         return height.inch * risoluzionePxInch
     }
 
-    fun calcWidthFromRisoluzionePxInch(risoluzionePxInch: Int): Float {
+    fun calcWidthFromResolutionPxInch(risoluzionePxInch: Int): Float {
         return width.inch * risoluzionePxInch
     }
 
     /**
      * Funzioni per il calcolo della dimensione del tratto
-     * basate sulla dimensione in pt (dots) e su un fattore di scala
+     * basate sulla dimensione Measure e su un fattore di scala
      */
-    fun calcPxFromPt(dimPt: Float, widthPx: Int): Float {
-        return (dimPt / width.pt) * widthPx
+    fun calcPxFromDim(dim: Measure, length: Px, lengthType: Length = Length.WIDTH): Float {
+        return when (lengthType) {
+            Length.WIDTH -> (dim.mm / width.mm) * length.px
+            Length.HEIGHT -> (dim.mm / height.mm) * length.px
+        }
     }
-
-    fun calcPxFromMm(dimMm: Float, widthPx: Int): Float {
-        return (dimMm / width.mm) * widthPx
-    }
-
 
     /**
      * Conversione da px (gradezza dipendente dallo schermo)
-     * a pt (dots, grandezza indipendente dal dispositivo)
+     * a Measure (grandezza indipendente dal dispositivo)
      */
-    fun calcPtFromPx(dimPx: Float, widthPx: Int): Float {
-        return width.pt * dimPx / widthPx
+    fun calcDimFromPx(dimPx: Float, length: Px, lengthType: Length = Length.WIDTH): Measure {
+        return when (lengthType) {
+            Length.WIDTH -> Measure(dimPx * width.mm / length.px, Measure.Unit.MM)
+            Length.HEIGHT -> Measure(dimPx * height.mm / length.px, Measure.Unit.MM)
+        }
     }
 
+
+    // TODO: probabilmente rimuoverò le seguenti funzioni
     fun calcXPt(xPx: Float, rectPage: RectF): Float {
         return (xPx - rectPage.left) * width.pt / rectPage.width()
     }

@@ -2,6 +2,7 @@ package com.studiomath.drawview.ui.composeComponents
 
 import android.graphics.Point
 import android.graphics.PointF
+import android.util.Log
 import android.view.MotionEvent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -37,7 +38,6 @@ import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.RequestDisallowInterceptTouchEvent
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.res.imageResource
@@ -54,27 +54,50 @@ import kotlin.math.*
 @Composable
 fun ColorWheel(
     modifier: Modifier = Modifier,
-    initialColor: Color = Color.Blue,
+    color: Color = Color.Blue,
     onColorChanged: (Color) -> Unit = {},
     hueRingRadius: Dp = 32.dp,
     alphaWidth: Dp = 32.dp
 ) {
-    val colorWheelState = remember { ColorWheelState(initialColor) }
     val colorWheelMask = ImageBitmap.imageResource(id = R.drawable.maschera_color_wheel)
 
-    var hue by remember { mutableFloatStateOf(colorWheelState.colorHSV.hue) }
-    var sat by remember { mutableFloatStateOf(colorWheelState.colorHSV.sat) }
-    var `val` by remember { mutableFloatStateOf(colorWheelState.colorHSV.`val`) }
-    var alpha by remember { mutableFloatStateOf(colorWheelState.colorHSV.alpha) }
+    fun rgbToHsv(red: Float, green: Float, blue: Float): FloatArray {
 
-    colorWheelState.onColorChanged = {
-        hue = colorWheelState.colorHSV.hue
-        sat = colorWheelState.colorHSV.sat
-        `val` = colorWheelState.colorHSV.`val`
-        alpha = colorWheelState.colorHSV.alpha
+        val max = maxOf(red, green, blue)
+        val min = minOf(red, green, blue)
+        val delta = max - min
 
-        onColorChanged(colorWheelState.colorHSV.toColor())
+        val hsv = FloatArray(3)
+
+        hsv[2] = max // Value (V)
+
+        if (delta == 0f) {
+            hsv[0] = 0f // Hue (H) is undefined, set to 0
+            hsv[1] = 0f // Saturation (S) is 0
+        } else {
+            hsv[1] = if (max != 0f) delta / max else 0f // Saturation (S)
+
+
+            val hue = when (max) {
+                red -> 60f * ((green - blue) / delta)
+                green -> 60f * ((blue - red) / delta + 2f)
+                blue -> 60f * ((red - green) / delta + 4f)
+                else -> 0f // Should not happen
+            }
+
+            hsv[0] = if (hue < 0f) hue + 360f else hue // Hue (H)
+        }
+
+        return hsv
     }
+
+    val hsv = rgbToHsv(color.red, color.green, color.blue)
+    Log.d("color", "ColorWheel: ${hsv[0]} ${hsv[1]} ${hsv[2]}")
+
+    var hue by remember { mutableFloatStateOf(hsv[0]) }
+    var sat by remember { mutableFloatStateOf(hsv[1]) }
+    var `val` by remember { mutableFloatStateOf(hsv[2]) }
+    var alpha by remember { mutableFloatStateOf(color.alpha) }
 
     Row (
         modifier = modifier
@@ -84,15 +107,21 @@ fun ColorWheel(
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         val requestDisallowInterceptTouchEvent = RequestDisallowInterceptTouchEvent()
+        var startTouchPoint: Point? = null
+
+        var hueCenter = Offset.Zero
+        var hueRadius = 0f
+        var internalHueRadius = 0f
+        var valSatRadius = 0f
+
         Spacer(
             modifier = Modifier
                 .weight(1f)
                 .aspectRatio(1f)
                 .drawWithCache {
-                    colorWheelState.hueRadius = size.width / 2f
-                    colorWheelState.internalHueRadius =
-                        colorWheelState.hueRadius - hueRingRadius.toPx()
-                    colorWheelState.valSatRadius = colorWheelState.internalHueRadius - 8.dp.toPx()
+                    hueRadius = size.width / 2f
+                    internalHueRadius = hueRadius - hueRingRadius.toPx()
+                    valSatRadius = internalHueRadius - 8.dp.toPx()
 
                     val hueBrush = Brush.sweepGradient(
                         0.000f to Color.Red,
@@ -104,18 +133,45 @@ fun ColorWheel(
                         0.999f to Color.Red
                     )
 
+                    fun hueToPoint(): PointF {
+                        val radius = hueRadius - (hueRadius - internalHueRadius) / 2
+                        val angleRad = hue * 3.14f / 180
+
+                        val p = PointF()
+                        p.x = (hueCenter.x + cos(angleRad) * radius)
+                        p.y = (hueCenter.y - sin(angleRad) * radius)
+                        return p
+                    }
+
+                    fun satValToPoint(): PointF {
+                        /**
+                         * (u,v) are circular coordinates in the domain {(u,v) | u² + v² ≤ 1}
+                         * (x,y) are square coordinates in the range [-1,1] x [-1,1]
+                         */
+                        val x = sat * 2 - 1
+                        val y = `val` * 2 - 1
+
+                        val u = (x * sqrt(1 - 0.5 * y.pow(2))).toFloat()
+                        val v = (y * sqrt(1 - 0.5 * x.pow(2))).toFloat()
+
+                        val p = PointF()
+                        p.x = (u * valSatRadius + hueCenter.x)
+                        p.y = ((-1 * v) * valSatRadius + hueCenter.y)
+                        return p
+                    }
+
                     onDrawBehind {
-                        colorWheelState.center = center
+                        hueCenter = center
 
                         drawIntoCanvas { canvas ->
                             canvas.saveLayer(
                                 Rect(0f, 0f, size.width, size.height),
                                 Paint()
                             )
-                            drawCircle(hueBrush, colorWheelState.hueRadius, center)
+                            drawCircle(hueBrush, hueRadius, center)
                             drawCircle(
                                 Color.Red,
-                                colorWheelState.internalHueRadius,
+                                internalHueRadius,
                                 center,
                                 blendMode = BlendMode.SrcOut
                             )
@@ -123,37 +179,37 @@ fun ColorWheel(
                         }
 
                         drawCircle(
-                            Color.hsv(colorWheelState.colorHSV.hue, 1f, 1f),
-                            colorWheelState.valSatRadius - 1,
+                            Color.hsv(hue, 1f, 1f),
+                            valSatRadius - 1,
                             center
                         )
                         drawImage(
                             image = colorWheelMask,
                             dstOffset = IntOffset(
-                                (center.x - colorWheelState.valSatRadius).toInt(),
-                                (center.y - colorWheelState.valSatRadius).toInt()
+                                (center.x - valSatRadius).toInt(),
+                                (center.y - valSatRadius).toInt()
                             ),
                             dstSize = IntSize(
-                                (colorWheelState.valSatRadius * 2).toInt(),
-                                (colorWheelState.valSatRadius * 2).toInt()
+                                (valSatRadius * 2).toInt(),
+                                (valSatRadius * 2).toInt()
                             )
                         )
 
                         // Tracker
-                        val pHue = colorWheelState.hueToPoint()
+                        val pHue = hueToPoint()
                         drawCircle(
-                            Color.hsv(colorWheelState.colorHSV.hue, 1f, 1f),
-                            (colorWheelState.hueRadius - colorWheelState.internalHueRadius) / 2,
+                            Color.hsv(hue, 1f, 1f),
+                            (hueRadius - internalHueRadius) / 2,
                             Offset(pHue.x, pHue.y)
                         )
                         drawCircle(
                             Color.White,
-                            (colorWheelState.hueRadius - colorWheelState.internalHueRadius) / 2,
+                            (hueRadius - internalHueRadius) / 2,
                             Offset(pHue.x, pHue.y),
                             style = Stroke(2.dp.toPx())
                         )
 
-                        val pSatVal = colorWheelState.satValToPoint()
+                        val pSatVal = satValToPoint()
                         drawCircle(
                             Color.hsv(hue, sat, `val`, 1f),
                             8.dp.toPx(),
@@ -171,21 +227,117 @@ fun ColorWheel(
                 }
                 .pointerInteropFilter(
                     requestDisallowInterceptTouchEvent
-                ) {
+                ) { event ->
                     requestDisallowInterceptTouchEvent(true)
-                    colorWheelState.onTouchEvent(it)
+
+                    fun pointToSatVal(point: PointF): FloatArray {
+                        val angleRad: Float =
+                            atan2(point.y.toDouble(), point.x.toDouble()).toFloat()
+
+                        var u = (point.x) / valSatRadius
+                        var v = (point.y) / valSatRadius
+
+                        if (u.pow(2) + v.pow(2) > 1) {
+                            u = cos(angleRad)
+                            v = sin(angleRad)
+                        }
+
+                        val x =
+                            (0.5 * sqrt(2 + 2 * u * sqrt(2.0) + u.pow(2) - v.pow(2)) - 0.5 * sqrt(
+                                2 - 2 * u * sqrt(2.0) + u.pow(2) - v.pow(2)
+                            )).toFloat()
+                        val y =
+                            (0.5 * sqrt(2 + 2 * v * sqrt(2.0) - u.pow(2) + v.pow(2)) - 0.5 * sqrt(
+                                2 - 2 * v * sqrt(2.0) - u.pow(2) + v.pow(2)
+                            )).toFloat()
+
+                        val result = FloatArray(2)
+                        result[0] = (x + 1) / 2
+                        result[1] = (y + 1) / 2
+                        return result
+                    }
+
+                    fun pointToHue(point: PointF): Float {
+                        val angleRad: Float = atan2(point.y, point.x)
+
+                        return if (angleRad > 0) {
+                            angleRad * 180 / 3.14f
+                        } else {
+                            angleRad * 180 / 3.14f + 360f
+                        }
+
+                    }
+
+                    fun moveTrackersIfNeeded(event: MotionEvent): Boolean {
+                        if (startTouchPoint == null) {
+                            return false
+                        }
+                        var update = false
+                        val pointEvento = PointF(event.x - hueCenter.x, -(event.y - hueCenter.y))
+
+                        val pointCenter = PointF(
+                            startTouchPoint!!.x.toFloat() - hueCenter.x,
+                            -(startTouchPoint!!.y.toFloat() - hueCenter.y)
+                        )
+
+                        if (pointCenter.x.pow(2) + pointCenter.y.pow(2) < hueRadius.pow(2) && pointCenter.x.pow(2) + pointCenter.y.pow(2) > internalHueRadius.pow(2)
+                        ) {
+                            hue = pointToHue(PointF(pointEvento.x, pointEvento.y))
+                            if (hue < 0) hue = 0f
+                            if (hue > 360) hue = 360f
+                            Log.d("hue", "moveTrackersIfNeeded: $hue")
+                            update = true
+
+                        } else if (pointCenter.x.pow(2) + pointCenter.y.pow(2) < valSatRadius.pow(2)) {
+                            val result = pointToSatVal(PointF(pointEvento.x, pointEvento.y))
+                            sat = result[0]
+                            `val` = result[1]
+                            if (sat < 0) sat = 0f
+                            if (sat > 1) sat = 1f
+                            if (`val` < 0) `val` = 0f
+                            if (`val` > 1) `val` = 1f
+                            Log.d("sat val", "moveTrackersIfNeeded: $sat $`val`")
+                            update = true
+
+                        }
+
+                        return update
+                    }
+
+                    var update = false
+                    when (event.action) {
+                        MotionEvent.ACTION_DOWN -> {
+                            startTouchPoint = Point(event.x.toInt(), event.y.toInt())
+                            update = moveTrackersIfNeeded(event)
+                        }
+
+                        MotionEvent.ACTION_MOVE -> update = moveTrackersIfNeeded(event)
+                        MotionEvent.ACTION_UP -> {
+                            update = moveTrackersIfNeeded(event)
+                            startTouchPoint = null
+                        }
+                    }
+                    if (update) {
+                        onColorChanged(Color.hsv(hue, sat, `val`, alpha))
+                    }
+
+
                     return@pointerInteropFilter true
                 }
         )
 
         val requestDisallowInterceptTouchEventAlpha = RequestDisallowInterceptTouchEvent()
+        var alphaHeight = 0f
         Spacer(
             modifier = Modifier
                 .padding(start = 16.dp)
                 .width(alphaWidth)
                 .fillMaxHeight()
                 .drawWithCache {
-                    colorWheelState.alphaHeight = size.height
+                    alphaHeight = size.height
+                    fun alphaToPoint(): PointF {
+                        return PointF(0f, (-alpha + 1f) * alphaHeight)
+                    }
 
                     val alphaBrush = Brush.linearGradient(
                         0.0f to Color.hsv(hue, sat, `val`, 1f),
@@ -234,7 +386,7 @@ fun ColorWheel(
                             style = Fill
                         )
 
-                        val pAlpha = colorWheelState.alphaToPoint()
+                        val pAlpha = alphaToPoint()
                         val heightAlpha = alphaWidth.toPx() / 2
 //                        drawRoundRect(
 //                            Color.hsv(hue, sat, `val`, alpha),
@@ -246,7 +398,7 @@ fun ColorWheel(
 //                        )
                         drawRoundRect(
                             Color.White,
-                            Offset(pAlpha.x, pAlpha.y - heightAlpha/2),
+                            Offset(pAlpha.x, pAlpha.y - heightAlpha / 2),
                             Size(size.width, heightAlpha),
                             CornerRadius(heightAlpha),
                             style = Stroke(2.dp.toPx())
@@ -265,209 +417,25 @@ fun ColorWheel(
                 }
                 .pointerInteropFilter(
                     requestDisallowInterceptTouchEventAlpha
-                ) {
+                ) { event ->
                     requestDisallowInterceptTouchEventAlpha(true)
-                    colorWheelState.onTouchEventAlpha(it)
+
+                    fun pointToAlpha(point: PointF): Float {
+                        return if (point.y < 0) 1f
+                        else if (point.y > alphaHeight) 0f
+                        else -point.y / alphaHeight + 1f
+                    }
+
+                    if (event.action == MotionEvent.ACTION_DOWN || event.action == MotionEvent.ACTION_MOVE || event.action == MotionEvent.ACTION_UP) {
+                        alpha = pointToAlpha(PointF(event.x, event.y))
+                        onColorChanged(Color.hsv(hue, sat, `val`, alpha))
+                    }
+
                     return@pointerInteropFilter true
                 }
         )
         requestDisallowInterceptTouchEvent(true)
     }
-
-}
-
-class ColorWheelState(var initialColor: Color) {
-    var onColorChanged: (Color) -> Unit = {}
-    /**
-     * Definisco le variabili che si occupano di immagazzinare
-     * il colore selezionato
-     */
-    data class ColorHSV(var hue: Float, var sat: Float, var `val`: Float, var alpha: Float){
-        fun toColor(): Color {
-            return Color.hsv(hue, sat, `val`, alpha)
-        }
-        fun toArgb(): Int {
-            return Color.hsv(hue, sat, `val`, alpha).toArgb()
-        }
-    }
-    var colorHSV: ColorHSV
-
-    init {
-        val hsv = rgbToHsv(initialColor.red, initialColor.green, initialColor.blue)
-        colorHSV = ColorHSV(hsv[0], hsv[1], hsv[2], initialColor.alpha)
-    }
-
-    private fun rgbToHsv(red: Float, green: Float, blue: Float): FloatArray {
-        val rf = red / 255f
-        val gf = green / 255f
-        val bf = blue / 255f
-
-        val max = maxOf(rf, gf, bf)
-        val min = minOf(rf, gf, bf)
-        val delta = max - min
-
-        val hsv = FloatArray(3)
-
-        hsv[2] = max // Value (V)
-
-        if (delta == 0f) {
-            hsv[0] = 0f // Hue (H) is undefined, set to 0
-            hsv[1] = 0f // Saturation (S) is 0
-        } else {
-            hsv[1] = delta / max // Saturation (S)
-
-            val hue = when (max) {
-                rf -> 60f * ((gf - bf) / delta) % 6f
-                gf -> 60f * ((bf - rf) / delta + 2f)
-                bf -> 60f * ((rf - gf) / delta + 4f)
-                else -> 0f // Should not happen
-            }
-
-            hsv[0] = if (hue < 0f) hue + 360f else hue // Hue (H)
-        }
-
-        return hsv
-    }
-
-
-    var center = Offset.Zero
-
-    var hueRadius = 0f
-    var internalHueRadius = 0f
-    var valSatRadius = 0f
-    var alphaHeight = 0f
-
-    fun hueToPoint(): PointF {
-        val radius = hueRadius - (hueRadius - internalHueRadius)/2
-        val angleRad = colorHSV.hue * 3.14f / 180
-
-        val p = PointF()
-        p.x = (center.x + cos(angleRad) * radius)
-        p.y = (center.y - sin(angleRad) * radius)
-        return p
-    }
-
-    fun satValToPoint(): PointF {
-        /**
-         * (u,v) are circular coordinates in the domain {(u,v) | u² + v² ≤ 1}
-         * (x,y) are square coordinates in the range [-1,1] x [-1,1]
-         */
-        val x = colorHSV.sat*2 -1
-        val y = colorHSV.`val`*2 -1
-
-        val u = (x * sqrt(1 - 0.5 * y.pow(2))).toFloat()
-        val v = (y * sqrt(1 - 0.5 * x.pow(2))).toFloat()
-
-        val p = PointF()
-        p.x = (u * valSatRadius + center.x)
-        p.y = ((-1* v) * valSatRadius + center.x)
-        return p
-    }
-
-    fun alphaToPoint(): PointF{
-        return PointF(0f, (-colorHSV.alpha + 1f) * alphaHeight)
-    }
-
-    private fun pointToSatVal(point: PointF): FloatArray {
-        val angleRad: Float = atan2(point.y.toDouble(), point.x.toDouble()).toFloat()
-
-        var u = (point.x)/valSatRadius
-        var v = (point.y)/valSatRadius
-
-        if (u.pow(2)+v.pow(2)> 1){
-            u = cos(angleRad)
-            v = sin(angleRad)
-        }
-
-        val x = (0.5*sqrt(2+2*u*sqrt(2.0)+u.pow(2)-v.pow(2)) - 0.5*sqrt(2-2*u*sqrt(2.0)+u.pow(2)-v.pow(2))).toFloat()
-        val y = (0.5*sqrt(2+2*v*sqrt(2.0)-u.pow(2)+v.pow(2)) - 0.5*sqrt(2-2*v*sqrt(2.0)-u.pow(2)+v.pow(2))).toFloat()
-
-        val result = FloatArray(2)
-        result[0] = (x+1)/2
-        result[1] = (y+1)/2
-        return result
-    }
-
-    private fun pointToHue(point: PointF): Float {
-        val angleRad: Float = atan2(point.y, point.x)
-
-        return if (angleRad > 0){
-            angleRad * 180 / 3.14f
-        } else{
-            angleRad * 180 / 3.14f + 360f
-        }
-
-    }
-
-    private fun pointToAlpha(point: PointF): Float {
-        return if(point.y < 0) 1f
-        else if (point.y > alphaHeight) 0f
-        else -point.y/alphaHeight + 1f
-    }
-
-    private var startTouchPoint: Point? = null
-    fun onTouchEvent(event: MotionEvent): Boolean {
-        var update = false
-        when (event.action) {
-            MotionEvent.ACTION_DOWN -> {
-                startTouchPoint = Point(event.x.toInt(), event.y.toInt())
-                update = moveTrackersIfNeeded(event)
-            }
-            MotionEvent.ACTION_MOVE -> update = moveTrackersIfNeeded(event)
-            MotionEvent.ACTION_UP -> {
-                update = moveTrackersIfNeeded(event)
-                startTouchPoint = null
-            }
-        }
-        if (update) {
-            onColorChanged(Color.hsv(colorHSV.hue, colorHSV.sat, colorHSV.`val`, colorHSV.alpha))
-        }
-        return update
-    }
-
-    private fun moveTrackersIfNeeded(event: MotionEvent): Boolean {
-        if (startTouchPoint == null) {
-            return false
-        }
-        var update = false
-        val pointEvento = PointF(event.x - center.x, -(event.y - center.y))
-
-        val pointCenter = PointF(startTouchPoint!!.x.toFloat() - center.x, -(startTouchPoint!!.y.toFloat() - center.y))
-
-        if(pointCenter.x.pow(2) + pointCenter.y.pow(2) < hueRadius.pow(2) && pointCenter.x.pow(2) + pointCenter.y.pow(2) > internalHueRadius.pow(2)){
-            colorHSV.hue = pointToHue(PointF(pointEvento.x, pointEvento.y))
-            if (colorHSV.hue < 0) colorHSV.hue = 0f
-            if (colorHSV.hue > 360) colorHSV.hue = 360f
-            update = true
-
-        } else if (pointCenter.x.pow(2) + pointCenter.y.pow(2) < valSatRadius.pow(2)) {
-            val result = pointToSatVal(PointF(pointEvento.x, pointEvento.y))
-            colorHSV.sat = result[0]
-            colorHSV.`val` = result[1]
-            if (colorHSV.sat < 0) colorHSV.sat = 0f
-            if (colorHSV.sat > 1) colorHSV.sat = 1f
-            if (colorHSV.`val` < 0) colorHSV.`val` = 0f
-            if (colorHSV.`val` > 1) colorHSV.`val` = 1f
-            update = true
-
-        }
-
-        return update
-    }
-
-    fun onTouchEventAlpha(event: MotionEvent): Boolean {
-        var update = false
-        if (event.action == MotionEvent.ACTION_DOWN || event.action == MotionEvent.ACTION_MOVE || event.action == MotionEvent.ACTION_UP) {
-            colorHSV.alpha = pointToAlpha(PointF(event.x, event.y))
-            update = true
-        }
-        if (update) {
-            onColorChanged(Color.hsv(colorHSV.hue, colorHSV.sat, colorHSV.`val`, colorHSV.alpha))
-        }
-        return update
-
-    }
-
 
 }
 
@@ -483,8 +451,8 @@ fun ShowColor(
             .padding(4.dp)
             .aspectRatio(1f)
             .drawBehind {
-                drawCircle(Color.White, size.width/2, center, style = Stroke(4.dp.toPx()))
-                drawCircle(color, size.width/2, center)
+                drawCircle(Color.White, size.width / 2, center, style = Stroke(4.dp.toPx()))
+                drawCircle(color, size.width / 2, center)
             }
     )
 }

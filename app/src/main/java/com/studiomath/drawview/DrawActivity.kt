@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -32,6 +33,7 @@ import androidx.compose.material.icons.outlined.Draw
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.MoreHoriz
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -42,27 +44,33 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.PopupProperties
+import androidx.compose.ui.graphics.Color
 import androidx.core.view.WindowCompat
 import androidx.ink.authoring.InProgressStrokesView
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.studiomath.drawview.document.DrawComponent
 import com.studiomath.drawview.document.DrawViewModel
+import com.studiomath.drawview.document.page.pt
 import com.studiomath.drawview.ui.composeComponents.ColorWheel
-import com.studiomath.drawview.ui.composeComponents.ToolSettingsSheet
+import com.studiomath.drawview.ui.composeComponents.SizeSlider
 import com.studiomath.drawview.ui.theme.DrawViewTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -141,7 +149,7 @@ class DrawActivity : ComponentActivity() {
 
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 fun DrawActivity(
     modifier: Modifier = Modifier,
@@ -237,67 +245,92 @@ fun DrawActivity(
 
                 HorizontalDivider()
 
-                var penSettingsExpanded by remember { mutableStateOf(false) }
-                if (penSettingsExpanded){
-                    ToolSettingsSheet(onDismissRequest = { penSettingsExpanded = false }) {
 
-                    }
-                }
-
-                Box(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(44.dp),
-                    contentAlignment = Alignment.CenterStart
+                        .height(48.dp)
+                        .padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Row(
+                    SmallButtonIcon(
+                        icon = Icons.AutoMirrored.Outlined.Undo,
+                        onClick = {
+                        }
+                    )
+                    SmallButtonIcon(
+                        icon = Icons.AutoMirrored.Outlined.Redo,
+                        onClick = {
+                        }
+                    )
+
+                    VerticalDivider(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp)
-                            .padding(horizontal = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        SmallButtonIcon(
-                            icon = Icons.AutoMirrored.Outlined.Undo,
-                            onClick = {
-                            }
-                        )
-                        SmallButtonIcon(
-                            icon = Icons.AutoMirrored.Outlined.Redo,
-                            onClick = {
-                            }
-                        )
+                            .padding(8.dp),
+                        thickness = 2.dp
+                    )
 
-                        VerticalDivider(
-                            modifier = Modifier
-                                .padding(8.dp),
-                            thickness = 2.dp
-                        )
-
+                    Box {
+                        var penSettingsExpanded by remember { mutableStateOf(false) }
                         SmallButtonIcon(
                             icon = painterResource(id = R.drawable.icon_ink_pen),
                             onClick = {
                                 penSettingsExpanded = true
                             }
                         )
-                        SmallButtonIcon(
-                            icon = painterResource(id = R.drawable.icon_ink_highlighter),
-                            onClick = {
-                            }
-                        )
-                        SmallButtonIcon(
-                            icon = painterResource(id = R.drawable.icon_ink_eraser),
-                            onClick = {
-                            }
-                        )
-                        SmallButtonIcon(
-                            icon = painterResource(id = R.drawable.icon_text_fields),
-                            onClick = {
-                            }
-                        )
 
 
+                        DropdownMenu(
+                            modifier = Modifier
+                                .width(300.dp),
+                            expanded = penSettingsExpanded,
+                            onDismissRequest = { penSettingsExpanded = false }
+                        ) {
+                            var size by remember { mutableFloatStateOf(drawViewModel.activeBrush.size) }
+                            ColorWheel(
+                                color = Color(drawViewModel.activeBrush.colorIntArgb),
+                                onColorChanged = {
+                                    drawViewModel.activeBrush = drawViewModel.activeBrush.copyWithColorIntArgb(
+                                        colorIntArgb = it.toArgb()
+                                    )
+                                }
+                            )
+
+                            SizeSlider(
+                                size = size.pt,
+                                onSizeChanged = {
+                                    size = it.pt
+                                    drawViewModel.activeBrush = drawViewModel.activeBrush.copy(
+                                        size = it.pt
+                                    )
+                                }
+                            )
+
+                        }
                     }
+                    SmallButtonIcon(
+                        icon = painterResource(id = R.drawable.icon_ink_highlighter),
+                        onClick = {
+                        }
+                    )
+                    SmallButtonIcon(
+                        icon = painterResource(id = R.drawable.icon_ink_eraser),
+                        onClick = {
+                        }
+                    )
+                    SmallButtonIcon(
+                        icon = painterResource(id = R.drawable.icon_text_fields),
+                        onClick = {
+                        }
+                    )
+
+                    VerticalDivider(
+                        modifier = Modifier
+                            .padding(8.dp),
+                        thickness = 2.dp
+                    )
+
+
                 }
 
                 HorizontalDivider()

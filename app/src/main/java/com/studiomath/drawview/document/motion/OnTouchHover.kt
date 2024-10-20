@@ -39,40 +39,17 @@ class OnTouchHover(
                     // Deliver input events as soon as they arrive.
                     view.requestUnbufferedDispatch(event)
 
-//                    drawViewModel.data.addStrokeData(
-//                        point = DrawDocumentData.Stroke.Point(
-//                            event.x, event.y
-//                        ).apply {
-//                            pressure = event.getAxisValue(MotionEvent.AXIS_PRESSURE)
-//                            orientation = event.getAxisValue(MotionEvent.AXIS_ORIENTATION)
-//                            tilt = event.getAxisValue(MotionEvent.AXIS_TILT)
-//                        },
-//                        strokeType = drawViewModel.activeTool,
-//                        isNewStroke = true
-//                    )
-
                     val pointerIndex = event.actionIndex
                     val pointerId = event.getPointerId(pointerIndex)
                     currentPointerId.value = pointerId
                     currentStrokeId.value =
                         drawViewModel.startStrokeInProgress?.let {
-                            it(event, pointerId, drawViewModel.defaultBrush)
+                            it(event, pointerId, drawViewModel.getActiveBrushScaled())
                         }
 
                 }
 
                 MotionEvent.ACTION_MOVE -> {
-
-//                    drawViewModel.data.addStrokeData(
-//                        point = DrawDocumentData.Stroke.Point(
-//                            event.x, event.y
-//                        ).apply {
-//                            pressure = event.getAxisValue(MotionEvent.AXIS_PRESSURE)
-//                            orientation = event.getAxisValue(MotionEvent.AXIS_ORIENTATION)
-//                            tilt = event.getAxisValue(MotionEvent.AXIS_TILT)
-//                        },
-//                        strokeType = drawViewModel.activeTool
-//                    )
 
                     val pointerId = checkNotNull(currentPointerId.value)
                     val strokeId = checkNotNull(currentStrokeId.value)
@@ -91,8 +68,6 @@ class OnTouchHover(
                         it(event, pointerId, currentStrokeId)
                     }
                     view.performClick()
-//                    drawViewModel.data.updateStrokeData()
-//                    drawViewModel.draw(redraw = true)
 
                 }
 

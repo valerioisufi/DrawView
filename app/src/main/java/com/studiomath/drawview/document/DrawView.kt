@@ -11,6 +11,10 @@ import android.util.Log
 import android.view.View
 import androidx.core.graphics.transform
 import androidx.input.motionprediction.MotionEventPredictor
+import com.studiomath.drawview.document.page.Dimension
+import com.studiomath.drawview.document.page.Dimension.Companion.Length
+import com.studiomath.drawview.document.page.pt
+import com.studiomath.drawview.document.page.px
 
 private const val TAG = "DrawView"
 
@@ -48,9 +52,10 @@ class DrawView(context: Context, val drawViewModel: DrawViewModel) : View(contex
                 color = Color.WHITE
                 style = Paint.Style.FILL
                 setShadowLayer(
-                    drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].dimension!!.calcPxFromPt(
-                        24f,
-                        drawViewModel.scalingPageRect.width().toInt()
+                    drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].dimension!!.calcPxFromDim(
+                        24f.pt,
+                        drawViewModel.scalingPageRect.width().px,
+                        Length.WIDTH
                     ),
                     0f,
                     8f,
@@ -97,9 +102,10 @@ class DrawView(context: Context, val drawViewModel: DrawViewModel) : View(contex
                 color = Color.WHITE
                 style = Paint.Style.FILL
                 setShadowLayer(
-                    drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].dimension!!.calcPxFromPt(
-                        24f,
-                        drawViewModel.scalingPageRect.width().toInt()
+                    drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].dimension!!.calcPxFromDim(
+                        24f.pt,
+                        drawViewModel.scalingPageRect.width().px,
+                        Length.WIDTH
                     ),
                     0f,
                     8f,

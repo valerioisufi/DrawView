@@ -15,7 +15,6 @@ import androidx.ink.brush.Brush
 import androidx.ink.brush.InputToolType
 import androidx.ink.brush.StockBrushes
 import androidx.ink.strokes.MutableStrokeInputBatch
-import androidx.ink.strokes.StrokeInput
 import com.studiomath.drawview.document.DrawViewModel
 import com.studiomath.drawview.file.FileManager
 import kotlinx.coroutines.CoroutineScope
@@ -270,9 +269,9 @@ class DrawDocumentData(
             dimension = Dimension(width.mm, height.mm)
 
             bitmapPage = Bitmap.createBitmap(
-                dimension!!.calcWidthFromRisoluzionePxInch(risoluzionePxInchPagePredefinito)
+                dimension!!.calcWidthFromResolutionPxInch(resolutionPxInchPageDefault)
                     .toInt(),
-                dimension!!.calcHeightFromRisoluzionePxInch(risoluzionePxInchPagePredefinito)
+                dimension!!.calcHeightFromResolutionPxInch(resolutionPxInchPageDefault)
                     .toInt(),
                 Bitmap.Config.ARGB_8888
             )

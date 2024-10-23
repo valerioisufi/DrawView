@@ -31,8 +31,8 @@ import kotlin.collections.forEach
 import kotlin.math.sqrt
 
 class DrawDocumentData(
-    val filesDir: File,
-    var filePath: String,
+    filesDir: File,
+    filePath: String,
     var displayMetrics: DisplayMetrics,
     var drawViewModel: DrawViewModel
 ){

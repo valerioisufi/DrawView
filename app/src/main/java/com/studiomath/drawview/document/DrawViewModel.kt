@@ -11,10 +11,12 @@ import android.graphics.RectF
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.MotionEvent
+import androidx.annotation.ColorInt
 import androidx.annotation.UiThread
 import androidx.compose.material.icons.materialIcon
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
 import androidx.core.graphics.withMatrix
 import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.authoring.InProgressStrokesFinishedListener
@@ -39,6 +41,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
 import java.io.File
 import kotlin.apply
 import kotlin.math.log
@@ -540,18 +543,57 @@ class DrawViewModel(
         removeFinishedStrokes?.let { it(strokes.keys) }
     }
 
-    var activeBrush = Brush.createWithColorIntArgb(
-        family = StockBrushes.pressurePenLatest,
-        colorIntArgb = Color.BLACK,
-        size = 5F, // pt
-        epsilon = 0.1F
-    )
+    @Serializable
+    data class ToolUtilities(val toolType: Tool){
+        enum class Tool {
+            INK_PEN, INK_HIGHLIGHTER, ERASER, TEXT, LAZO
+        }
+        @Serializable
+        data class BrushSettings(
+            val size: Float,
+            val color: Int
+        )
+
+        private var brushList = mutableListOf<BrushSettings>()
+
+        fun getBrush(index: Int): Brush{
+            if (index >= brushList.size) {
+                when(toolType){
+                    Tool.INK_PEN -> brushList.add(BrushSettings(3f, Color.BLUE))
+                    Tool.INK_HIGHLIGHTER -> brushList.add(BrushSettings(15f, Color.YELLOW))
+                    else -> brushList.add(BrushSettings(4f, Color.BLACK))
+                }
+            }
+            var family = when(toolType){
+                Tool.INK_PEN -> StockBrushes.pressurePenLatest
+                Tool.INK_HIGHLIGHTER -> StockBrushes.highlighterLatest
+                else -> StockBrushes.markerLatest
+            }
+            return Brush.createWithColorIntArgb(
+                family = family,
+                colorIntArgb = brushList[index].color,
+                size = brushList[index].size,
+                epsilon = 0.1F
+            )
+        }
+    }
+    val penTool = ToolUtilities(ToolUtilities.Tool.INK_PEN)
+    val highlighterTool = ToolUtilities(ToolUtilities.Tool.INK_HIGHLIGHTER)
+    val eraserTool = ToolUtilities(ToolUtilities.Tool.ERASER)
+
+
+    var activeBrush = penTool.getBrush(0)
     fun getActiveBrushScaled() = activeBrush.copy(
         size = data.document.pages[data.pageIndexNow].dimension!!.calcPxFromDim(
             activeBrush.size.pt,
             redrawPageRect.width().px,
             Length.WIDTH
-        )
+        ),
+//        epsilon = data.document.pages[data.pageIndexNow].dimension!!.calcPxFromDim(
+//            activeBrush.epsilon.mm,
+//            redrawPageRect.width().px,
+//            Length.WIDTH
+//        )
     )
 
     var startStrokeInProgress: ((event: MotionEvent, pointerId: Int, brush: Brush) -> InProgressStrokeId)? = null

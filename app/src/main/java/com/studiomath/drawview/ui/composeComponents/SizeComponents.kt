@@ -37,7 +37,7 @@ fun SizeSlider(
         Slider(
             value = size.pt,
             onValueChange = { onSizeChanged(it.pt) },
-            valueRange = 0.1f..30f,
+            valueRange = 0.1f..15f,
             onValueChangeFinished = {
                 // launch some business logic update with the state you hold
                 // viewModel.updateSelectedSliderValue(sliderPosition)

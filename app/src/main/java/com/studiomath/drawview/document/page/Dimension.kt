@@ -4,7 +4,7 @@ import android.graphics.RectF
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
 
-var resolutionPxInchPageDefault = 300
+var resolutionPxInchPageDefault = 150
 
 @Stable
 @Immutable

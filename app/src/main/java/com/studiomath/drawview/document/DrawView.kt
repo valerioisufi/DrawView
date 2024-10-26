@@ -34,100 +34,106 @@ class DrawView(context: Context, val drawViewModel: DrawViewModel) : View(contex
 
         canvas.clipRect(drawViewModel.windowRect)
 
-        if (drawViewModel.redrawOnDraw) {
-            canvas.drawBitmap(drawViewModel.onDrawBitmap, 0f, 0f, null)
+        when (drawViewModel.drawMode) {
+            DrawViewModel.DrawType.REDRAW -> {
+                canvas.drawBitmap(drawViewModel.onDrawBitmap, 0f, 0f, null)
 
-        } else if (drawViewModel.scalingOnDraw) {
-            Log.d("DrawViewModel", "scaling")
-            /**
-             * make il colore di fondo della view
-             */
-            drawViewModel.makePageBackground(canvas, drawViewModel.scalingPageRect)
+            }
+            DrawViewModel.DrawType.SCALING -> {
+                Log.d("DrawViewModel", "scaling")
+                /**
+                 * make il colore di fondo della view
+                 */
+                drawViewModel.makePageBackground(canvas, drawViewModel.scalingPageRect)
 
-            /**
-             * make lo sfondo bianco della pagina
-             */
-            // TODO: 31/12/2021 in seguito implementerò anche la possibilità di scegliere tra diversi tipi di pagine
-            val paintSfondoPaginaBianco = Paint().apply {
-                color = Color.WHITE
-                style = Paint.Style.FILL
-                setShadowLayer(
-                    drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].dimension!!.calcPxFromDim(
-                        24f.pt,
-                        drawViewModel.scalingPageRect.width().px,
-                        Length.WIDTH
-                    ),
-                    0f,
-                    8f,
-                    Color.parseColor("#BF959DA5")
+                /**
+                 * make lo sfondo bianco della pagina
+                 */
+                // TODO: 31/12/2021 in seguito implementerò anche la possibilità di scegliere tra diversi tipi di pagine
+                val paintSfondoPaginaBianco = Paint().apply {
+                    color = Color.WHITE
+                    style = Paint.Style.FILL
+                    setShadowLayer(
+                        drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].dimension!!.calcPxFromDim(
+                            24f.pt,
+                            drawViewModel.scalingPageRect.width().px,
+                            Length.WIDTH
+                        ),
+                        0f,
+                        8f,
+                        Color.parseColor("#BF959DA5")
+                    )
+                }
+                canvas.drawRect(drawViewModel.scalingPageRect, paintSfondoPaginaBianco)
+
+                /**
+                 * trasformo e disegno la pagina intera memorizzata nella cache
+                 */
+                canvas.drawBitmap(
+                    drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].bitmapPage!!,
+                    null,
+                    drawViewModel.scalingPageRect,
+                    null
                 )
+
+                // TODO: non utilizzare onDrawBitmap ma una copia
+                // trasformo e disegno l'area di disegno già pronta
+                val startRect =
+                    RectF(drawViewModel.windowRect).apply { transform(drawViewModel.windowMatrix) }
+                val endRect =
+                    RectF(drawViewModel.windowRect).apply { transform(drawViewModel.moveMatrix) }
+
+                val windowMatrixTransform = Matrix().apply {
+                    setRectToRect(startRect, endRect, Matrix.ScaleToFit.CENTER)
+                }
+                canvas.drawBitmap(drawViewModel.onDrawBitmap, windowMatrixTransform, null)
+
             }
-            canvas.drawRect(drawViewModel.scalingPageRect, paintSfondoPaginaBianco)
+            DrawViewModel.DrawType.CHANGE_PAGE -> {
+                drawViewModel.scalingPageRect =
+                    drawViewModel.data.calcPageOnWindowRect(drawViewModel.windowRect)
 
-            /**
-             * trasformo e disegno la pagina intera memorizzata nella cache
-             */
-            canvas.drawBitmap(
-                drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].bitmapPage!!,
-                null,
-                drawViewModel.scalingPageRect,
-                null
-            )
+                /**
+                 * make il colore di fondo della view
+                 */
+                drawViewModel.makePageBackground(canvas, drawViewModel.scalingPageRect)
 
-            // TODO: non utilizzare onDrawBitmap ma una copia
-            // trasformo e disegno l'area di disegno già pronta
-            val startRect =
-                RectF(drawViewModel.windowRect).apply { transform(drawViewModel.windowMatrix) }
-            val endRect =
-                RectF(drawViewModel.windowRect).apply { transform(drawViewModel.moveMatrix) }
+                /**
+                 * make lo sfondo bianco della pagina
+                 */
+                // TODO: 31/12/2021 in seguito implementerò anche la possibilità di scegliere tra diversi tipi di pagine
+                val paintSfondoPaginaBianco = Paint().apply {
+                    color = Color.WHITE
+                    style = Paint.Style.FILL
+                    setShadowLayer(
+                        drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].dimension!!.calcPxFromDim(
+                            24f.pt,
+                            drawViewModel.scalingPageRect.width().px,
+                            Length.WIDTH
+                        ),
+                        0f,
+                        8f,
+                        Color.parseColor("#BF959DA5")
+                    )
+                }
+                canvas.drawRect(drawViewModel.scalingPageRect, paintSfondoPaginaBianco)
 
-            val windowMatrixTransform = Matrix().apply {
-                setRectToRect(startRect, endRect, Matrix.ScaleToFit.CENTER)
-            }
-            canvas.drawBitmap(drawViewModel.onDrawBitmap, windowMatrixTransform, null)
-
-        } else if (drawViewModel.changePageOnDraw){
-            drawViewModel.scalingPageRect = drawViewModel.data.calcPageOnWindowRect(drawViewModel.windowRect)
-
-            /**
-             * make il colore di fondo della view
-             */
-            drawViewModel.makePageBackground(canvas, drawViewModel.scalingPageRect)
-
-            /**
-             * make lo sfondo bianco della pagina
-             */
-            // TODO: 31/12/2021 in seguito implementerò anche la possibilità di scegliere tra diversi tipi di pagine
-            val paintSfondoPaginaBianco = Paint().apply {
-                color = Color.WHITE
-                style = Paint.Style.FILL
-                setShadowLayer(
-                    drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].dimension!!.calcPxFromDim(
-                        24f.pt,
-                        drawViewModel.scalingPageRect.width().px,
-                        Length.WIDTH
-                    ),
-                    0f,
-                    8f,
-                    Color.parseColor("#BF959DA5")
+                /**
+                 * trasformo e disegno la pagina intera memorizzata nella cache
+                 */
+                canvas.drawBitmap(
+                    drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].bitmapPage!!,
+                    null,
+                    drawViewModel.scalingPageRect,
+                    null
                 )
+
+
             }
-            canvas.drawRect(drawViewModel.scalingPageRect, paintSfondoPaginaBianco)
-
-            /**
-             * trasformo e disegno la pagina intera memorizzata nella cache
-             */
-            canvas.drawBitmap(
-                drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].bitmapPage!!,
-                null,
-                drawViewModel.scalingPageRect,
-                null
-            )
-
-
-
-        } else {
-            canvas.drawBitmap(drawViewModel.onDrawBitmap, 0f, 0f, null)
+            DrawViewModel.DrawType.REFRESH -> {
+                canvas.drawBitmap(drawViewModel.onDrawBitmap, 0f, 0f, null)
+            }
+            else -> {}
 
         }
     }

@@ -192,7 +192,7 @@ class OnScaleTranslate(
                 drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].matrix =
                     Matrix(drawViewModel.moveMatrix)
 
-                drawViewModel.draw(scaling = true)
+                drawViewModel.draw(drawType = DrawViewModel.DrawType.SCALING)
 
             }
 
@@ -220,7 +220,7 @@ class OnScaleTranslate(
             }
 
             MotionEvent.ACTION_UP -> {
-                drawViewModel.draw(redraw = true)
+                drawViewModel.draw(drawType = DrawViewModel.DrawType.REDRAW)
 
             }
         }

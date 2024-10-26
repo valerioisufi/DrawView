@@ -87,99 +87,73 @@ class DrawViewModel(
     lateinit var jobRedraw: Job
     var scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
-    var redrawOnDraw = false
-    var scalingOnDraw = false
-    var changePageOnDraw = false
+    enum class DrawType {
+        REDRAW, SCALING, CHANGE_PAGE, REFRESH, ELSE
+    }
     fun draw(
-        redraw: Boolean = false,
-        scaling: Boolean = false,
-        changePage: Boolean = false,
-        makeCursore: Boolean = false,
-        dragAndDrop: Boolean = false
+        drawType: DrawType = DrawType.REFRESH,
     ) {
         if (!::onDrawBitmap.isInitialized) return
 
-        if (redraw) {
-            if (::jobRedraw.isInitialized) jobRedraw.cancel()
+        when (drawType) {
+            DrawType.REDRAW -> {
+                if (::jobRedraw.isInitialized) jobRedraw.cancel()
 
-            jobRedraw = scope.launch {
-                redrawPageRect = data.calcPageOnWindowRect(windowRect)
-                maskPath?.invoke(Path().apply{
-                    addRect(windowRect, Path.Direction.CW)
-                    op(Path().apply {
-                        addRect(redrawPageRect, Path.Direction.CW)
-                    }, Path.Op.DIFFERENCE)
-                })
+                jobRedraw = scope.launch {
+                    redrawPageRect = data.calcPageOnWindowRect(windowRect)
+                    maskPath?.invoke(Path().apply{
+                        addRect(windowRect, Path.Direction.CW)
+                        op(Path().apply {
+                            addRect(redrawPageRect, Path.Direction.CW)
+                        }, Path.Op.DIFFERENCE)
+                    })
 
-                /**
-                 * disegno la pagina sulla Bitmap
-                 */
-                onDrawBitmap = makePage(
-                    onDrawBitmap,
-                    redrawPageRect
-                )
-                windowMatrix =
-                    Matrix(data.document.pages[data.pageIndexNow].matrix)
-
-                redrawOnDraw = true
-                scalingOnDraw = false
-                changePageOnDraw = false
-                updateDrawView()
-
-                /**
-                 * aggiorno la cache
-                 */
-                data.document.pages[data.pageIndexNow].bitmapPage =
-                    makePage(
-                        data.document.pages[data.pageIndexNow].bitmapPage!!,
-                        null
+                    /**
+                     * disegno la pagina sulla Bitmap
+                     */
+                    onDrawBitmap = makePage(
+                        onDrawBitmap,
+                        redrawPageRect
                     )
+                    windowMatrix =
+                        Matrix(data.document.pages[data.pageIndexNow].matrix)
+
+                    updateDrawView(drawType = DrawType.REDRAW)
+
+                    /**
+                     * aggiorno la cache
+                     */
+                    data.document.pages[data.pageIndexNow].bitmapPage =
+                        makePage(
+                            data.document.pages[data.pageIndexNow].bitmapPage!!,
+                            null
+                        )
+
+                }
+            }
+            DrawType.SCALING -> {
+                if (::jobRedraw.isInitialized) jobRedraw.cancel()
+
+                scalingPageRect = data.calcPageOnWindowRect(windowRect)
+
+                updateDrawView(drawType = DrawType.SCALING)
 
             }
-        } else if (scaling) {
-            if (::jobRedraw.isInitialized) jobRedraw.cancel()
+            DrawType.CHANGE_PAGE -> {
+                if (::jobRedraw.isInitialized) jobRedraw.cancel()
 
-            scalingPageRect = data.calcPageOnWindowRect(windowRect)
+                updateDrawView(drawType = DrawType.CHANGE_PAGE)
 
-            redrawOnDraw = false
-            scalingOnDraw = true
-            changePageOnDraw = false
-            updateDrawView()
+                draw(drawType = DrawType.REDRAW)
+            }
+            DrawType.REFRESH -> {
+                if (::jobRedraw.isInitialized) jobRedraw.cancel()
+                updateDrawView(drawType = DrawType.REFRESH)
+            }
+            else -> {
+                updateDrawView(drawType = DrawType.ELSE)
+            }
 
-        } else if (changePage) {
-            if (::jobRedraw.isInitialized) jobRedraw.cancel()
-
-            redrawOnDraw = false
-            scalingOnDraw = false
-            changePageOnDraw = true
-            updateDrawView()
-
-            draw(redraw = true)
-
-//        } else if (makeCursore) {
-//            if (::jobRedraw.isInitialized) jobRedraw.cancel()
-//
-//            redrawOnDraw = false
-//            scalingOnDraw = false
-//            changePageOnDraw = false
-//            makeCursoreOnDraw = true
-//            invalidate()
-//
-//        } else if (dragAndDrop) {
-//            if (::jobRedraw.isInitialized) jobRedraw.cancel()
-//
-//            redrawOnDraw = false
-//            scalingOnDraw = false
-//            changePageOnDraw = false
-//            makeCursoreOnDraw = false
-//            dragAndDropOnDraw = true
-//            invalidate()
-//
-        } else {
-            redrawOnDraw = false
-            scalingOnDraw = false
-            changePageOnDraw = false
-            updateDrawView()
         }
     }
 
@@ -200,7 +174,6 @@ class DrawViewModel(
      * prefisso make- semplicemente per distinguerle
      * dalle funzioni draw-
      */
-    val mutex = Mutex()
     suspend fun makePage(
         bitmapSource: Bitmap,
         rect: RectF? = null,
@@ -368,15 +341,13 @@ class DrawViewModel(
                 setRectToRect(data.document.pages[pageIndex].rect(), rect, Matrix.ScaleToFit.CENTER)
             }
             canvas.withMatrix(strokePathMatrix){
-                mutex.withLock {
-                    val iterator = data.document.pages[pageIndex].strokeData.iterator()
-                    while (iterator.hasNext()) {
-                        val stroke = iterator.next()
+                val iterator = data.document.pages[pageIndex].strokeData.iterator()
+                while (iterator.hasNext()) {
+                    val stroke = iterator.next()
 
-                        Log.d("matrix", "matrix red: $strokePathMatrix")
+                    Log.d("matrix", "matrix red: $strokePathMatrix")
 
-                        canvasStrokeRenderer.draw(stroke = stroke.stroke!!, canvas = canvas, strokeToScreenTransform = strokePathMatrix)
-                    }
+                    canvasStrokeRenderer.draw(stroke = stroke.stroke!!, canvas = canvas, strokeToScreenTransform = strokePathMatrix)
                 }
 
             }
@@ -513,34 +484,31 @@ class DrawViewModel(
         }
 
         jobRedraw = scope.launch {
-            mutex.withLock{
-                val matrix = Matrix().apply {
-                    setRectToRect(redrawPageRect, data.pageNow.rect(), Matrix.ScaleToFit.CENTER)
-                }
-
-                strokes.values.forEach{ stroke ->
-                    var serializedStroke = DrawDocumentData.Stroke(0).apply {
-                        this.stroke = stroke
-                        toSerializedStroke()
-                        inputs.forEach{ input ->
-                            var point = floatArrayOf(input.x, input.y)
-                            matrix.mapPoints(point)
-                            input.apply {
-                                x = point[0]
-                                y = point[1]
-                            }
-                        }
-                        size = matrix.mapRadius(size)
-                        toInkStroke()
-                    }
-                    data.pageNow.strokeData.add(serializedStroke)
-                }
+            val matrix = Matrix().apply {
+                setRectToRect(redrawPageRect, data.pageNow.rect(), Matrix.ScaleToFit.CENTER)
             }
+
+            strokes.values.forEach{ stroke ->
+                var serializedStroke = DrawDocumentData.Stroke(0).apply {
+                    this.stroke = stroke
+                    toSerializedStroke()
+                    inputs.forEach{ input ->
+                        var point = floatArrayOf(input.x, input.y)
+                        matrix.mapPoints(point)
+                        input.apply {
+                            x = point[0]
+                            y = point[1]
+                        }
+                    }
+                    size = matrix.mapRadius(size)
+                    toInkStroke()
+                }
+                data.pageNow.strokeData.add(serializedStroke)
+            }
+
+            draw()
+            removeFinishedStrokes?.let { it(strokes.keys) }
         }
-
-        draw()
-
-        removeFinishedStrokes?.let { it(strokes.keys) }
     }
 
     @Serializable
@@ -615,7 +583,7 @@ class DrawViewModel(
 
         windowRect = RectF(0f, 0f, width.toFloat(), height.toFloat())
 
-        draw(redraw = true, scaling = false)
+        draw(drawType = DrawType.REDRAW)
     }
 
 
@@ -635,7 +603,9 @@ class DrawViewModel(
      */
     var onDrawBitmapChanged: (() -> Unit)? = null
 
-    fun updateDrawView() {
+    var drawMode = DrawType.REDRAW
+    fun updateDrawView(drawType: DrawType) {
+        drawMode = drawType
         onDrawBitmapChanged?.let { it() } // Raise the event here; any subscriber will receive this.
     }
 

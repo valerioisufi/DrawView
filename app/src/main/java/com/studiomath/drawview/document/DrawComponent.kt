@@ -4,6 +4,8 @@ import android.graphics.Path
 import android.widget.FrameLayout
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -26,6 +28,14 @@ fun DrawComponent(
     var onTouchHover = OnTouchHover(drawViewModel)
 
     Box {
+        if (drawViewModel.isLoadingDocument) {
+            LinearProgressIndicator(
+                modifier = Modifier
+                    .fillMaxWidth(),
+                color = MaterialTheme.colorScheme.secondary,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant,
+            )
+        }
         AndroidView(
             modifier = Modifier
                 .fillMaxSize(),

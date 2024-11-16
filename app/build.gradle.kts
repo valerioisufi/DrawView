@@ -70,8 +70,8 @@ dependencies {
     implementation(libs.androidx.ink.strokes)
 
     implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.lifecycle.runtime.ktx.v286)
-    implementation(libs.androidx.activity.compose.v192)
+    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.activity.compose)
 
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
@@ -79,8 +79,8 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
 
     testImplementation(libs.junit)
-    androidTestImplementation(libs.androidx.junit.v121)
-    androidTestImplementation(libs.androidx.espresso.core.v361)
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.ui.test.junit4)
     debugImplementation(libs.ui.tooling)
     debugImplementation(libs.ui.test.manifest)

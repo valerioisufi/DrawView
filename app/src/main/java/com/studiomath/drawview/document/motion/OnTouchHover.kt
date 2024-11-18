@@ -3,6 +3,7 @@ package com.studiomath.drawview.document.motion
 import android.annotation.SuppressLint
 import android.util.Log
 import android.view.MotionEvent
+import android.view.VelocityTracker
 import android.view.View
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -16,7 +17,9 @@ class OnTouchHover(
 ) {
     var onScaleTranslate: OnScaleTranslate = OnScaleTranslate(drawViewModel)
 
+    var palmRejection: PalmRejection = PalmRejection()
     var motionEventPredictor: MotionEventPredictor? = null
+    var velocityTracker = VelocityTracker.obtain()
     private var isStylusActive = false
 
     val currentPointerId = mutableStateOf<Int?>(null)
@@ -25,6 +28,7 @@ class OnTouchHover(
     @SuppressLint("ClickableViewAccessibility")
     val onTouchListener = View.OnTouchListener { view, event ->
         motionEventPredictor?.record(event)
+        velocityTracker.addMovement(event)
 
         if (event.action == MotionEvent.ACTION_DOWN) onScaleTranslate.continueScaleTranslate = false
         if (!isStylusActive && event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS) isStylusActive = true
@@ -67,7 +71,6 @@ class OnTouchHover(
                     drawViewModel.finishStrokeInProgress?.let {
                         it(event, pointerId, currentStrokeId)
                     }
-                    view.performClick()
 
                 }
 

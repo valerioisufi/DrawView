@@ -252,7 +252,7 @@ class DrawDocumentData(
                 /**
                  * aggiorno la cache
                  */
-                page.bitmapPage = drawViewModel.makePage(
+                page.bitmapPage = drawViewModel.pageMaker.makePage(
                     page.bitmapPage!!,
                     null,
                     page.index
@@ -299,50 +299,6 @@ class DrawDocumentData(
         }
     }
 
-
-//    var newStrokeData = mutableListOf<Stroke>()
-//    fun addStrokeData(
-//        point: Stroke.Point,
-//        strokeType: Stroke.StrokeType = Stroke.StrokeType.PENNA,
-//        strokeIndex: Int = newStrokeData.lastIndex,
-//        isNewStroke: Boolean = false
-//    ) {
-//        if (!isNewStroke) {
-//            newStrokeData[strokeIndex].points.add(point)
-//            newStrokeData[strokeIndex].vec2ds.add(
-//                Vec2d(
-//                    point.x.toDouble(),
-//                    point.y.toDouble(),
-//                    point.pressure.toDouble()
-//                )
-//            )
-//        } else {
-//            newStrokeData.add(
-//                Stroke(
-//                    zIndex = 100,
-//                    type = strokeType
-//                ).apply {
-//                    points.add(point)
-//                    vec2ds.add(
-//                        Vec2d(
-//                            point.x.toDouble(),
-//                            point.y.toDouble(),
-//                            point.pressure.toDouble()
-//                        )
-//                    )
-//
-//                }
-//            )
-//
-//        }
-//    }
-//    fun updateStrokeData(){
-//        drawViewModel.cancelJobRedraw()
-//        for(stroke in newStrokeData){
-//            document.pages[pageIndexNow].strokeData.add(stroke)
-//        }
-//        newStrokeData.clear()
-//    }
     fun cancelStrokeData(currentStrokeId: InProgressStrokeId, event: MotionEvent){
         drawViewModel.cancelStrokeInProgress?.let { it(currentStrokeId, event) }
     }
@@ -367,43 +323,5 @@ class DrawDocumentData(
     }
 
 
-    /**
-     * le funzioni seguenti avranno il prefisso calc-
-     * e il loro scopo è quello di determinare alcune
-     * caratteristiche della pagina
-     */
-    fun calcPageOnWindowRect(
-        windowRect: RectF,
-        matrix: Matrix = document.pages[pageIndexNow].matrix,
-        paddingDp: Float = 8f
-    ): RectF {
-        val padding = TypedValueCompat.dpToPx(paddingDp, displayMetrics)
 
-        var onWidth = true
-        var widthPage = windowRect.width() - padding * 2
-        var heightPage = (widthPage * sqrt(2.0)).toFloat()
-        if (heightPage + padding * 2 > windowRect.height()) {
-            onWidth = false
-            heightPage = windowRect.height() - padding * 2
-            widthPage = (heightPage / sqrt(2.0)).toFloat()
-        }
-
-        var left = padding
-        var top = padding
-        var right = (padding + widthPage)
-        var bottom = (padding + heightPage)
-
-        if (onWidth) {
-            top = (windowRect.height() - heightPage) / 2
-            bottom = top + heightPage
-        } else {
-            left = (windowRect.width() - widthPage) / 2
-            right = left + widthPage
-        }
-
-        val rect = RectF(left, top, right, bottom)
-        matrix.mapRect(rect)
-
-        return rect
-    }
 }

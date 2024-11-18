@@ -28,14 +28,14 @@ fun DrawComponent(
     var onTouchHover = OnTouchHover(drawViewModel)
 
     Box {
-        if (drawViewModel.isLoadingDocument) {
-            LinearProgressIndicator(
-                modifier = Modifier
-                    .fillMaxWidth(),
-                color = MaterialTheme.colorScheme.secondary,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant,
-            )
-        }
+//        if (drawViewModel.isLoadingDocument) {
+//            LinearProgressIndicator(
+//                modifier = Modifier
+//                    .fillMaxWidth(),
+//                color = MaterialTheme.colorScheme.secondary,
+//                trackColor = MaterialTheme.colorScheme.surfaceVariant,
+//            )
+//        }
         AndroidView(
             modifier = Modifier
                 .fillMaxSize(),

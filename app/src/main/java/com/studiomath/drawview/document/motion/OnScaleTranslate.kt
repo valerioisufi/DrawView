@@ -3,6 +3,7 @@ package com.studiomath.drawview.document.motion
 import android.graphics.Matrix
 import android.graphics.PointF
 import android.view.MotionEvent
+import com.studiomath.drawview.document.DrawManager
 import com.studiomath.drawview.document.DrawViewModel
 import kotlin.math.pow
 import kotlin.math.sqrt
@@ -140,10 +141,10 @@ class OnScaleTranslate(
                     (move.distance / down.distance)
 
 
-                drawViewModel.moveMatrix = Matrix(startMatrix)
+                drawViewModel.drawManager.moveMatrix = Matrix(startMatrix)
 
                 val f = FloatArray(9)
-                drawViewModel.moveMatrix.getValues(f)
+                drawViewModel.drawManager.moveMatrix.getValues(f)
 
                 /**
                  * scale max e scale min
@@ -158,7 +159,7 @@ class OnScaleTranslate(
                 if (lastScaleFactor * scaleFactor > scaleMax) {
                     scaleFactor = scaleMax / lastScaleFactor
                 }
-                drawViewModel.moveMatrix.postScale(
+                drawViewModel.drawManager.moveMatrix.postScale(
                     scaleFactor,
                     scaleFactor,
                     down.focusPos.x,
@@ -168,8 +169,8 @@ class OnScaleTranslate(
                 /**
                  * translate max/min
                  */
-                val pageRectNow = drawViewModel.data.calcPageOnWindowRect(drawViewModel.windowRect, matrix = drawViewModel.moveMatrix)
-                val pageRectModel = drawViewModel.data.calcPageOnWindowRect(drawViewModel.windowRect, matrix = Matrix())
+                val pageRectNow = drawViewModel.pageMaker.calcPageOnWindowRect(drawViewModel.drawManager.windowRect, matrix = drawViewModel.drawManager.moveMatrix)
+                val pageRectModel = drawViewModel.pageMaker.calcPageOnWindowRect(drawViewModel.drawManager.windowRect, matrix = Matrix())
 
                 if (pageRectNow.left + translate.x >= pageRectModel.left) {
                     translate.x = pageRectModel.left - pageRectNow.left
@@ -184,15 +185,17 @@ class OnScaleTranslate(
                     translate.y = pageRectModel.bottom - pageRectNow.bottom
                 }
 
-                drawViewModel.moveMatrix.postTranslate(
+                drawViewModel.drawManager.moveMatrix.postTranslate(
                     translate.x,
                     translate.y
                 )
 
                 drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].matrix =
-                    Matrix(drawViewModel.moveMatrix)
+                    Matrix(drawViewModel.drawManager.moveMatrix)
 
-                drawViewModel.draw(drawType = DrawViewModel.DrawType.SCALING)
+                drawViewModel.drawManager.requestDraw(
+                    DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.SCALE_TRANSLATE)
+                )
 
             }
 
@@ -220,7 +223,11 @@ class OnScaleTranslate(
             }
 
             MotionEvent.ACTION_UP -> {
-                drawViewModel.draw(drawType = DrawViewModel.DrawType.REDRAW)
+                drawViewModel.drawManager.requestDraw(
+                    DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                        update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                    }
+                )
 
             }
         }

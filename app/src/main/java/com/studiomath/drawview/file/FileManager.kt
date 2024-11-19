@@ -1,9 +1,16 @@
 package com.studiomath.drawview.file
 
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.InputStreamReader
+import java.util.zip.GZIPInputStream
+import java.util.zip.GZIPOutputStream
+import kotlin.concurrent.write
 
 
-class FileManager(filesDir: File, filePath: String) {
+class FileManager(filesDir: File, filePath: String, val options: Options = Options(false, false)) {
+    data class Options(val readOnly: Boolean, val compressGZIP: Boolean)
+
     private var rootSequence = filePath.split("/")
     private val directoryRoot: String
         get() {
@@ -34,7 +41,7 @@ class FileManager(filesDir: File, filePath: String) {
             justCreated = true
         }
 
-        if (file.extension == "txt" || file.extension == "json") {
+        if (!justCreated && (file.extension == "txt" || file.extension == "json")) {
             readFromFile()
         }
     }
@@ -42,11 +49,34 @@ class FileManager(filesDir: File, filePath: String) {
 
     // funzioni per la lettura e scrittura su file
     private fun readFromFile() {
+        if (options.compressGZIP) {
+            file.inputStream().use { inputStream ->
+                GZIPInputStream(inputStream).use { gzip ->
+                    InputStreamReader(gzip).use { streamReader ->
+                        text = streamReader.readText()
+                    }
+                }
+            }
+
+            return
+        }
         text = file.readText()
+
     }
 
     private fun writeToFile() {
+        if (options.readOnly) throw Exception("File is read-only")
+        if (options.compressGZIP) {
+            val outputStream = ByteArrayOutputStream()
+            GZIPOutputStream(outputStream).use { gzip ->
+                gzip.write(text.toByteArray())
+            }
+            file.writeBytes(outputStream.toByteArray())
+
+            return
+        }
         file.writeText(text)
+
     }
 
 

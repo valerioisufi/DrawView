@@ -26,6 +26,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
 import kotlinx.serialization.encodeToString
@@ -43,12 +44,12 @@ class DrawDocumentData(
      * data class for document data
      */
     @Serializable
-    data class Resource(val id: String, var type: ResourceType) {
+    data class Resource(@SerialName("i") val id: String, @SerialName("t") var type: ResourceType) {
         enum class ResourceType {
             PDF, IMAGE, COLOR
         }
 
-        var content = ""
+        @SerialName("c") var content = ""
     }
 
     enum class DataType(val value: Int) {
@@ -56,7 +57,7 @@ class DrawDocumentData(
     }
 
     @Serializable
-    data class Stroke(val zIndex: Int) {
+    data class Stroke(@SerialName("z") val zIndex: Int) {
         fun toSerializedStroke() {
             if (stroke == null) return
             color = stroke!!.brush.colorIntArgb
@@ -144,41 +145,41 @@ class DrawDocumentData(
 
         @Serializable
         data class StrokeInput(
-            var x: Float = 0f, var y: Float = 0f
+            @SerialName("x") var x: Float = 0f, @SerialName("y") var y: Float = 0f
         ) {
-            var timeMillis: Float = 0f
-            var strokeUnitLengthCm: Float? = null
-            var pressure: Float? = null
-            var tilt: Float? = null
-            var orientation: Float? = null
+            @SerialName("m") var timeMillis: Float = 0f
+            @SerialName("l") var strokeUnitLengthCm: Float? = null
+            @SerialName("p") var pressure: Float? = null
+            @SerialName("t") var tilt: Float? = null
+            @SerialName("o") var orientation: Float? = null
         }
 
-        var toolType = ToolType.UNKNOWN
-        var brush: BrushFamily = BrushFamily.PRESSURE_PEN
-        var inputs = mutableListOf<StrokeInput>()
+        @SerialName("tT") var toolType = ToolType.UNKNOWN
+        @SerialName("b") var brush: BrushFamily = BrushFamily.PRESSURE_PEN
+        @SerialName("i") var inputs = mutableListOf<StrokeInput>()
 
-        var size: Float = 8f
-        var color: Int = 0xFFFFFF
+        @SerialName("s") var size: Float = 8f
+        @SerialName("c") var color: Int = 0xFFFFFF
 
         @Transient
         var stroke: androidx.ink.strokes.Stroke? = null
     }
 
     @Serializable
-    data class Image(val zIndex: Int) {
-        var id: String = ""
+    data class Image(@SerialName("z") val zIndex: Int) {
+        @SerialName("i") var id: String = ""
     }
 
     @Serializable
-    data class Pdf(val zIndex: Int) {
-        var id: String = ""
+    data class Pdf(@SerialName("z") val zIndex: Int) {
+        @SerialName("i") var id: String = ""
     }
 
     @Serializable
-    data class Page(val index: Int) {
+    data class Page(@SerialName("i") val index: Int) {
         //        var creationDate: LocalDate = LocalDate.now()
-        var width = 0f // mm
-        var height = 0f // mm
+        @SerialName("w") var width = 0f // mm
+        @SerialName("h") var height = 0f // mm
 
         @Transient
         var dimension: Dimension? = null
@@ -187,6 +188,8 @@ class DrawDocumentData(
             return RectF(0f, 0f, width, height)
         }
 
+        @Transient
+        var mutex = Mutex()
         @Transient
         var matrix: Matrix = Matrix()
 
@@ -202,9 +205,9 @@ class DrawDocumentData(
         /**
          * grafica contenuta nella pagina
          */
-        val strokeData = mutableListOf<Stroke>()
-        val imageData = mutableListOf<Image>()
-        val pdfData = mutableListOf<Pdf>()
+        @SerialName("sD") val strokeData = mutableListOf<Stroke>()
+        @SerialName("iD") val imageData = mutableListOf<Image>()
+        @SerialName("pD") val pdfData = mutableListOf<Pdf>()
 
         @Transient
         var isPrepared = false
@@ -227,13 +230,13 @@ class DrawDocumentData(
     }
 
     @Serializable
-    data class Document(val name: String) {
-        val pages = mutableListOf<Page>()
-        val resources = mutableListOf<Resource>() // key = resourceId
+    data class Document(@SerialName("n") val name: String) {
+        @SerialName("p") val pages = mutableListOf<Page>()
+        @SerialName("r") val resources = mutableListOf<Resource>() // key = resourceId
     }
 
 
-    private var fileManager: FileManager = FileManager(filesDir, filePath)
+    private var fileManager: FileManager = FileManager(filesDir, filePath, options = FileManager.Options(false, true))
     lateinit var document: Document
 
     var documentMutex = Mutex()

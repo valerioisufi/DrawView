@@ -40,6 +40,7 @@ class OnTouchHover(
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     // Deliver input events as soon as they arrive.
+                    // It sometimes causes app crash
                     view.requestUnbufferedDispatch(event)
 
                     Log.d("OnTouchHover", "startStrokeInProgress: ")

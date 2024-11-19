@@ -54,20 +54,6 @@ class DrawManager(var drawViewModel: DrawViewModel): InProgressStrokesFinishedLi
     override fun onStrokesFinished(strokes: Map<InProgressStrokeId, Stroke>) {
 
         scope.launch {
-            val canvas = Canvas(drawViewModel.data.pageNow.bitmapPage!!)
-            val bitmapRect = RectF(0f, 0f, canvas.width.toFloat(), canvas.height.toFloat())
-            val windowToPageMatrix = Matrix().apply {
-                setRectToRect(redrawPageRect, bitmapRect, Matrix.ScaleToFit.CENTER)
-            }
-            canvas.withMatrix(windowToPageMatrix){
-                strokes.values.forEach { stroke ->
-                    drawViewModel.pageMaker.canvasStrokeRenderer.draw(stroke = stroke, canvas = canvas, strokeToScreenTransform = windowToPageMatrix)
-                }
-            }
-
-        }
-
-        scope.launch {
             val matrix = Matrix().apply {
                 setRectToRect(redrawPageRect, drawViewModel.data.pageNow.rect(), Matrix.ScaleToFit.CENTER)
             }
@@ -98,7 +84,18 @@ class DrawManager(var drawViewModel: DrawViewModel): InProgressStrokesFinishedLi
 
         }
 
-        Log.d("DrawManager", "onStrokesFinished: ")
+        val canvasCache = Canvas(drawViewModel.data.pageNow.bitmapPage!!)
+        val bitmapRect = RectF(0f, 0f, canvasCache.width.toFloat(), canvasCache.height.toFloat())
+        val windowToPageMatrix = Matrix().apply {
+            setRectToRect(redrawPageRect, bitmapRect, Matrix.ScaleToFit.CENTER)
+        }
+        canvasCache.withMatrix(windowToPageMatrix){
+            strokes.values.forEach { stroke ->
+                drawViewModel.pageMaker.canvasStrokeRenderer.draw(stroke = stroke, canvas = canvasCache, strokeToScreenTransform = windowToPageMatrix)
+            }
+        }
+
+
         val canvas = Canvas(onDrawBitmap)
         canvas.clipRect(redrawPageRect)
         strokes.values.forEach { stroke ->

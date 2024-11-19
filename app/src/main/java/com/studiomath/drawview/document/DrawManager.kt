@@ -10,9 +10,7 @@ import android.graphics.RectF
 import android.util.Log
 import androidx.annotation.UiThread
 import androidx.core.graphics.transform
-import androidx.core.graphics.values
 import androidx.core.graphics.withMatrix
-import androidx.core.graphics.withTranslation
 import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.authoring.InProgressStrokesFinishedListener
 import androidx.ink.strokes.Stroke
@@ -25,7 +23,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlin.collections.forEach
@@ -111,7 +108,7 @@ class DrawManager(var drawViewModel: DrawViewModel): InProgressStrokesFinishedLi
         requestDraw(
             DrawAttachments(drawMode = DrawMode.REFRESH).apply {
                 strokesIdToRemove = strokes.keys
-                invalidateType = DrawAttachments.Invalidate.POST_INVALIDATE
+                invalidateType = DrawAttachments.Invalidate.INVALIDATE
             }
         )
     }
@@ -264,17 +261,21 @@ class DrawManager(var drawViewModel: DrawViewModel): InProgressStrokesFinishedLi
     /**
      * draw directly on view canvas
      */
+    var lastDrawAttachments: DrawAttachments? = null
     fun onDrawView(canvas: Canvas){
         isInitialized = true
 
         var drawAttachments = drawStack.removeLastOrNull()
         if (drawAttachments == null) {
-            return
+            if (lastDrawAttachments == null) return
+            drawAttachments = lastDrawAttachments!!
         }
+        lastDrawAttachments = drawAttachments
 
         when (drawAttachments.drawMode) {
             DrawMode.UPDATE -> {
                 canvas.drawBitmap(onDrawBitmap, 0f, 0f, null)
+                drawViewModel.data.isDocumentShowed = true
             }
             DrawMode.REFRESH -> {
                 canvas.drawBitmap(onDrawBitmap, 0f, 0f, null)
@@ -388,7 +389,7 @@ class DrawManager(var drawViewModel: DrawViewModel): InProgressStrokesFinishedLi
 
         windowRect = RectF(0f, 0f, width.toFloat(), height.toFloat())
 
-        if (!drawViewModel.data.isLoadingDocument){
+        if (drawViewModel.data.isDocumentLoaded){
             drawViewModel.drawManager.requestDraw(
                 DrawAttachments(DrawMode.UPDATE).apply {
                     update = DrawAttachments.Update.DRAW_BITMAP

@@ -1,6 +1,5 @@
 package com.studiomath.drawview.document
 
-import android.graphics.Path
 import android.widget.FrameLayout
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,7 +27,7 @@ fun DrawComponent(
     var onTouchHover = OnTouchHover(drawViewModel)
 
     Box {
-        if (drawViewModel.data.isLoadingDocument) {
+        if (!drawViewModel.data.isDocumentLoaded || !drawViewModel.data.isDocumentShowed) {
             LinearProgressIndicator(
                 modifier = Modifier
                     .fillMaxWidth(),

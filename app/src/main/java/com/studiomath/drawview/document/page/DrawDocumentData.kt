@@ -1,7 +1,6 @@
 package com.studiomath.drawview.document.page
 
 import android.graphics.Bitmap
-import android.graphics.Canvas
 import android.graphics.Matrix
 import android.graphics.RectF
 import android.util.DisplayMetrics
@@ -10,7 +9,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.core.util.TypedValueCompat
 import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.brush.Brush
 import androidx.ink.brush.InputToolType
@@ -34,7 +32,6 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
 import kotlin.collections.forEach
-import kotlin.math.sqrt
 
 class DrawDocumentData(
     filesDir: File,
@@ -277,7 +274,8 @@ class DrawDocumentData(
         }
 
 
-    var isLoadingDocument by mutableStateOf(true)
+    var isDocumentLoaded by mutableStateOf(false)
+    var isDocumentShowed by mutableStateOf(false)
     init {
         documentJob = documentScope.launch {
             if (fileManager.justCreated) {
@@ -299,7 +297,7 @@ class DrawDocumentData(
                 }
             )
 
-            isLoadingDocument = false
+            isDocumentLoaded = true
 
             drawViewModel.drawManager.requestDraw(
                 DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {

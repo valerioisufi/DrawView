@@ -112,6 +112,7 @@ class DrawActivity : ComponentActivity() {
 
         inProgressStrokesView = InProgressStrokesView(this)
         inProgressStrokesView.addFinishedStrokesListener(drawViewModel.drawManager)
+        inProgressStrokesView.eagerInit()
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContent {

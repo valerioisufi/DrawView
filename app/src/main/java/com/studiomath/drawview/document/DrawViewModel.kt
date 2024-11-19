@@ -1,52 +1,20 @@
 package com.studiomath.drawview.document
 
-import android.graphics.Bitmap
-import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.Matrix
-import android.graphics.Paint
 import android.graphics.Path
-import android.graphics.PointF
-import android.graphics.RectF
 import android.util.DisplayMetrics
-import android.util.Log
 import android.view.MotionEvent
-import androidx.annotation.ColorInt
-import androidx.annotation.UiThread
-import androidx.compose.material.icons.materialIcon
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.ui.Modifier
-import androidx.core.graphics.withMatrix
 import androidx.ink.authoring.InProgressStrokeId
-import androidx.ink.authoring.InProgressStrokesFinishedListener
-import androidx.ink.authoring.InProgressStrokesView
 import androidx.ink.brush.Brush
 import androidx.ink.brush.StockBrushes
-import androidx.ink.rendering.android.canvas.CanvasStrokeRenderer
-import androidx.ink.strokes.Stroke
 import androidx.lifecycle.ViewModel
-import com.studiomath.drawview.document.motion.OnTouchHover
-import com.studiomath.drawview.document.page.Dimension
 import com.studiomath.drawview.document.page.Dimension.Companion.Length
 import com.studiomath.drawview.document.page.DrawDocumentData
 import com.studiomath.drawview.document.page.PageMaker
 import com.studiomath.drawview.document.page.pt
 import com.studiomath.drawview.document.page.px
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import java.io.File
-import kotlin.apply
-import kotlin.math.log
-import android.graphics.Path as AndroidPath
 
 class DrawViewModel(
     val filesDir: File,

@@ -6,11 +6,9 @@ import android.view.MotionEvent
 import android.view.VelocityTracker
 import android.view.View
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.ink.authoring.InProgressStrokeId
 import androidx.input.motionprediction.MotionEventPredictor
 import com.studiomath.drawview.document.DrawViewModel
-import com.studiomath.drawview.document.page.DrawDocumentData
 
 class OnTouchHover(
     private var drawViewModel: DrawViewModel
@@ -27,7 +25,7 @@ class OnTouchHover(
 
     @SuppressLint("ClickableViewAccessibility")
     val onTouchListener = View.OnTouchListener { view, event ->
-        if (drawViewModel.data.isLoadingDocument) return@OnTouchListener false
+        if (!drawViewModel.data.isDocumentLoaded || !drawViewModel.data.isDocumentShowed) return@OnTouchListener false
         motionEventPredictor?.record(event)
         velocityTracker.addMovement(event)
 
@@ -43,6 +41,8 @@ class OnTouchHover(
                 MotionEvent.ACTION_DOWN -> {
                     // Deliver input events as soon as they arrive.
                     view.requestUnbufferedDispatch(event)
+
+                    Log.d("OnTouchHover", "startStrokeInProgress: ")
 
                     val pointerIndex = event.actionIndex
                     val pointerId = event.getPointerId(pointerIndex)

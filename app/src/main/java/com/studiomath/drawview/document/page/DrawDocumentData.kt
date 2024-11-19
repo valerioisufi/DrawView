@@ -8,6 +8,7 @@ import android.util.DisplayMetrics
 import android.view.MotionEvent
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.util.TypedValueCompat
 import androidx.ink.authoring.InProgressStrokeId
@@ -15,13 +16,18 @@ import androidx.ink.brush.Brush
 import androidx.ink.brush.InputToolType
 import androidx.ink.brush.StockBrushes
 import androidx.ink.strokes.MutableStrokeInputBatch
+import com.studiomath.drawview.document.DrawManager.DrawAttachments
 import com.studiomath.drawview.document.DrawViewModel
 import com.studiomath.drawview.file.FileManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
 import kotlinx.serialization.encodeToString
@@ -195,9 +201,6 @@ class DrawDocumentData(
         @Transient
         var bitmapPage: Bitmap? = null
 
-        @Transient
-        var canvasPage: Canvas? = null
-
 
         /**
          * grafica contenuta nella pagina
@@ -205,6 +208,25 @@ class DrawDocumentData(
         val strokeData = mutableListOf<Stroke>()
         val imageData = mutableListOf<Image>()
         val pdfData = mutableListOf<Pdf>()
+
+        @Transient
+        var isPrepared = false
+        fun prepare() {
+            dimension = Dimension(width.mm, height.mm)
+
+            bitmapPage = Bitmap.createBitmap(
+                dimension!!.calcWidthFromResolutionPxInch(resolutionPxInchPageDefault)
+                    .toInt(),
+                dimension!!.calcHeightFromResolutionPxInch(resolutionPxInchPageDefault)
+                    .toInt(),
+                Bitmap.Config.ARGB_8888
+            )
+            strokeData.forEach { stroke ->
+                stroke.toInkStroke()
+            }
+
+            isPrepared = true
+        }
     }
 
     @Serializable
@@ -215,11 +237,38 @@ class DrawDocumentData(
 
 
     private var fileManager: FileManager = FileManager(filesDir, filePath)
-    var document: Document
+    lateinit var document: Document
 
-    fun saveDocument() {
-        fileManager.text = Json.encodeToString(document)
+    var documentMutex = Mutex()
+
+    fun debounce(
+        delayMillis: Long = 300L,
+        scope: CoroutineScope = MainScope(),
+        action: () -> Unit
+    ): () -> Unit {
+        var debounceJob: Job? = null
+        return {
+            debounceJob?.cancel()
+            debounceJob = scope.launch {
+                delay(delayMillis)
+                action()
+            }
+        }
     }
+    var documentJob: Job
+    var documentScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    var saveDocument =
+        debounce(
+            scope = documentScope
+        ){
+            documentJob = documentScope.launch {
+                documentMutex.withLock{
+                    fileManager.text = Json.encodeToString(document)
+                }
+            }
+
+
+        }
 
     var pageIndexNow by mutableIntStateOf(0)
     val pageNow: Page
@@ -227,77 +276,44 @@ class DrawDocumentData(
             return document.pages[pageIndexNow]
         }
 
-    private var jobPrepareBitmapPage: Job
-    var scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
+    var isLoadingDocument by mutableStateOf(true)
     init {
-        if (fileManager.justCreated) {
-            fileManager.text = Json.encodeToString(
-                Document(fileManager.file.name).apply {
-                    pages.add(Page(0).apply {
-                        dimension = Dimension.A4()
-                        width = dimension!!.width.mm
-                        height = dimension!!.height.mm
-                    })
+        documentJob = documentScope.launch {
+            if (fileManager.justCreated) {
+                fileManager.text = Json.encodeToString(
+                    Document(fileManager.file.name).apply {
+                        pages.add(Page(0).apply {
+                            dimension = Dimension.A4()
+                            width = dimension!!.width.mm
+                            height = dimension!!.height.mm
+                        })
+                    }
+                )
+            }
+            document = Json.decodeFromString(fileManager.text)
+
+            drawViewModel.drawManager.requestDraw(
+                DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
+                    update = DrawAttachments.Update.DRAW_BITMAP
+                }
+            )
+
+            isLoadingDocument = false
+
+            drawViewModel.drawManager.requestDraw(
+                DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
+                    update = DrawAttachments.Update.CACHE_ALL
                 }
             )
         }
-        document = Json.decodeFromString(fileManager.text)
 
-        preparePage(pageIndexNow)
-        jobPrepareBitmapPage = scope.launch {
-            for ((index, page) in document.pages.withIndex()) {
-                preparePage(index)
-
-                /**
-                 * aggiorno la cache
-                 */
-                page.bitmapPage = drawViewModel.pageMaker.makePage(
-                    page.bitmapPage!!,
-                    null,
-                    page.index
-                )
-            }
-        }
     }
 
     /**
      * gestione documento
      */
-    fun preparePage(pageIndex: Int) {
-        document.pages[pageIndex].apply {
-            dimension = Dimension(width.mm, height.mm)
 
-            bitmapPage = Bitmap.createBitmap(
-                dimension!!.calcWidthFromResolutionPxInch(resolutionPxInchPageDefault)
-                    .toInt(),
-                dimension!!.calcHeightFromResolutionPxInch(resolutionPxInchPageDefault)
-                    .toInt(),
-                Bitmap.Config.ARGB_8888
-            )
-            canvasPage = Canvas(bitmapPage!!)
-            strokeData.forEach { stroke ->
-                stroke.toInkStroke()
-            }
-
-//            for (stroke in strokeData){
-//                stroke.vec2ds.clear()
-//                for(point in stroke.points){
-//                    stroke.vec2ds.add(
-//                        Vec2d(
-//                            point.x.toDouble(),
-//                            point.y.toDouble(),
-//                            point.pressure.toDouble()
-//                        )
-//                    )
-//
-//                }
-//
-//            }
-
-
-        }
-    }
 
     fun cancelStrokeData(currentStrokeId: InProgressStrokeId, event: MotionEvent){
         drawViewModel.cancelStrokeInProgress?.let { it(currentStrokeId, event) }

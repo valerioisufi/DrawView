@@ -27,6 +27,7 @@ class OnTouchHover(
 
     @SuppressLint("ClickableViewAccessibility")
     val onTouchListener = View.OnTouchListener { view, event ->
+        if (drawViewModel.data.isLoadingDocument) return@OnTouchListener false
         motionEventPredictor?.record(event)
         velocityTracker.addMovement(event)
 

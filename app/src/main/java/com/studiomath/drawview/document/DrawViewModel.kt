@@ -52,12 +52,12 @@ class DrawViewModel(
     val filesDir: File,
     var filePath: String,
     var displayMetrics: DisplayMetrics
-) : ViewModel(), InProgressStrokesFinishedListener {
+) : ViewModel() {
 
+    var drawManager = DrawManager(this)
+    val pageMaker = PageMaker(displayMetrics)
 
     var data: DrawDocumentData = DrawDocumentData(filesDir, filePath, displayMetrics, this)
-    var drawManager = DrawManager(this)
-    val pageMaker = PageMaker(data)
 
 
 //    fun makeStroke(paint: Paint) {
@@ -205,4 +205,6 @@ class DrawViewModel(
     var removeFinishedStrokes: ((strokeKeys: Set<InProgressStrokeId>) -> Unit)? = null
 
     var maskPath: ((path: Path) -> Unit)? = null
+
+    var finishActivity: (() -> Unit)? = null
 }

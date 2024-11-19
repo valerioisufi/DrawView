@@ -90,6 +90,7 @@ import kotlinx.coroutines.launch
 
 class DrawActivity : ComponentActivity() {
     private lateinit var inProgressStrokesView: InProgressStrokesView
+    private lateinit var drawViewModel: DrawViewModel
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -97,7 +98,7 @@ class DrawActivity : ComponentActivity() {
         val intent = intent
         val filePath = intent.getStringExtra("filePath")
 
-        val drawViewModel = viewModels<DrawViewModel> {
+        drawViewModel = viewModels<DrawViewModel> {
             object : ViewModelProvider.Factory {
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
                     return DrawViewModel(
@@ -110,7 +111,7 @@ class DrawActivity : ComponentActivity() {
         }.value
 
         inProgressStrokesView = InProgressStrokesView(this)
-        inProgressStrokesView.addFinishedStrokesListener(drawViewModel)
+        inProgressStrokesView.addFinishedStrokesListener(drawViewModel.drawManager)
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContent {
@@ -119,6 +120,7 @@ class DrawActivity : ComponentActivity() {
             }
         }
 
+        drawViewModel.finishActivity = { finish() }
         /**
          * Impedisco all'utente di abbandonare l'activity con il tasto back
          */
@@ -157,6 +159,12 @@ class DrawActivity : ComponentActivity() {
         }
     }
 
+    override fun onPause() {
+        super.onPause()
+
+        drawViewModel.data.saveDocument()
+    }
+
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class,
@@ -193,7 +201,11 @@ fun DrawActivity(
                     Row(
                         modifier = Modifier
                     ) {
-                        ToolButton{
+                        ToolButton(
+                            onClick = {
+                                drawViewModel.finishActivity?.let { it() }
+                            }
+                        ){
                             Icon(
                                 imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
                                 contentDescription = "Back",

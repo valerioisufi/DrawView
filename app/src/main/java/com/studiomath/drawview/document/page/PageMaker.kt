@@ -7,6 +7,7 @@ import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
+import android.util.DisplayMetrics
 import android.util.Log
 import androidx.core.graphics.withMatrix
 import androidx.core.util.TypedValueCompat
@@ -16,7 +17,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.sqrt
 
-class PageMaker(val data: DrawDocumentData){
+class PageMaker(
+    var displayMetrics: DisplayMetrics
+){
     val canvasStrokeRenderer = CanvasStrokeRenderer.create()
 
     /**
@@ -25,12 +28,16 @@ class PageMaker(val data: DrawDocumentData){
      * dalle funzioni draw-
      */
     suspend fun makePage(
-        bitmapSource: Bitmap,
+        bitmapSource: Bitmap?,
         rect: RectF? = null,
-        pageIndex: Int = data.pageIndexNow
+        page: DrawDocumentData.Page
     ): Bitmap =
         withContext(Dispatchers.Default) {
-            val bitmap = Bitmap.createBitmap(bitmapSource)
+            if (!page.isPrepared){
+                page.prepare()
+            }
+            lateinit var bitmap: Bitmap
+            if (bitmapSource != null) bitmap = Bitmap.createBitmap(bitmapSource) else bitmap = Bitmap.createBitmap(page.bitmapPage!!)
             val canvas = Canvas(bitmap)
 
             /**
@@ -73,7 +80,7 @@ class PageMaker(val data: DrawDocumentData){
                 color = Color.WHITE
                 style = Paint.Style.FILL
                 setShadowLayer(
-                    data.document.pages[pageIndex].dimension!!.calcPxFromDim(
+                    page.dimension!!.calcPxFromDim(
                         24f.pt,
                         rect.width().px,
                         Length.WIDTH
@@ -194,13 +201,13 @@ class PageMaker(val data: DrawDocumentData){
              * make tracciati
              */
             // TODO: 31/12/2021 poi valuterò l'idea di utlizzare una funzione a parte che richiama i metodi make- dei singoli strumenti
-            data.preparePage(pageIndex)
+//            data.preparePage(pageIndex)
 
             val strokePathMatrix = Matrix().apply {
-                setRectToRect(data.document.pages[pageIndex].rect(), rect, Matrix.ScaleToFit.CENTER)
+                setRectToRect(page.rect(), rect, Matrix.ScaleToFit.CENTER)
             }
             canvas.withMatrix(strokePathMatrix){
-                val iterator = data.document.pages[pageIndex].strokeData.iterator()
+                val iterator = page.strokeData.iterator()
                 while (iterator.hasNext()) {
                     val stroke = iterator.next()
 
@@ -257,10 +264,10 @@ class PageMaker(val data: DrawDocumentData){
      */
     fun calcPageOnWindowRect(
         windowRect: RectF,
-        matrix: Matrix = data.document.pages[data.pageIndexNow].matrix,
+        matrix: Matrix,
         paddingDp: Float = 8f
     ): RectF {
-        val padding = TypedValueCompat.dpToPx(paddingDp, data.displayMetrics)
+        val padding = TypedValueCompat.dpToPx(paddingDp, displayMetrics)
 
         var onWidth = true
         var widthPage = windowRect.width() - padding * 2

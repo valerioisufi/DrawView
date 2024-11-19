@@ -10,6 +10,9 @@ import android.graphics.RectF
 import android.util.Log
 import androidx.annotation.UiThread
 import androidx.core.graphics.transform
+import androidx.core.graphics.values
+import androidx.core.graphics.withMatrix
+import androidx.core.graphics.withTranslation
 import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.authoring.InProgressStrokesFinishedListener
 import androidx.ink.strokes.Stroke
@@ -22,7 +25,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlin.collections.forEach
 
 class DrawManager(var drawViewModel: DrawViewModel): InProgressStrokesFinishedListener {
@@ -51,42 +56,64 @@ class DrawManager(var drawViewModel: DrawViewModel): InProgressStrokesFinishedLi
     @UiThread
     override fun onStrokesFinished(strokes: Map<InProgressStrokeId, Stroke>) {
 
+        scope.launch {
+            val canvas = Canvas(drawViewModel.data.pageNow.bitmapPage!!)
+            val bitmapRect = RectF(0f, 0f, canvas.width.toFloat(), canvas.height.toFloat())
+            val windowToPageMatrix = Matrix().apply {
+                setRectToRect(redrawPageRect, bitmapRect, Matrix.ScaleToFit.CENTER)
+            }
+            canvas.withMatrix(windowToPageMatrix){
+                strokes.values.forEach { stroke ->
+                    drawViewModel.pageMaker.canvasStrokeRenderer.draw(stroke = stroke, canvas = canvas, strokeToScreenTransform = windowToPageMatrix)
+                }
+            }
+
+        }
+
+        scope.launch {
+            val matrix = Matrix().apply {
+                setRectToRect(redrawPageRect, drawViewModel.data.pageNow.rect(), Matrix.ScaleToFit.CENTER)
+            }
+
+            drawViewModel.data.documentMutex.withLock{
+                strokes.values.forEach{ stroke ->
+                    var serializedStroke = DrawDocumentData.Stroke(0).apply {
+                        this.stroke = stroke
+                        toSerializedStroke()
+                        inputs.forEach{ input ->
+                            var point = floatArrayOf(input.x, input.y)
+                            matrix.mapPoints(point)
+                            input.apply {
+                                x = point[0]
+                                y = point[1]
+                            }
+                        }
+                        size = matrix.mapRadius(size)
+                        toInkStroke()
+                    }
+                    drawViewModel.data.pageNow.strokeData.add(serializedStroke)
+                }
+            }
+
+
+
+            drawViewModel.data.saveDocument()
+
+        }
+
+        Log.d("DrawManager", "onStrokesFinished: ")
         val canvas = Canvas(onDrawBitmap)
         canvas.clipRect(redrawPageRect)
         strokes.values.forEach { stroke ->
             drawViewModel.pageMaker.canvasStrokeRenderer.draw(stroke = stroke, canvas = canvas, strokeToScreenTransform = Matrix())
         }
 
-        jobRedraw = scope.launch {
-            val matrix = Matrix().apply {
-                setRectToRect(redrawPageRect, drawViewModel.data.pageNow.rect(), Matrix.ScaleToFit.CENTER)
+        requestDraw(
+            DrawAttachments(drawMode = DrawMode.REFRESH).apply {
+                strokesIdToRemove = strokes.keys
+                invalidateType = DrawAttachments.Invalidate.POST_INVALIDATE
             }
-
-            strokes.values.forEach{ stroke ->
-                var serializedStroke = DrawDocumentData.Stroke(0).apply {
-                    this.stroke = stroke
-                    toSerializedStroke()
-                    inputs.forEach{ input ->
-                        var point = floatArrayOf(input.x, input.y)
-                        matrix.mapPoints(point)
-                        input.apply {
-                            x = point[0]
-                            y = point[1]
-                        }
-                    }
-                    size = matrix.mapRadius(size)
-                    toInkStroke()
-                }
-                drawViewModel.data.pageNow.strokeData.add(serializedStroke)
-            }
-
-            requestDraw(
-                DrawAttachments(drawMode = DrawMode.REFRESH).apply {
-                    strokesIdToRemove = strokes.keys
-                }
-            )
-
-        }
+        )
     }
 
     /**
@@ -95,7 +122,8 @@ class DrawManager(var drawViewModel: DrawViewModel): InProgressStrokesFinishedLi
     lateinit var onDrawBitmap: Bitmap
     lateinit var redrawPageRect: RectF
 
-    lateinit var jobRedraw: Job
+    lateinit var jobOnDrawBitmap: Job
+    lateinit var jobCache: Job
     var scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
 
@@ -105,77 +133,100 @@ class DrawManager(var drawViewModel: DrawViewModel): InProgressStrokesFinishedLi
         enum class DrawMode {
             UPDATE, REFRESH, SCALE_TRANSLATE, PREVIEW, ANIMATE
         }
-
         enum class Update {
             DRAW_BITMAP, CACHE_ALL, CACHE_PAGE_ONLY
         }
-        var update: Update? = null
+        enum class Invalidate {
+            INVALIDATE, POST_INVALIDATE, POST_INVALIDATE_ON_ANIMATION
+        }
 
+        var update: Update? = null
         var strokesIdToRemove: Set<InProgressStrokeId>? = null
+        var invalidateType = Invalidate.INVALIDATE
     }
     var drawStack = mutableListOf<DrawAttachments>()
 
     fun requestDraw(drawAttachments: DrawAttachments){
-        if (!::onDrawBitmap.isInitialized) return
-
         when (drawAttachments.drawMode) {
             DrawMode.UPDATE -> {
-                if (::jobRedraw.isInitialized) jobRedraw.cancel()
 
-                jobRedraw = scope.launch {
-                    redrawPageRect = drawViewModel.pageMaker.calcPageOnWindowRect(windowRect)
-                    drawViewModel.maskPath?.invoke(Path().apply{
-                        addRect(windowRect, Path.Direction.CW)
-                        op(Path().apply {
-                            addRect(redrawPageRect, Path.Direction.CW)
-                        }, Path.Op.DIFFERENCE)
-                    })
+                when (drawAttachments.update) {
+                    DrawAttachments.Update.DRAW_BITMAP -> {
+                        if (!::onDrawBitmap.isInitialized) return
+                        if (::jobOnDrawBitmap.isInitialized) jobOnDrawBitmap.cancel()
 
-                    /**
-                     * disegno la pagina sulla Bitmap
-                     */
-                    onDrawBitmap = drawViewModel.pageMaker.makePage(
-                        onDrawBitmap,
-                        redrawPageRect
-                    )
-                    windowMatrix =
-                        Matrix(drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].matrix)
+                        jobOnDrawBitmap = scope.launch {
+                            redrawPageRect = drawViewModel.pageMaker.calcPageOnWindowRect(windowRect, drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].matrix)
+                            drawViewModel.maskPath?.invoke(Path().apply{
+                                addRect(windowRect, Path.Direction.CW)
+                                op(Path().apply {
+                                    addRect(redrawPageRect, Path.Direction.CW)
+                                }, Path.Op.DIFFERENCE)
+                            })
 
-                    updateDrawView()
+                            /**
+                             * disegno la pagina sulla Bitmap
+                             */
+                            onDrawBitmap = drawViewModel.pageMaker.makePage(
+                                onDrawBitmap,
+                                redrawPageRect,
+                                drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow]
+                            )
+                            windowMatrix =
+                                Matrix(drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].matrix)
 
-                    /**
-                     * aggiorno la cache
-                     */
-                    drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].bitmapPage =
-                        drawViewModel.pageMaker.makePage(
-                            drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].bitmapPage!!,
-                            null
-                        )
+                            updateDrawView(drawAttachments)
+                        }
+                    }
+                    DrawAttachments.Update.CACHE_ALL -> {
+                        scope.launch {
+                            // update all bitmapPages
+                            for ((index, page) in drawViewModel.data.document.pages.withIndex()) {
+                                page.bitmapPage = drawViewModel.pageMaker.makePage(
+                                    page.bitmapPage,
+                                    null,
+                                    page
+                                )
+                            }
+                        }
+                    }
+                    DrawAttachments.Update.CACHE_PAGE_ONLY -> {
+                        if (::jobCache.isInitialized) jobCache.cancel()
 
+                        jobCache = scope.launch {
+                            // update current bitmapPage
+                            drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].bitmapPage =
+                                drawViewModel.pageMaker.makePage(
+                                    drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].bitmapPage!!,
+                                    null,
+                                    drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow]
+                                )
+                        }
+                    }
+
+                    else -> {}
                 }
             }
             DrawMode.REFRESH -> {
-                if (::jobRedraw.isInitialized) {}
-                drawStack.add(drawAttachments)
-                updateDrawView()
+                if (!::onDrawBitmap.isInitialized) return
+                if (::jobOnDrawBitmap.isInitialized) {}
+                updateDrawView(drawAttachments)
             }
             DrawMode.SCALE_TRANSLATE -> {
-                if (::jobRedraw.isInitialized) jobRedraw.cancel()
+                if (!::onDrawBitmap.isInitialized) return
+                if (::jobOnDrawBitmap.isInitialized) jobOnDrawBitmap.cancel()
 
-                scalingPageRect = drawViewModel.pageMaker.calcPageOnWindowRect(windowRect)
-                drawStack.add(drawAttachments)
-                updateDrawView()
+                scalingPageRect = drawViewModel.pageMaker.calcPageOnWindowRect(windowRect, drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].matrix)
+                updateDrawView(drawAttachments)
 
             }
             DrawMode.PREVIEW -> {
-                if (::jobRedraw.isInitialized) jobRedraw.cancel()
+                if (!::onDrawBitmap.isInitialized) return
 
-                updateDrawView()
             }
             DrawMode.ANIMATE -> {
-                if (::jobRedraw.isInitialized) jobRedraw.cancel()
+                if (!::onDrawBitmap.isInitialized) return
 
-                updateDrawView()
             }
 
         }
@@ -190,19 +241,37 @@ class DrawManager(var drawViewModel: DrawViewModel): InProgressStrokesFinishedLi
     var postInvalidateOnAnimationRequest: (() -> Unit)? = null
 
     var isDrawing = false
-    private fun updateDrawView() {
+    private fun updateDrawView(drawAttachments: DrawAttachments) {
         isDrawing = true
-        invalidateRequest?.let { it() } // Raise the event here; any subscriber will receive this.
+        drawStack.add(drawAttachments)
+        when (drawAttachments.drawMode){
+            DrawMode.UPDATE -> {
+                postInvalidateRequest?.let { it() }
+            }
+            DrawMode.ANIMATE -> {
+                postInvalidateOnAnimationRequest?.let { it() }
+            }
+            else -> {
+                if (drawAttachments.invalidateType == DrawAttachments.Invalidate.INVALIDATE){
+                    invalidateRequest?.let { it() }
+                } else if (drawAttachments.invalidateType == DrawAttachments.Invalidate.POST_INVALIDATE){
+                    postInvalidateRequest?.let { it() }
+                }
+            }
+        }
     }
 
     /**
      * draw directly on view canvas
      */
     fun onDrawView(canvas: Canvas){
+        isInitialized = true
+
         var drawAttachments = drawStack.removeLastOrNull()
         if (drawAttachments == null) {
             return
         }
+
         when (drawAttachments.drawMode) {
             DrawMode.UPDATE -> {
                 canvas.drawBitmap(onDrawBitmap, 0f, 0f, null)
@@ -306,7 +375,7 @@ class DrawManager(var drawViewModel: DrawViewModel): InProgressStrokesFinishedLi
 
         }
 
-        isDrawing = true
+        isDrawing = false
     }
 
     /**
@@ -318,6 +387,15 @@ class DrawManager(var drawViewModel: DrawViewModel): InProgressStrokesFinishedLi
         onDrawBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
 
         windowRect = RectF(0f, 0f, width.toFloat(), height.toFloat())
+
+        if (!drawViewModel.data.isLoadingDocument){
+            drawViewModel.drawManager.requestDraw(
+                DrawAttachments(DrawMode.UPDATE).apply {
+                    update = DrawAttachments.Update.DRAW_BITMAP
+                }
+            )
+        }
+
 
 //        draw(drawType = DrawType.REDRAW)
     }

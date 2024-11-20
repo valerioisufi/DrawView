@@ -9,11 +9,15 @@ import android.graphics.Path
 import android.graphics.RectF
 import android.util.DisplayMetrics
 import android.util.Log
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.unit.dp
 import androidx.core.graphics.withMatrix
 import androidx.core.util.TypedValueCompat
 import androidx.ink.rendering.android.canvas.CanvasStrokeRenderer
 import com.studiomath.drawview.document.page.Dimension.Companion.Length
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlin.math.sqrt
 
@@ -36,8 +40,7 @@ class PageMaker(
             if (!page.isPrepared){
                 page.prepare()
             }
-            lateinit var bitmap: Bitmap
-            if (bitmapSource != null) bitmap = Bitmap.createBitmap(bitmapSource) else bitmap = Bitmap.createBitmap(page.bitmapPage!!)
+            var bitmap: Bitmap = if (bitmapSource != null) Bitmap.createBitmap(bitmapSource) else Bitmap.createBitmap(page.bitmapPage!!)
             val canvas = Canvas(bitmap)
 
             /**
@@ -206,17 +209,18 @@ class PageMaker(
             val strokePathMatrix = Matrix().apply {
                 setRectToRect(page.rect(), rect, Matrix.ScaleToFit.CENTER)
             }
-            canvas.withMatrix(strokePathMatrix){
-                val iterator = page.strokeData.iterator()
-                while (iterator.hasNext()) {
-                    val stroke = iterator.next()
+            page.mutex.withLock{
+                canvas.withMatrix(strokePathMatrix){
+                    val iterator = page.strokeData.iterator()
+                    while (iterator.hasNext()) {
+                        val stroke = iterator.next()
 
-                    Log.d("matrix", "matrix red: $strokePathMatrix")
+                        canvasStrokeRenderer.draw(stroke = stroke.stroke!!, canvas = canvas, strokeToScreenTransform = strokePathMatrix)
+                    }
 
-                    canvasStrokeRenderer.draw(stroke = stroke.stroke!!, canvas = canvas, strokeToScreenTransform = strokePathMatrix)
                 }
-
             }
+
 
 
 

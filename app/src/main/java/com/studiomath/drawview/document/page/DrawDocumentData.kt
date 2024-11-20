@@ -26,13 +26,19 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.Json
 import java.io.File
 import kotlin.collections.forEach
+import kotlin.math.roundToInt
 
 class DrawDocumentData(
     filesDir: File,
@@ -188,6 +194,7 @@ class DrawDocumentData(
             return RectF(0f, 0f, width, height)
         }
 
+        // TODO: utilizzare mutex solo per modifiche che coinvolgono Page data class 
         @Transient
         var mutex = Mutex()
         @Transient
@@ -235,10 +242,25 @@ class DrawDocumentData(
         @SerialName("r") val resources = mutableListOf<Resource>() // key = resourceId
     }
 
+    // TODO: da utilizzare per ridurre il numero di cifre salvate nella serializzazione 
+    class FloatStrokeInputSerializer : KSerializer<Float> {
+        override val descriptor = PrimitiveSerialDescriptor("value_name", PrimitiveKind.FLOAT)
+
+        override fun deserialize(decoder: Decoder): Float {
+            return decoder.decodeFloat()
+        }
+
+        override fun serialize(encoder: Encoder, value: Float) {
+            encoder.encodeFloat((value * 1000).roundToInt() / 1000f)
+        }
+    }
+
 
     private var fileManager: FileManager = FileManager(filesDir, filePath, options = FileManager.Options(false, true))
     lateinit var document: Document
-
+    
+    // TODO: utilizzare documentMutex solo per modifiche che coinvolgono Document data class
+    // TODO: page.mutex deve tenere conto anche di documentMutex 
     var documentMutex = Mutex()
 
     fun debounce(
@@ -262,6 +284,7 @@ class DrawDocumentData(
             scope = documentScope
         ){
             documentJob = documentScope.launch {
+                // TODO: utilizzare page.mutex invece e serializzare solo le pagine che hanno subito modifiche 
                 documentMutex.withLock{
                     fileManager.text = Json.encodeToString(document)
                 }
@@ -338,7 +361,6 @@ class DrawDocumentData(
         return if (document.resources[resourceId.toInt()].type == Resource.ResourceType.COLOR)
             document.resources[resourceId.toInt()].content.toInt() else 0xFFFFFF
     }
-
 
 
 }

@@ -149,6 +149,7 @@ class DrawDocumentData(
             PRESSURE_PEN, HIGHLIGHTER, MARKER
         }
 
+        // TODO: utlizzare invece una lista di float
         @Serializable
         data class StrokeInput(
             @SerialName("x") var x: Float = 0f, @SerialName("y") var y: Float = 0f
@@ -197,8 +198,6 @@ class DrawDocumentData(
         // TODO: utilizzare mutex solo per modifiche che coinvolgono Page data class 
         @Transient
         var mutex = Mutex()
-        @Transient
-        var matrix: Matrix = Matrix()
 
         /**
          * bitmapPage e canvasPage servono solo come cache da

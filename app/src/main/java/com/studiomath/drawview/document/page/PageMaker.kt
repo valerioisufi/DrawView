@@ -266,6 +266,14 @@ class PageMaker(
      * e il loro scopo è quello di determinare alcune
      * caratteristiche della pagina
      */
+    data class PagePositionOnWindowOption(
+        var horizontalPadding: Float = 8f,
+        var verticalPadding: Float = 8f,
+    ){
+        enum class Alignment{
+            LEFT, CENTER, RIGHT
+        }
+    }
     fun calcPageOnWindowRect(
         windowRect: RectF,
         matrix: Matrix,

@@ -82,7 +82,7 @@ class OnScaleTranslate(
                 )
 
                 startMatrix =
-                    Matrix(drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].matrix)
+                    Matrix(drawViewModel.drawManager.moveMatrix)
 //                    drawLastPath = false
 
             }
@@ -102,7 +102,7 @@ class OnScaleTranslate(
                 )
 
                 startMatrix =
-                    Matrix(drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].matrix)
+                    Matrix(drawViewModel.drawManager.moveMatrix)
 
             }
 
@@ -141,10 +141,10 @@ class OnScaleTranslate(
                     (move.distance / down.distance)
 
 
-                drawViewModel.drawManager.moveMatrix = Matrix(startMatrix)
+                val tempMatrix = Matrix(startMatrix)
 
                 val f = FloatArray(9)
-                drawViewModel.drawManager.moveMatrix.getValues(f)
+                tempMatrix.getValues(f)
 
                 /**
                  * scale max e scale min
@@ -159,7 +159,7 @@ class OnScaleTranslate(
                 if (lastScaleFactor * scaleFactor > scaleMax) {
                     scaleFactor = scaleMax / lastScaleFactor
                 }
-                drawViewModel.drawManager.moveMatrix.postScale(
+                tempMatrix.postScale(
                     scaleFactor,
                     scaleFactor,
                     down.focusPos.x,
@@ -169,7 +169,7 @@ class OnScaleTranslate(
                 /**
                  * translate max/min
                  */
-                val pageRectNow = drawViewModel.pageMaker.calcPageOnWindowRect(drawViewModel.drawManager.windowRect, matrix = drawViewModel.drawManager.moveMatrix)
+                val pageRectNow = drawViewModel.pageMaker.calcPageOnWindowRect(drawViewModel.drawManager.windowRect, matrix = tempMatrix)
                 val pageRectModel = drawViewModel.pageMaker.calcPageOnWindowRect(drawViewModel.drawManager.windowRect, matrix = Matrix())
 
                 if (pageRectNow.left + translate.x >= pageRectModel.left) {
@@ -185,13 +185,13 @@ class OnScaleTranslate(
                     translate.y = pageRectModel.bottom - pageRectNow.bottom
                 }
 
-                drawViewModel.drawManager.moveMatrix.postTranslate(
+                tempMatrix.postTranslate(
                     translate.x,
                     translate.y
                 )
 
-                drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].matrix =
-                    Matrix(drawViewModel.drawManager.moveMatrix)
+                drawViewModel.drawManager.moveMatrix =
+                    Matrix(tempMatrix)
 
                 drawViewModel.drawManager.requestDraw(
                     DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.SCALE_TRANSLATE)
@@ -217,7 +217,7 @@ class OnScaleTranslate(
                 }
 
                 startMatrix =
-                    Matrix(drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].matrix)
+                    Matrix(drawViewModel.drawManager.moveMatrix)
                 isScaling = false
 
             }

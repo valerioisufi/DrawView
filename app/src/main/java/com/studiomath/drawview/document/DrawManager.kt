@@ -150,7 +150,7 @@ class DrawManager(var drawViewModel: DrawViewModel): InProgressStrokesFinishedLi
                         if (::jobOnDrawBitmap.isInitialized) jobOnDrawBitmap.cancel()
 
                         jobOnDrawBitmap = scope.launch {
-                            redrawPageRect = drawViewModel.pageMaker.calcPageOnWindowRect(windowRect, drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].matrix)
+                            redrawPageRect = drawViewModel.pageMaker.calcPageOnWindowRect(windowRect, moveMatrix)
                             drawViewModel.maskPath?.invoke(Path().apply{
                                 addRect(windowRect, Path.Direction.CW)
                                 op(Path().apply {
@@ -167,7 +167,7 @@ class DrawManager(var drawViewModel: DrawViewModel): InProgressStrokesFinishedLi
                                 drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow]
                             )
                             windowMatrix =
-                                Matrix(drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].matrix)
+                                Matrix(moveMatrix)
 
                             updateDrawView(drawAttachments)
                         }
@@ -210,7 +210,7 @@ class DrawManager(var drawViewModel: DrawViewModel): InProgressStrokesFinishedLi
                 if (!::onDrawBitmap.isInitialized) return
                 if (::jobOnDrawBitmap.isInitialized) jobOnDrawBitmap.cancel()
 
-                scalingPageRect = drawViewModel.pageMaker.calcPageOnWindowRect(windowRect, drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].matrix)
+                scalingPageRect = drawViewModel.pageMaker.calcPageOnWindowRect(windowRect, moveMatrix)
                 updateDrawView(drawAttachments)
 
             }

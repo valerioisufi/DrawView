@@ -283,10 +283,13 @@ class DrawDocumentData(
             scope = documentScope
         ){
             documentJob = documentScope.launch {
-                // TODO: utilizzare page.mutex invece e serializzare solo le pagine che hanno subito modifiche 
-                documentMutex.withLock{
-                    fileManager.text = Json.encodeToString(document)
+                if (isDocumentLoaded){
+                    // TODO: utilizzare page.mutex invece e serializzare solo le pagine che hanno subito modifiche
+                    documentMutex.withLock{
+                        fileManager.text = Json.encodeToString(document)
+                    }
                 }
+
             }
 
 

@@ -279,7 +279,6 @@ class DrawManager(var drawViewModel: DrawViewModel): InProgressStrokesFinishedLi
                 drawViewModel.removeFinishedStrokes?.let { it(drawAttachments.strokesIdToRemove!!) }
             }
             DrawMode.SCALE_TRANSLATE -> {
-                Log.d("DrawViewModel", "scaling")
                 /**
                  * make il colore di fondo della view
                  */

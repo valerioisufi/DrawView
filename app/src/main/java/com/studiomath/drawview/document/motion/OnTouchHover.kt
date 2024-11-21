@@ -43,8 +43,6 @@ class OnTouchHover(
                     // It sometimes causes app crash
                     view.requestUnbufferedDispatch(event)
 
-                    Log.d("OnTouchHover", "startStrokeInProgress: ")
-
                     val pointerIndex = event.actionIndex
                     val pointerId = event.getPointerId(pointerIndex)
                     currentPointerId.value = pointerId

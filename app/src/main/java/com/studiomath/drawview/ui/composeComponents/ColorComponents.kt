@@ -92,7 +92,6 @@ fun ColorWheel(
     }
 
     val hsv = rgbToHsv(color.red, color.green, color.blue)
-    Log.d("color", "ColorWheel: ${hsv[0]} ${hsv[1]} ${hsv[2]}")
 
     var hue by remember { mutableFloatStateOf(hsv[0]) }
     var sat by remember { mutableFloatStateOf(hsv[1]) }
@@ -285,7 +284,7 @@ fun ColorWheel(
                             hue = pointToHue(PointF(pointEvento.x, pointEvento.y))
                             if (hue < 0) hue = 0f
                             if (hue > 360) hue = 360f
-                            Log.d("hue", "moveTrackersIfNeeded: $hue")
+
                             update = true
 
                         } else if (pointCenter.x.pow(2) + pointCenter.y.pow(2) < valSatRadius.pow(2)) {
@@ -296,7 +295,7 @@ fun ColorWheel(
                             if (sat > 1) sat = 1f
                             if (`val` < 0) `val` = 0f
                             if (`val` > 1) `val` = 1f
-                            Log.d("sat val", "moveTrackersIfNeeded: $sat $`val`")
+
                             update = true
 
                         }

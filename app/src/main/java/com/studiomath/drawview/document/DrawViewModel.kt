@@ -22,7 +22,7 @@ class DrawViewModel(
     var displayMetrics: DisplayMetrics
 ) : ViewModel() {
 
-    var drawManager = DrawManager(this)
+    var drawManager = DrawManager(this, displayMetrics)
     val pageMaker = PageMaker(displayMetrics)
 
     var data: DrawDocumentData = DrawDocumentData(filesDir, filePath, displayMetrics, this)

@@ -7,7 +7,7 @@ import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
-import android.util.Log
+import android.util.DisplayMetrics
 import androidx.annotation.UiThread
 import androidx.core.graphics.transform
 import androidx.core.graphics.withMatrix
@@ -27,9 +27,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlin.collections.forEach
 
-class DrawManager(var drawViewModel: DrawViewModel): InProgressStrokesFinishedListener {
+class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetrics): InProgressStrokesFinishedListener {
     var isInitialized = false
 
+    val calcPage = CalcPage(displayMetrics)
     /**
      * definisco windowMatrix e moveMatrix come matrici rappresentative dell'applicazione
      * che a windowRect ( Rect() che rappresenta la view) associa
@@ -45,6 +46,8 @@ class DrawManager(var drawViewModel: DrawViewModel): InProgressStrokesFinishedLi
      */
     lateinit var windowRect: RectF
     lateinit var scalingPageRect: RectF
+
+    var pagesRectOnWindow = mutableSetOf<RectF>()
 
 //    fun getMaskPath(): Path {
 //
@@ -114,7 +117,7 @@ class DrawManager(var drawViewModel: DrawViewModel): InProgressStrokesFinishedLi
      * onDrawBitmap = bitmap temp per richieste di disegno
      */
     lateinit var onDrawBitmap: Bitmap
-    lateinit var redrawPageRect: RectF
+    var drawPagesRect = mutableSetOf<RectF>()
 
     lateinit var jobOnDrawBitmap: Job
     lateinit var jobCache: Job
@@ -150,7 +153,17 @@ class DrawManager(var drawViewModel: DrawViewModel): InProgressStrokesFinishedLi
                         if (::jobOnDrawBitmap.isInitialized) jobOnDrawBitmap.cancel()
 
                         jobOnDrawBitmap = scope.launch {
+                            if (calcPage.needToBeUpdated){
+                                calcPage.calcPagesRectOnWindow(
+                                    drawViewModel.data.document.pages,
+                                    windowRect,
+                                    CalcPage.PagePositionOnWindowOption()
+                                )
+                                calcPage.needToBeUpdated = false
+                            }
+
                             redrawPageRect = drawViewModel.pageMaker.calcPageOnWindowRect(windowRect, moveMatrix)
+
                             drawViewModel.maskPath?.invoke(Path().apply{
                                 addRect(windowRect, Path.Direction.CW)
                                 op(Path().apply {
@@ -282,7 +295,7 @@ class DrawManager(var drawViewModel: DrawViewModel): InProgressStrokesFinishedLi
                 /**
                  * make il colore di fondo della view
                  */
-                drawViewModel.pageMaker.makePageBackground(canvas, scalingPageRect, windowRect)
+                drawViewModel.pageMaker.makeWindowBackground(canvas, scalingPageRect, windowRect)
 
                 /**
                  * make lo sfondo bianco della pagina
@@ -384,6 +397,8 @@ class DrawManager(var drawViewModel: DrawViewModel): InProgressStrokesFinishedLi
         onDrawBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
 
         windowRect = RectF(0f, 0f, width.toFloat(), height.toFloat())
+
+        calcPage.needToBeUpdated = true
 
         if (drawViewModel.data.isDocumentLoaded){
             drawViewModel.drawManager.requestDraw(

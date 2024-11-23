@@ -319,6 +319,10 @@ class DrawDocumentData(
             }
             document = Json.decodeFromString(fileManager.text)
 
+            for (page in document.pages){
+                page.prepare()
+            }
+
             drawViewModel.drawManager.requestDraw(
                 DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
                     update = DrawAttachments.Update.DRAW_BITMAP

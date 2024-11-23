@@ -8,18 +8,12 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.util.DisplayMetrics
-import android.util.Log
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.ui.unit.dp
 import androidx.core.graphics.withMatrix
-import androidx.core.util.TypedValueCompat
 import androidx.ink.rendering.android.canvas.CanvasStrokeRenderer
 import com.studiomath.drawview.document.page.Dimension.Companion.Length
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlin.math.sqrt
 
 class PageMaker(
     var displayMetrics: DisplayMetrics
@@ -75,36 +69,7 @@ class PageMaker(
             val rect = rectTemp
 
 
-            /**
-             * make lo sfondo bianco della pagina e ShadowLayer
-             */
-            // TODO: 31/12/2021 in seguito implementerò anche la possibilità di scegliere tra diversi tipi di pagine
-            val paintSfondoPaginaBianco = Paint().apply {
-                color = Color.WHITE
-                style = Paint.Style.FILL
-                setShadowLayer(
-                    page.dimension!!.calcPxFromDim(
-                        24f.pt,
-                        rect.width().px,
-                        Length.WIDTH
-                    ),
-                    0f,
-                    8f,
-                    Color.parseColor("#BF959DA5")
-                )
-            }
-            canvas.drawRect(rect, paintSfondoPaginaBianco)
 
-            /**
-             * make la rigatura o la quadrettatura
-             */
-//            val rigaturaQuadrettatura =
-//                RigaturaQuadrettatura(context, RigaturaQuadrettatura.Type.Rigatura1R)
-//            rigaturaQuadrettatura.makeRigaturaQuadrettatura(
-//                canvas,
-//                document.pages[pageIndex].dimension!!,
-//                rect
-//            )
 
 //            /**
 //             * make il PDF che farà da sfondo alla pagina
@@ -261,51 +226,61 @@ class PageMaker(
 
     }
 
-    /**
-     * le funzioni seguenti avranno il prefisso calc-
-     * e il loro scopo è quello di determinare alcune
-     * caratteristiche della pagina
-     */
-    data class PagePositionOnWindowOption(
-        var horizontalPadding: Float = 8f,
-        var verticalPadding: Float = 8f,
-    ){
-        enum class Alignment{
-            LEFT, CENTER, RIGHT
-        }
+    val windowBackgroundWithShadowPaint = Paint().apply {
+        color = Color.WHITE
+        style = Paint.Style.FILL
     }
-    fun calcPageOnWindowRect(
-        windowRect: RectF,
-        matrix: Matrix,
-        paddingDp: Float = 8f
-    ): RectF {
-        val padding = TypedValueCompat.dpToPx(paddingDp, displayMetrics)
-
-        var onWidth = true
-        var widthPage = windowRect.width() - padding * 2
-        var heightPage = (widthPage * sqrt(2.0)).toFloat()
-        if (heightPage + padding * 2 > windowRect.height()) {
-            onWidth = false
-            heightPage = windowRect.height() - padding * 2
-            widthPage = (heightPage / sqrt(2.0)).toFloat()
+    fun makeWindowBackground(canvas: Canvas, pagesRect: Set<RectF>, windowRect: RectF, pageDimension: Dimension) {
+        val windowPagePath = Path().apply {
+            addRect(windowRect, Path.Direction.CW)
         }
 
-        var left = padding
-        var top = padding
-        var right = (padding + widthPage)
-        var bottom = (padding + heightPage)
-
-        if (onWidth) {
-            top = (windowRect.height() - heightPage) / 2
-            bottom = top + heightPage
-        } else {
-            left = (windowRect.width() - widthPage) / 2
-            right = left + widthPage
+        val finalPath = Path().apply {
+            for (pageRect in pagesRect){
+                val pageRectPath = Path().apply {
+                    addRect(pageRect, Path.Direction.CW)
+                }
+                op(windowPagePath, pageRectPath, Path.Op.DIFFERENCE)
+            }
         }
 
-        val rect = RectF(left, top, right, bottom)
-        matrix.mapRect(rect)
+        /**
+         * make lo sfondo bianco della pagina e ShadowLayer
+         */
+        windowBackgroundWithShadowPaint.apply {
+            setShadowLayer(
+                pageDimension.calcPxFromDim(
+                    24f.pt,
+                    pagesRect.first().width().px,
+                    Length.WIDTH
+                ),
+                0f,
+                8f,
+                Color.parseColor("#BF959DA5")
+            )
+        }
 
-        return rect
+        canvas.drawPath(finalPath, windowBackgroundWithShadowPaint)
+
+
+//        val paintViewBackground = Paint().apply {
+//            color = Color.parseColor("#FFFFFF")
+//        }
+//        canvas.drawPath(finalPath, paintViewBackground)
+
+
+        // TODO: 31/12/2021 in seguito implementerò anche la possibilità di scegliere tra diversi tipi di pagine
+        /**
+         * make la rigatura o la quadrettatura
+         */
+//            val rigaturaQuadrettatura =
+//                RigaturaQuadrettatura(context, RigaturaQuadrettatura.Type.Rigatura1R)
+//            rigaturaQuadrettatura.makeRigaturaQuadrettatura(
+//                canvas,
+//                document.pages[pageIndex].dimension!!,
+//                rect
+//            )
+
     }
+
 }

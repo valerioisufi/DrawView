@@ -6,10 +6,13 @@ import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.Rect
 import android.graphics.RectF
 import android.util.DisplayMetrics
 import androidx.core.graphics.withMatrix
 import androidx.ink.rendering.android.canvas.CanvasStrokeRenderer
+import com.studiomath.drawview.document.CalcPage
+import com.studiomath.drawview.document.DrawViewModel
 import com.studiomath.drawview.document.page.Dimension.Companion.Length
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.withLock
@@ -25,9 +28,29 @@ class PageMaker(
      * prefisso make- semplicemente per distinguerle
      * dalle funzioni draw-
      */
+    suspend fun makePagesOnBitmap(
+        bitmapRect: Rect,
+        pagesRectWithIndex: Set<CalcPage.PageRectWithIndex>,
+        pages: DrawDocumentData.Document
+    ): Bitmap {
+        var bitmap = Bitmap.createBitmap(bitmapRect.width(), bitmapRect.height(), Bitmap.Config.ARGB_8888)
+        var canvas = Canvas(bitmap)
+
+        for (pageRectWithIndex in pagesRectWithIndex){
+            canvas.drawBitmap(
+                makePage(bitmap, pageRectWithIndex.rect, pages.pages[pageRectWithIndex.index]),
+                0f,
+                0f,
+                null
+            )
+
+        }
+        return bitmap
+    }
+
     suspend fun makePage(
         bitmapSource: Bitmap?,
-        rect: RectF? = null,
+        clipRect: RectF? = null,
         page: DrawDocumentData.Page
     ): Bitmap =
         withContext(Dispatchers.Default) {
@@ -41,32 +64,12 @@ class PageMaker(
              * verifico se il Rect passato come parametro alla funzione sia
              * uguale a null, in tal caso ne creo uno io con le dimensioni della Bitmap
              */
-            var rectTemp = RectF()
-            if (rect == null) {
-                rectTemp.apply {
-                    left = 0f
-                    top = 0f
-                    right = bitmap.width.toFloat()
-                    bottom = bitmap.height.toFloat()
-                }
-            } else {
-                rectTemp = rect
-
-                /**
-                 * make il colore di fondo della view, se serve
-                 */
-                makePageBackground(
-                    canvas,
-                    rectTemp,
-                    RectF().apply {
-                        left = 0f
-                        top = 0f
-                        right = bitmap.width.toFloat()
-                        bottom = bitmap.height.toFloat()
-                    }
-                )
+            var clipRect = if (clipRect != null) clipRect else RectF().apply {
+                left = 0f
+                top = 0f
+                right = bitmap.width.toFloat()
+                bottom = bitmap.height.toFloat()
             }
-            val rect = rectTemp
 
 
 
@@ -137,7 +140,7 @@ class PageMaker(
             /**
              * make il contenuto della pagina
              */
-            canvas.clipRect(rect)
+            canvas.clipRect(clipRect)
 
             /**
              * make images
@@ -169,10 +172,9 @@ class PageMaker(
              * make tracciati
              */
             // TODO: 31/12/2021 poi valuterò l'idea di utlizzare una funzione a parte che richiama i metodi make- dei singoli strumenti
-//            data.preparePage(pageIndex)
 
             val strokePathMatrix = Matrix().apply {
-                setRectToRect(page.rect(), rect, Matrix.ScaleToFit.CENTER)
+                setRectToRect(page.rect(), clipRect, Matrix.ScaleToFit.CENTER)
             }
             page.mutex.withLock{
                 canvas.withMatrix(strokePathMatrix){
@@ -207,15 +209,15 @@ class PageMaker(
         }
 
     fun makePageBackground(canvas: Canvas, pageRect: RectF, windowRect: RectF) {
-        val path1 = Path().apply {
+        val windowRectPath = Path().apply {
             addRect(windowRect, Path.Direction.CW)
         }
-        val path2 = Path().apply {
+        val pageRectPath = Path().apply {
             addRect(pageRect, Path.Direction.CW)
         }
 
         val finalPath = Path().apply {
-            op(path1, path2, Path.Op.DIFFERENCE)
+            op(windowRectPath, pageRectPath, Path.Op.DIFFERENCE)
         }
 
         val paintViewBackground = Paint().apply {
@@ -223,51 +225,6 @@ class PageMaker(
         }
         canvas.drawPath(finalPath, paintViewBackground)
         //canvas.drawColor(ResourcesCompat.getColor(resources, R.color.dark_elevation_00dp, null))
-
-    }
-
-    val windowBackgroundWithShadowPaint = Paint().apply {
-        color = Color.WHITE
-        style = Paint.Style.FILL
-    }
-    fun makeWindowBackground(canvas: Canvas, pagesRect: Set<RectF>, windowRect: RectF, pageDimension: Dimension) {
-        val windowPagePath = Path().apply {
-            addRect(windowRect, Path.Direction.CW)
-        }
-
-        val finalPath = Path().apply {
-            for (pageRect in pagesRect){
-                val pageRectPath = Path().apply {
-                    addRect(pageRect, Path.Direction.CW)
-                }
-                op(windowPagePath, pageRectPath, Path.Op.DIFFERENCE)
-            }
-        }
-
-        /**
-         * make lo sfondo bianco della pagina e ShadowLayer
-         */
-        windowBackgroundWithShadowPaint.apply {
-            setShadowLayer(
-                pageDimension.calcPxFromDim(
-                    24f.pt,
-                    pagesRect.first().width().px,
-                    Length.WIDTH
-                ),
-                0f,
-                8f,
-                Color.parseColor("#BF959DA5")
-            )
-        }
-
-        canvas.drawPath(finalPath, windowBackgroundWithShadowPaint)
-
-
-//        val paintViewBackground = Paint().apply {
-//            color = Color.parseColor("#FFFFFF")
-//        }
-//        canvas.drawPath(finalPath, paintViewBackground)
-
 
         // TODO: 31/12/2021 in seguito implementerò anche la possibilità di scegliere tra diversi tipi di pagine
         /**
@@ -280,6 +237,35 @@ class PageMaker(
 //                document.pages[pageIndex].dimension!!,
 //                rect
 //            )
+
+    }
+
+    val windowBackgroundWithShadowPaint = Paint().apply {
+        color = Color.WHITE
+        style = Paint.Style.FILL
+    }
+    fun makeWindowBackground(canvas: Canvas, pagesRect: Set<CalcPage.PageRectWithIndex>, matrix: Matrix) {
+        canvas.drawColor(Color.WHITE)
+
+        /**
+         * make lo sfondo bianco della pagina e ShadowLayer
+         */
+        val matrixValues: FloatArray = FloatArray(9)
+        matrix.getValues(matrixValues)
+        val scaleFactor = matrixValues[Matrix.MSCALE_X]
+        windowBackgroundWithShadowPaint.apply {
+            setShadowLayer(
+                24f * scaleFactor,
+                0f,
+                8f,
+                Color.parseColor("#BF959DA5")
+            )
+        }
+
+        for (pageRect in pagesRect){
+            canvas.drawRect(pageRect.rect, windowBackgroundWithShadowPaint)
+        }
+
 
     }
 

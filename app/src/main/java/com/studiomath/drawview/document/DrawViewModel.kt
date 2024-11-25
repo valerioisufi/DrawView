@@ -69,11 +69,7 @@ class DrawViewModel(
 
     var activeBrush = penTool.getBrush(0)
     fun getActiveBrushScaled() = activeBrush.copy(
-        size = data.document.pages[data.pageIndexNow].dimension!!.calcPxFromDim(
-            activeBrush.size.pt,
-            drawManager.redrawPageRect.width().px,
-            Length.WIDTH
-        ),
+        size = drawManager.dimToPx(activeBrush.size.pt),
 //        epsilon = data.document.pages[data.pageIndexNow].dimension!!.calcPxFromDim(
 //            activeBrush.epsilon.mm,
 //            redrawPageRect.width().px,

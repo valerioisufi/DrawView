@@ -295,11 +295,11 @@ class DrawDocumentData(
 
         }
 
-    var pageIndexNow by mutableIntStateOf(0)
-    val pageNow: Page
-        get() {
-            return document.pages[pageIndexNow]
-        }
+//    var pageIndexNow by mutableIntStateOf(0)
+//    val pageNow: Page
+//        get() {
+//            return document.pages[pageIndexNow]
+//        }
 
 
     var isDocumentLoaded by mutableStateOf(false)

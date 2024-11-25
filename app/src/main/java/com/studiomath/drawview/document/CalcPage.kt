@@ -59,7 +59,7 @@ class CalcPage(
     fun getPagesRectOnWindowTransformation(
         windowRect: RectF,
         matrix: Matrix
-    ): Set<PageRectWithIndex>{
+    ): MutableSet<PageRectWithIndex>{
         var startIndex = 0
         var endIndex = pagesRectOnWindow.size
         var midIndex = 0

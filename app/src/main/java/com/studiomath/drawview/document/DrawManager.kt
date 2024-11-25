@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.Rect
 import android.graphics.RectF
 import android.util.DisplayMetrics
 import androidx.annotation.UiThread
@@ -15,8 +16,10 @@ import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.authoring.InProgressStrokesFinishedListener
 import androidx.ink.strokes.Stroke
 import com.studiomath.drawview.document.DrawManager.DrawAttachments.DrawMode
+import com.studiomath.drawview.document.page.Dimension
 import com.studiomath.drawview.document.page.Dimension.Companion.Length
 import com.studiomath.drawview.document.page.DrawDocumentData
+import com.studiomath.drawview.document.page.Measure
 import com.studiomath.drawview.document.page.pt
 import com.studiomath.drawview.document.page.px
 import kotlinx.coroutines.CoroutineScope
@@ -32,92 +35,116 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
     val calcPage = CalcPage(displayMetrics)
     /**
-     * definisco windowMatrix e moveMatrix come matrici rappresentative dell'applicazione
+     * definisco onDrawBitmapMatrix e moveMatrix come matrici rappresentative dell'applicazione
      * che a windowRect ( Rect() che rappresenta la view) associa
      * pageRect ( Rect() che rapppresenta la pagina, con coordinate relative alla view)
      *
      * moveMatrix in particolare viene utilizzato durante lo scale e il translate della pagina
      */
-    var windowMatrix = Matrix()
+    var onDrawBitmapMatrix = Matrix()
     var moveMatrix = Matrix()
 
     /**
      * funzioni il cui compito è quello di disegnare il contenuto della View
      */
     lateinit var windowRect: RectF
-    lateinit var scalingPageRect: RectF
+    var pagesRectOnWindow = mutableSetOf<CalcPage.PageRectWithIndex>()
 
-    var pagesRectOnWindow = mutableSetOf<RectF>()
+    fun dimToPx(dimension: Measure): Float {
+        return dimension.pt * (pagesRectOnWindow.first().rect.width() / drawViewModel.data.document.pages[pagesRectOnWindow.first().index].dimension!!.width.pt)
+    }
 
-//    fun getMaskPath(): Path {
-//
-//    }
+    fun getMaskPath(): Path {
+        val maskPath = Path().apply {
+            addRect(windowRect, Path.Direction.CW)
+            for (pageRect in pagesRectOnWindow){
+                val pageRectPath = Path().apply {
+                    addRect(pageRect.rect, Path.Direction.CW)
+                }
+                op(pageRectPath, Path.Op.DIFFERENCE)
+            }
+        }
+        return maskPath
+    }
 
     @UiThread
     override fun onStrokesFinished(strokes: Map<InProgressStrokeId, Stroke>) {
 
         scope.launch {
-            val matrix = Matrix().apply {
-                setRectToRect(redrawPageRect, drawViewModel.data.pageNow.rect(), Matrix.ScaleToFit.CENTER)
-            }
+            for (pageRectWithIndex in pagesRectOnWindow){
+                val matrix = Matrix().apply {
+                    setRectToRect(pageRectWithIndex.rect, drawViewModel.data.document.pages[pageRectWithIndex.index].rect(), Matrix.ScaleToFit.CENTER)
+                }
 
-            drawViewModel.data.documentMutex.withLock{
-                strokes.values.forEach{ stroke ->
-                    var serializedStroke = DrawDocumentData.Stroke(0).apply {
-                        this.stroke = stroke
-                        toSerializedStroke()
-                        inputs.forEach{ input ->
-                            var point = floatArrayOf(input.x, input.y)
-                            matrix.mapPoints(point)
-                            input.apply {
-                                x = point[0]
-                                y = point[1]
+                // TODO: implementare algoritmo di intersezione
+                drawViewModel.data.documentMutex.withLock{
+                    strokes.values.forEach{ stroke ->
+                        var serializedStroke = DrawDocumentData.Stroke(0).apply {
+                            this.stroke = stroke
+                            toSerializedStroke()
+                            inputs.forEach{ input ->
+                                var point = floatArrayOf(input.x, input.y)
+                                matrix.mapPoints(point)
+                                input.apply {
+                                    x = point[0]
+                                    y = point[1]
+                                }
                             }
+                            size = matrix.mapRadius(size)
+                            toInkStroke()
                         }
-                        size = matrix.mapRadius(size)
-                        toInkStroke()
+                        drawViewModel.data.document.pages[pageRectWithIndex.index].strokeData.add(serializedStroke)
                     }
-                    drawViewModel.data.pageNow.strokeData.add(serializedStroke)
+                }
+
+
+
+                drawViewModel.data.saveDocument()
+            }
+        }
+
+        for (pageRectWithIndex in pagesRectOnWindow) {
+            val canvasCache = Canvas(drawViewModel.data.document.pages[pageRectWithIndex.index].bitmapPage!!)
+            val bitmapRect =
+                RectF(0f, 0f, canvasCache.width.toFloat(), canvasCache.height.toFloat())
+            val windowToPageMatrix = Matrix().apply {
+                setRectToRect(pageRectWithIndex.rect, bitmapRect, Matrix.ScaleToFit.CENTER)
+            }
+            canvasCache.withMatrix(windowToPageMatrix) {
+                strokes.values.forEach { stroke ->
+                    drawViewModel.pageMaker.canvasStrokeRenderer.draw(
+                        stroke = stroke,
+                        canvas = canvasCache,
+                        strokeToScreenTransform = windowToPageMatrix
+                    )
                 }
             }
 
 
-
-            drawViewModel.data.saveDocument()
-
-        }
-
-        val canvasCache = Canvas(drawViewModel.data.pageNow.bitmapPage!!)
-        val bitmapRect = RectF(0f, 0f, canvasCache.width.toFloat(), canvasCache.height.toFloat())
-        val windowToPageMatrix = Matrix().apply {
-            setRectToRect(redrawPageRect, bitmapRect, Matrix.ScaleToFit.CENTER)
-        }
-        canvasCache.withMatrix(windowToPageMatrix){
+            val canvas = Canvas(onDrawBitmap)
+            canvas.clipRect(pageRectWithIndex.rect)
             strokes.values.forEach { stroke ->
-                drawViewModel.pageMaker.canvasStrokeRenderer.draw(stroke = stroke, canvas = canvasCache, strokeToScreenTransform = windowToPageMatrix)
+                drawViewModel.pageMaker.canvasStrokeRenderer.draw(
+                    stroke = stroke,
+                    canvas = canvas,
+                    strokeToScreenTransform = Matrix()
+                )
             }
+
+            requestDraw(
+                DrawAttachments(drawMode = DrawMode.REFRESH).apply {
+                    strokesIdToRemove = strokes.keys
+                    invalidateType = DrawAttachments.Invalidate.INVALIDATE
+                }
+            )
+
         }
-
-
-        val canvas = Canvas(onDrawBitmap)
-        canvas.clipRect(redrawPageRect)
-        strokes.values.forEach { stroke ->
-            drawViewModel.pageMaker.canvasStrokeRenderer.draw(stroke = stroke, canvas = canvas, strokeToScreenTransform = Matrix())
-        }
-
-        requestDraw(
-            DrawAttachments(drawMode = DrawMode.REFRESH).apply {
-                strokesIdToRemove = strokes.keys
-                invalidateType = DrawAttachments.Invalidate.INVALIDATE
-            }
-        )
     }
 
     /**
      * onDrawBitmap = bitmap temp per richieste di disegno
      */
     lateinit var onDrawBitmap: Bitmap
-    var drawPagesRect = mutableSetOf<RectF>()
 
     lateinit var jobOnDrawBitmap: Job
     lateinit var jobCache: Job
@@ -162,24 +189,25 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                 calcPage.needToBeUpdated = false
                             }
 
-                            redrawPageRect = drawViewModel.pageMaker.calcPageOnWindowRect(windowRect, moveMatrix)
+                            pagesRectOnWindow = calcPage.getPagesRectOnWindowTransformation(windowRect, moveMatrix)
 
-                            drawViewModel.maskPath?.invoke(Path().apply{
-                                addRect(windowRect, Path.Direction.CW)
-                                op(Path().apply {
-                                    addRect(redrawPageRect, Path.Direction.CW)
-                                }, Path.Op.DIFFERENCE)
-                            })
+                            drawViewModel.maskPath?.invoke(getMaskPath())
 
                             /**
                              * disegno la pagina sulla Bitmap
                              */
-                            onDrawBitmap = drawViewModel.pageMaker.makePage(
-                                onDrawBitmap,
-                                redrawPageRect,
-                                drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow]
+                            onDrawBitmap = drawViewModel.pageMaker.makePagesOnBitmap(
+                                Rect().apply {
+                                    left = 0
+                                    top = 0
+                                    right = onDrawBitmap.width
+                                    bottom = onDrawBitmap.height
+                                },
+                                pagesRectOnWindow,
+                                drawViewModel.data.document
+
                             )
-                            windowMatrix =
+                            onDrawBitmapMatrix =
                                 Matrix(moveMatrix)
 
                             updateDrawView(drawAttachments)
@@ -200,15 +228,15 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     DrawAttachments.Update.CACHE_PAGE_ONLY -> {
                         if (::jobCache.isInitialized) jobCache.cancel()
 
-                        jobCache = scope.launch {
-                            // update current bitmapPage
-                            drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].bitmapPage =
-                                drawViewModel.pageMaker.makePage(
-                                    drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].bitmapPage!!,
-                                    null,
-                                    drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow]
-                                )
-                        }
+//                        jobCache = scope.launch {
+//                            // update current bitmapPage
+//                            drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].bitmapPage =
+//                                drawViewModel.pageMaker.makePage(
+//                                    drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].bitmapPage!!,
+//                                    null,
+//                                    drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow]
+//                                )
+//                        }
                     }
 
                     else -> {}
@@ -223,7 +251,6 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 if (!::onDrawBitmap.isInitialized) return
                 if (::jobOnDrawBitmap.isInitialized) jobOnDrawBitmap.cancel()
 
-                scalingPageRect = drawViewModel.pageMaker.calcPageOnWindowRect(windowRect, moveMatrix)
                 updateDrawView(drawAttachments)
 
             }
@@ -284,10 +311,18 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
         when (drawAttachments.drawMode) {
             DrawMode.UPDATE -> {
+                drawViewModel.pageMaker.makeWindowBackground(canvas, pagesRectOnWindow, moveMatrix)
+                for (pageRectWithIndex in pagesRectOnWindow){
+                    drawViewModel.pageMaker.makePageBackground(canvas, pageRectWithIndex.rect, windowRect)
+                }
                 canvas.drawBitmap(onDrawBitmap, 0f, 0f, null)
                 drawViewModel.data.isDocumentShowed = true
             }
             DrawMode.REFRESH -> {
+                drawViewModel.pageMaker.makeWindowBackground(canvas, pagesRectOnWindow, moveMatrix)
+                for (pageRectWithIndex in pagesRectOnWindow){
+                    drawViewModel.pageMaker.makePageBackground(canvas, pageRectWithIndex.rect, windowRect)
+                }
                 canvas.drawBitmap(onDrawBitmap, 0f, 0f, null)
                 drawViewModel.removeFinishedStrokes?.let { it(drawAttachments.strokesIdToRemove!!) }
             }
@@ -295,42 +330,28 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 /**
                  * make il colore di fondo della view
                  */
-                drawViewModel.pageMaker.makeWindowBackground(canvas, scalingPageRect, windowRect)
-
-                /**
-                 * make lo sfondo bianco della pagina
-                 */
-                // TODO: 31/12/2021 in seguito implementerò anche la possibilità di scegliere tra diversi tipi di pagine
-                val paintSfondoPaginaBianco = Paint().apply {
-                    color = Color.WHITE
-                    style = Paint.Style.FILL
-                    setShadowLayer(
-                        drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].dimension!!.calcPxFromDim(
-                            24f.pt,
-                            scalingPageRect.width().px,
-                            Length.WIDTH
-                        ),
-                        0f,
-                        8f,
-                        Color.parseColor("#BF959DA5")
-                    )
+                drawViewModel.pageMaker.makeWindowBackground(canvas, pagesRectOnWindow, moveMatrix)
+                for (pageRectWithIndex in pagesRectOnWindow){
+                    drawViewModel.pageMaker.makePageBackground(canvas, pageRectWithIndex.rect, windowRect)
                 }
-                canvas.drawRect(scalingPageRect, paintSfondoPaginaBianco)
 
                 /**
                  * trasformo e disegno la pagina intera memorizzata nella cache
                  */
-                canvas.drawBitmap(
-                    drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].bitmapPage!!,
-                    null,
-                    scalingPageRect,
-                    null
-                )
+                pagesRectOnWindow = calcPage.getPagesRectOnWindowTransformation(windowRect, moveMatrix)
+                for (pageRectWithIndex in pagesRectOnWindow){
+                    canvas.drawBitmap(
+                        drawViewModel.data.document.pages[pageRectWithIndex.index].bitmapPage!!,
+                        null,
+                        pageRectWithIndex.rect,
+                        null
+                    )
+                }
 
                 // TODO: non utilizzare onDrawBitmap ma una copia
                 // trasformo e disegno l'area di disegno già pronta
                 val startRect =
-                    RectF(windowRect).apply { transform(windowMatrix) }
+                    RectF(windowRect).apply { transform(onDrawBitmapMatrix) }
                 val endRect =
                     RectF(windowRect).apply { transform(moveMatrix) }
 

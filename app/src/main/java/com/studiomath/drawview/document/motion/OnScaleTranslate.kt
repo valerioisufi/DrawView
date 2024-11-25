@@ -169,21 +169,21 @@ class OnScaleTranslate(
                 /**
                  * translate max/min
                  */
-                val pageRectNow = drawViewModel.pageMaker.calcPageOnWindowRect(drawViewModel.drawManager.windowRect, matrix = tempMatrix)
-                val pageRectModel = drawViewModel.pageMaker.calcPageOnWindowRect(drawViewModel.drawManager.windowRect, matrix = Matrix())
-
-                if (pageRectNow.left + translate.x >= pageRectModel.left) {
-                    translate.x = pageRectModel.left - pageRectNow.left
-                }
-                if (pageRectNow.top + translate.y >= pageRectModel.top) {
-                    translate.y = pageRectModel.top - pageRectNow.top
-                }
-                if (pageRectNow.right + translate.x <= pageRectModel.right) {
-                    translate.x = pageRectModel.right - pageRectNow.right
-                }
-                if (pageRectNow.bottom + translate.y <= pageRectModel.bottom) {
-                    translate.y = pageRectModel.bottom - pageRectNow.bottom
-                }
+//                val pageRectNow = drawViewModel.pageMaker.calcPageOnWindowRect(drawViewModel.drawManager.windowRect, matrix = tempMatrix)
+//                val pageRectModel = drawViewModel.pageMaker.calcPageOnWindowRect(drawViewModel.drawManager.windowRect, matrix = Matrix())
+//
+//                if (pageRectNow.left + translate.x >= pageRectModel.left) {
+//                    translate.x = pageRectModel.left - pageRectNow.left
+//                }
+//                if (pageRectNow.top + translate.y >= pageRectModel.top) {
+//                    translate.y = pageRectModel.top - pageRectNow.top
+//                }
+//                if (pageRectNow.right + translate.x <= pageRectModel.right) {
+//                    translate.x = pageRectModel.right - pageRectNow.right
+//                }
+//                if (pageRectNow.bottom + translate.y <= pageRectModel.bottom) {
+//                    translate.y = pageRectModel.bottom - pageRectNow.bottom
+//                }
 
                 tempMatrix.postTranslate(
                     translate.x,

@@ -209,21 +209,14 @@ class PageMaker(
         }
 
     fun makePageBackground(canvas: Canvas, pageRect: RectF, windowRect: RectF) {
-        val windowRectPath = Path().apply {
-            addRect(windowRect, Path.Direction.CW)
-        }
         val pageRectPath = Path().apply {
             addRect(pageRect, Path.Direction.CW)
-        }
-
-        val finalPath = Path().apply {
-            op(windowRectPath, pageRectPath, Path.Op.DIFFERENCE)
         }
 
         val paintViewBackground = Paint().apply {
             color = Color.parseColor("#FFFFFF")
         }
-        canvas.drawPath(finalPath, paintViewBackground)
+        canvas.drawPath(pageRectPath, paintViewBackground)
         //canvas.drawColor(ResourcesCompat.getColor(resources, R.color.dark_elevation_00dp, null))
 
         // TODO: 31/12/2021 in seguito implementerò anche la possibilità di scegliere tra diversi tipi di pagine

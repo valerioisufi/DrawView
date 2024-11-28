@@ -197,7 +197,6 @@ class OnScaleTranslate(
                 drawViewModel.drawManager.requestDraw(
                     DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.SCALE_TRANSLATE)
                 )
-                Log.d("matrix", "onScaleTranslate: ${drawViewModel.drawManager.moveMatrix}")
 
             }
 
@@ -230,8 +229,6 @@ class OnScaleTranslate(
                         update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
                     }
                 )
-
-                Log.d("final matrix", "onScaleTranslate: ${drawViewModel.drawManager.moveMatrix}")
 
             }
         }

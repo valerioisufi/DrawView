@@ -49,7 +49,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
      * funzioni il cui compito è quello di disegnare il contenuto della View
      */
     lateinit var windowRect: RectF
-    var pagesRectOnWindow = mutableSetOf<CalcPage.PageRectWithIndex>()
+    var pagesRectOnWindow = mutableSetOf<CalcPage.PageRectWithIndex>() // TODO: magari lo si può spostare in DrawAttachments, insieme a moveMatrix 
 
     fun dimToPx(dimension: Measure): Float {
         return dimension.pt * (pagesRectOnWindow.first().rect.width() / drawViewModel.data.document.pages[pagesRectOnWindow.first().index].dimension!!.width.pt)
@@ -246,12 +246,14 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             DrawMode.REFRESH -> {
                 if (!::onDrawBitmap.isInitialized) return
                 if (::jobOnDrawBitmap.isInitialized) {}
+
                 updateDrawView(drawAttachments)
             }
             DrawMode.SCALE_TRANSLATE -> {
                 if (!::onDrawBitmap.isInitialized) return
                 if (::jobOnDrawBitmap.isInitialized) jobOnDrawBitmap.cancel()
 
+                pagesRectOnWindow = calcPage.getPagesRectOnWindowTransformation(windowRect, moveMatrix)
                 updateDrawView(drawAttachments)
 
             }
@@ -302,7 +304,6 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     var lastDrawAttachments: DrawAttachments? = null
     fun onDrawView(canvas: Canvas){
         isInitialized = true
-        Log.d("pagesRectOnWindow", "onDrawView: $pagesRectOnWindow")
 
         var drawAttachments = drawStack.removeLastOrNull()
         if (drawAttachments == null) {
@@ -315,7 +316,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             DrawMode.UPDATE -> {
                 drawViewModel.pageMaker.makeWindowBackground(canvas, pagesRectOnWindow, moveMatrix)
                 for (pageRectWithIndex in pagesRectOnWindow){
-//                    drawViewModel.pageMaker.makePageBackground(canvas, pageRectWithIndex.rect, windowRect)
+                    drawViewModel.pageMaker.makePageBackground(canvas, pageRectWithIndex.rect, windowRect)
                 }
                 canvas.drawBitmap(onDrawBitmap, 0f, 0f, null)
                 drawViewModel.data.isDocumentShowed = true
@@ -340,7 +341,6 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 /**
                  * trasformo e disegno la pagina intera memorizzata nella cache
                  */
-                pagesRectOnWindow = calcPage.getPagesRectOnWindowTransformation(windowRect, moveMatrix)
                 for (pageRectWithIndex in pagesRectOnWindow){
                     canvas.drawBitmap(
                         drawViewModel.data.document.pages[pageRectWithIndex.index].bitmapPage!!,
@@ -359,6 +359,11 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
                 val windowMatrixTransform = Matrix().apply {
                     setRectToRect(startRect, endRect, Matrix.ScaleToFit.CENTER)
+                }
+
+                canvas.clipRect(RectF(windowRect).transform(windowMatrixTransform))
+                for (pageRectWithIndex in pagesRectOnWindow){
+                    drawViewModel.pageMaker.makePageBackground(canvas, pageRectWithIndex.rect, windowRect)
                 }
                 canvas.drawBitmap(onDrawBitmap, windowMatrixTransform, null)
 

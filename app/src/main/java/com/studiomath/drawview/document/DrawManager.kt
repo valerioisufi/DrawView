@@ -9,6 +9,7 @@ import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.RectF
 import android.util.DisplayMetrics
+import android.util.Log
 import androidx.annotation.UiThread
 import androidx.core.graphics.transform
 import androidx.core.graphics.withMatrix
@@ -301,6 +302,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     var lastDrawAttachments: DrawAttachments? = null
     fun onDrawView(canvas: Canvas){
         isInitialized = true
+        Log.d("pagesRectOnWindow", "onDrawView: $pagesRectOnWindow")
 
         var drawAttachments = drawStack.removeLastOrNull()
         if (drawAttachments == null) {
@@ -313,7 +315,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             DrawMode.UPDATE -> {
                 drawViewModel.pageMaker.makeWindowBackground(canvas, pagesRectOnWindow, moveMatrix)
                 for (pageRectWithIndex in pagesRectOnWindow){
-                    drawViewModel.pageMaker.makePageBackground(canvas, pageRectWithIndex.rect, windowRect)
+//                    drawViewModel.pageMaker.makePageBackground(canvas, pageRectWithIndex.rect, windowRect)
                 }
                 canvas.drawBitmap(onDrawBitmap, 0f, 0f, null)
                 drawViewModel.data.isDocumentShowed = true

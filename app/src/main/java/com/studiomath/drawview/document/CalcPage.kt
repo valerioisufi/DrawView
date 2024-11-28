@@ -56,17 +56,23 @@ class CalcPage(
         val rect: RectF,
         val index: Int
     )
+
+    /**
+     * determino le pagine che sono visibili nella view, e restituiso PagesRectWithIndex a cui ho applicato la trasformzione
+     */
     fun getPagesRectOnWindowTransformation(
         windowRect: RectF,
         matrix: Matrix
     ): MutableSet<PageRectWithIndex>{
+        val set = mutableSetOf<PageRectWithIndex>()
+
         var startIndex = 0
         var endIndex = pagesRectOnWindow.size
         var midIndex = 0
 
         while (true){
             midIndex = (endIndex - startIndex) / 2 + startIndex
-            val pageRectTransformed = pagesRectOnWindow[midIndex].transform(matrix)
+            val pageRectTransformed = RectF(pagesRectOnWindow[midIndex]).transform(matrix)
 
             if (pageRectTransformed.bottom < windowRect.top) {
                 endIndex = midIndex
@@ -76,27 +82,26 @@ class CalcPage(
                 continue
             }
 
+            set.add(
+                PageRectWithIndex(
+                    pageRectTransformed,
+                    midIndex
+                )
+            )
             break
         }
 
-        val set = mutableSetOf<PageRectWithIndex>()
-        set.add(
-            PageRectWithIndex(
-                pagesRectOnWindow[midIndex],
-                midIndex
-            )
-        )
         var topIndex = midIndex
         while (true){
             topIndex--
             if (topIndex < 0) break
 
-            val pageRectTransformed = pagesRectOnWindow[topIndex].transform(matrix)
+            val pageRectTransformed = RectF(pagesRectOnWindow[topIndex]).transform(matrix)
 
             if (pageRectTransformed.bottom > windowRect.top) {
                 set.add(
                     PageRectWithIndex(
-                        pagesRectOnWindow[topIndex],
+                        pageRectTransformed,
                         topIndex
                     )
 
@@ -112,12 +117,12 @@ class CalcPage(
             bottomIndex++
             if (bottomIndex >= pagesRectOnWindow.size) break
 
-            val pageRectTransformed = pagesRectOnWindow[bottomIndex].transform(matrix)
+            val pageRectTransformed = RectF(pagesRectOnWindow[bottomIndex]).transform(matrix)
 
             if (pageRectTransformed.top < windowRect.bottom) {
                 set.add(
                     PageRectWithIndex(
-                        pagesRectOnWindow[bottomIndex],
+                        pageRectTransformed,
                         bottomIndex
                     )
                 )

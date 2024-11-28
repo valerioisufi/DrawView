@@ -2,6 +2,7 @@ package com.studiomath.drawview.document.motion
 
 import android.graphics.Matrix
 import android.graphics.PointF
+import android.util.Log
 import android.view.MotionEvent
 import com.studiomath.drawview.document.DrawManager
 import com.studiomath.drawview.document.DrawViewModel
@@ -196,6 +197,7 @@ class OnScaleTranslate(
                 drawViewModel.drawManager.requestDraw(
                     DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.SCALE_TRANSLATE)
                 )
+                Log.d("matrix", "onScaleTranslate: ${drawViewModel.drawManager.moveMatrix}")
 
             }
 
@@ -228,6 +230,8 @@ class OnScaleTranslate(
                         update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
                     }
                 )
+
+                Log.d("final matrix", "onScaleTranslate: ${drawViewModel.drawManager.moveMatrix}")
 
             }
         }

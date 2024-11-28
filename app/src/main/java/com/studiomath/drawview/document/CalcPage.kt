@@ -31,6 +31,7 @@ class CalcPage(
         windowRect: RectF,
         pagePositionOnWindowOption: PagePositionOnWindowOption
     ){
+        pagesRectOnWindow.removeAll{ true }
         val horizontalPadding = TypedValueCompat.dpToPx(pagePositionOnWindowOption.horizontalPadding, displayMetrics)
         val topPadding = TypedValueCompat.dpToPx(pagePositionOnWindowOption.topPadding, displayMetrics)
         val betweenPadding = TypedValueCompat.dpToPx(pagePositionOnWindowOption.betweenPadding, displayMetrics)

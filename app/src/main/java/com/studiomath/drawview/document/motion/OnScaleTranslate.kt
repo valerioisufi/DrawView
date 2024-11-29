@@ -4,6 +4,7 @@ import android.graphics.Matrix
 import android.graphics.PointF
 import android.util.Log
 import android.view.MotionEvent
+import android.view.VelocityTracker
 import com.studiomath.drawview.document.DrawManager
 import com.studiomath.drawview.document.DrawViewModel
 import kotlin.math.pow
@@ -19,7 +20,7 @@ import kotlin.math.sqrt
 class OnScaleTranslate(
     private var drawViewModel: DrawViewModel
 ) {
-
+    var velocityTracker: VelocityTracker? = null
     var startMatrix = Matrix()
 
 
@@ -62,6 +63,9 @@ class OnScaleTranslate(
     var continueScaleTranslate = false
 
     fun onScaleTranslate(event: MotionEvent) {
+        if (velocityTracker == null){
+            velocityTracker = VelocityTracker.obtain()
+        }
         /**
          * funzione che si occupa dello scale e dello spostamento
          */
@@ -75,6 +79,8 @@ class OnScaleTranslate(
          */
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                velocityTracker!!.addMovement(event)
+
                 down.pointers = mutableListOf(
                     PointF(
                         event.getX(FIRST_POINTER_INDEX),
@@ -89,6 +95,7 @@ class OnScaleTranslate(
             }
 
             MotionEvent.ACTION_POINTER_DOWN -> {
+                velocityTracker!!.addMovement(event)
                 isScaling = true
 
                 down.pointers = mutableListOf(
@@ -108,6 +115,8 @@ class OnScaleTranslate(
             }
 
             MotionEvent.ACTION_MOVE -> {
+                velocityTracker!!.addMovement(event)
+
                 if (event.pointerCount == 1) {
                     if (isScaling) {
                     }
@@ -224,11 +233,16 @@ class OnScaleTranslate(
             }
 
             MotionEvent.ACTION_UP -> {
+                velocityTracker!!.computeCurrentVelocity(1000)
+
                 drawViewModel.drawManager.requestDraw(
                     DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
                         update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
                     }
                 )
+
+                velocityTracker!!.recycle()
+                velocityTracker = null
 
             }
         }

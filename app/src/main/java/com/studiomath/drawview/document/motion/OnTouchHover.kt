@@ -17,7 +17,6 @@ class OnTouchHover(
 
     var palmRejection: PalmRejection = PalmRejection()
     var motionEventPredictor: MotionEventPredictor? = null
-    var velocityTracker = VelocityTracker.obtain()
     private var isStylusActive = false
 
     val currentPointerId = mutableStateOf<Int?>(null)
@@ -27,7 +26,6 @@ class OnTouchHover(
     val onTouchListener = View.OnTouchListener { view, event ->
         if (!drawViewModel.data.isDocumentLoaded || !drawViewModel.data.isDocumentShowed) return@OnTouchListener false
         motionEventPredictor?.record(event)
-        velocityTracker.addMovement(event)
 
         if (event.action == MotionEvent.ACTION_DOWN) onScaleTranslate.continueScaleTranslate = false
         if (!isStylusActive && event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS) isStylusActive = true

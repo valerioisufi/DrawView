@@ -2,10 +2,13 @@ package com.studiomath.drawview
 
 import android.app.Activity
 import android.os.Bundle
+import android.view.View
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -18,13 +21,19 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.safeContent
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.safeGestures
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.waterfall
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
@@ -69,7 +78,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.ink.authoring.InProgressStrokesView
 import androidx.ink.brush.BrushFamily
 import androidx.ink.brush.StockBrushes
@@ -93,7 +105,14 @@ class DrawActivity : ComponentActivity() {
     private lateinit var drawViewModel: DrawViewModel
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+
+        // Get the WindowInsetsControllerCompat
+        val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
+        // Configure behavior and visibility
+        windowInsetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        windowInsetsController.hide(WindowInsetsCompat.Type.systemBars())
 
         val intent = intent
         val filePath = intent.getStringExtra("filePath")
@@ -122,43 +141,43 @@ class DrawActivity : ComponentActivity() {
         }
 
         drawViewModel.finishActivity = { finish() }
-        /**
-         * Impedisco all'utente di abbandonare l'activity con il tasto back
-         */
-        val callback: OnBackPressedCallback = object : OnBackPressedCallback(
-            true // default to enabled
-        ) {
-            override fun handleOnBackPressed() {
-                isEnabled = false
-                toast = Toast.makeText(
-                    this@DrawActivity,
-                    "Tap back button in order to exit",
-                    Toast.LENGTH_SHORT
-                )
-                toast.show()
-
-                CoroutineScope(Dispatchers.Main + SupervisorJob()).launch {
-                    delay(1500)
-                    isEnabled = true
-                }
-            }
-        }
-        onBackPressedDispatcher.addCallback(
-            this,  // LifecycleOwner
-            callback
-        )
+//        /**
+//         * Impedisco all'utente di abbandonare l'activity con il tasto back
+//         */
+//        val callback: OnBackPressedCallback = object : OnBackPressedCallback(
+//            true // default to enabled
+//        ) {
+//            override fun handleOnBackPressed() {
+//                isEnabled = false
+//                toast = Toast.makeText(
+//                    this@DrawActivity,
+//                    "Tap back button in order to exit",
+//                    Toast.LENGTH_SHORT
+//                )
+//                toast.show()
+//
+//                CoroutineScope(Dispatchers.Main + SupervisorJob()).launch {
+//                    delay(1500)
+//                    isEnabled = true
+//                }
+//            }
+//        }
+//        onBackPressedDispatcher.addCallback(
+//            this,  // LifecycleOwner
+//            callback
+//        )
     }
 
-    /**
-     * Elimino il toast visualizzato quando l'activity viene distrutta
-     */
-    lateinit var toast: Toast
-    override fun onDestroy() {
-        super.onDestroy()
-        if (::toast.isInitialized) {
-            toast.cancel()
-        }
-    }
+//    /**
+//     * Elimino il toast visualizzato quando l'activity viene distrutta
+//     */
+//    lateinit var toast: Toast
+//    override fun onDestroy() {
+//        super.onDestroy()
+//        if (::toast.isInitialized) {
+//            toast.cancel()
+//        }
+//    }
 
     override fun onPause() {
         super.onPause()
@@ -179,9 +198,10 @@ fun DrawActivity(
 ) {
     Column(
         modifier = Modifier
-            .windowInsetsPadding(WindowInsets.systemBars)
             .background(MaterialTheme.colorScheme.background)
             .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.displayCutout)
+            .windowInsetsPadding(WindowInsets.waterfall)
     ) {
         Surface(
             modifier = Modifier

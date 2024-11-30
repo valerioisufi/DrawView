@@ -17,6 +17,7 @@
             android:name=".DrawActivity"
             android:exported="true"
             android:immersive="true"
+            android:windowSoftInputMode="adjustResize"
             android:label="DrawActivity"
             android:launchMode="singleTop"
             android:theme="@style/Theme.DrawView" />

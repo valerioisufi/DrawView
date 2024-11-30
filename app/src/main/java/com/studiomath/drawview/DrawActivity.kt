@@ -220,24 +220,22 @@ fun DrawActivity(
                         }
                     }
 
-                    TextButton(
+                    Row (
                         modifier = Modifier
-                            .weight(1f)
+                            .weight(1f, fill = false)
                             .padding(horizontal = 4.dp)
                             .height(36.dp),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 1.dp),
-                        onClick = {}
+                        horizontalArrangement = Arrangement.Center
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxSize(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
+                        TextButton(
+                            modifier = Modifier,
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 1.dp),
+                            onClick = {}
                         ) {
                             Text(
                                 modifier = Modifier
                                     .padding(end = 8.dp),
-                                text = "drawViewModel",
+                                text = "documento di prova",
                                 style = MaterialTheme.typography.titleMedium,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -247,8 +245,8 @@ fun DrawActivity(
                                 modifier = Modifier
                                     .requiredSize(20.dp)
                             )
-                        }
 
+                        }
                     }
 
                     Row(

@@ -201,7 +201,6 @@ fun DrawActivity(
             .background(MaterialTheme.colorScheme.background)
             .fillMaxSize()
             .windowInsetsPadding(WindowInsets.displayCutout)
-            .windowInsetsPadding(WindowInsets.waterfall)
     ) {
         Surface(
             modifier = Modifier

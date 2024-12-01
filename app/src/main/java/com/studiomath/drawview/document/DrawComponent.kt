@@ -4,6 +4,7 @@ import android.widget.FrameLayout
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -37,6 +38,7 @@ fun DrawComponent(
         }
         AndroidView(
             modifier = Modifier
+                .systemGestureExclusion()
                 .fillMaxSize(),
 
             factory = { context ->

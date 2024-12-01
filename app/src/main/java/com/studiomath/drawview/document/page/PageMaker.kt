@@ -238,7 +238,7 @@ class PageMaker(
         style = Paint.Style.FILL
     }
     fun makeWindowBackground(canvas: Canvas, pagesRect: Set<CalcPage.PageRectWithIndex>, matrix: Matrix) {
-        canvas.drawColor(Color.WHITE)
+//        canvas.drawColor(Color.WHITE)
 
         /**
          * make lo sfondo bianco della pagina e ShadowLayer

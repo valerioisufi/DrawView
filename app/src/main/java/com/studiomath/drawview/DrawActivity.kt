@@ -108,12 +108,6 @@ class DrawActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
-        // Get the WindowInsetsControllerCompat
-        val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
-        // Configure behavior and visibility
-        windowInsetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        windowInsetsController.hide(WindowInsetsCompat.Type.systemBars())
-
         val intent = intent
         val filePath = intent.getStringExtra("filePath")
 
@@ -133,7 +127,7 @@ class DrawActivity : ComponentActivity() {
         inProgressStrokesView.addFinishedStrokesListener(drawViewModel.drawManager)
         inProgressStrokesView.eagerInit()
 
-        WindowCompat.setDecorFitsSystemWindows(window, false)
+
         setContent {
             DrawViewTheme {
                 DrawActivity(drawViewModel = drawViewModel, inProgressStrokesView = inProgressStrokesView)
@@ -141,48 +135,23 @@ class DrawActivity : ComponentActivity() {
         }
 
         drawViewModel.finishActivity = { finish() }
-//        /**
-//         * Impedisco all'utente di abbandonare l'activity con il tasto back
-//         */
-//        val callback: OnBackPressedCallback = object : OnBackPressedCallback(
-//            true // default to enabled
-//        ) {
-//            override fun handleOnBackPressed() {
-//                isEnabled = false
-//                toast = Toast.makeText(
-//                    this@DrawActivity,
-//                    "Tap back button in order to exit",
-//                    Toast.LENGTH_SHORT
-//                )
-//                toast.show()
-//
-//                CoroutineScope(Dispatchers.Main + SupervisorJob()).launch {
-//                    delay(1500)
-//                    isEnabled = true
-//                }
-//            }
-//        }
-//        onBackPressedDispatcher.addCallback(
-//            this,  // LifecycleOwner
-//            callback
-//        )
     }
-
-//    /**
-//     * Elimino il toast visualizzato quando l'activity viene distrutta
-//     */
-//    lateinit var toast: Toast
-//    override fun onDestroy() {
-//        super.onDestroy()
-//        if (::toast.isInitialized) {
-//            toast.cancel()
-//        }
-//    }
 
     override fun onPause() {
         super.onPause()
 
         drawViewModel.data.saveDocument()
+    }
+
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+
+        // Get the WindowInsetsControllerCompat
+        var windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
+        // Configure behavior and visibility
+        windowInsetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        windowInsetsController.hide(WindowInsetsCompat.Type.systemBars())
     }
 
 }

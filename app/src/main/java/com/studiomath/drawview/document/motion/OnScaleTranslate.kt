@@ -2,11 +2,13 @@ package com.studiomath.drawview.document.motion
 
 import android.graphics.Matrix
 import android.graphics.PointF
+import android.os.Build
 import android.util.Log
 import android.view.MotionEvent
 import android.view.VelocityTracker
 import com.studiomath.drawview.document.DrawManager
 import com.studiomath.drawview.document.DrawViewModel
+import kotlin.math.abs
 import kotlin.math.pow
 import kotlin.math.sqrt
 
@@ -20,6 +22,10 @@ import kotlin.math.sqrt
 class OnScaleTranslate(
     private var drawViewModel: DrawViewModel
 ) {
+    var touchSlop = drawViewModel.configuration.scaledTouchSlop
+    var minimumScrollOffset = drawViewModel.configuration.scaledMinimumFlingVelocity
+    var maximumScrollOffset = drawViewModel.configuration.scaledMaximumFlingVelocity
+
     var velocityTracker: VelocityTracker? = null
     var startMatrix = Matrix()
 
@@ -62,6 +68,15 @@ class OnScaleTranslate(
     var isScaling = false
     var continueScaleTranslate = false
 
+    fun onInterceptScaleTranslate(event: MotionEvent): Boolean{
+        /*
+         * This method JUST determines whether we want to intercept the motion.
+         * If we return true, onMotionEvent will be called and we do the actual
+         * scrolling there.
+         */
+        return continueScaleTranslate
+    }
+
     fun onScaleTranslate(event: MotionEvent) {
         if (velocityTracker == null){
             velocityTracker = VelocityTracker.obtain()
@@ -69,8 +84,6 @@ class OnScaleTranslate(
         /**
          * funzione che si occupa dello scale e dello spostamento
          */
-        // TODO: 23/01/2022 sarebbe il caso di avviare lo scale solo
-        //  dopo che sia stato rilevato un movimento significativo
 
         /**
          * Matrix()
@@ -153,8 +166,8 @@ class OnScaleTranslate(
 
                 val tempMatrix = Matrix(startMatrix)
 
-                val f = FloatArray(9)
-                tempMatrix.getValues(f)
+                    val f = FloatArray(9)
+                    tempMatrix.getValues(f)
 
                 /**
                  * scale max e scale min

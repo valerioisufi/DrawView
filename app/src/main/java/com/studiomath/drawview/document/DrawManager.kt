@@ -10,6 +10,8 @@ import android.graphics.Rect
 import android.graphics.RectF
 import android.util.DisplayMetrics
 import android.util.Log
+import android.widget.EdgeEffect
+import android.widget.OverScroller
 import androidx.annotation.UiThread
 import androidx.core.graphics.transform
 import androidx.core.graphics.withMatrix
@@ -17,6 +19,7 @@ import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.authoring.InProgressStrokesFinishedListener
 import androidx.ink.strokes.Stroke
 import com.studiomath.drawview.document.DrawManager.DrawAttachments.DrawMode
+import com.studiomath.drawview.document.motion.Zoomer
 import com.studiomath.drawview.document.page.Dimension
 import com.studiomath.drawview.document.page.Dimension.Companion.Length
 import com.studiomath.drawview.document.page.DrawDocumentData
@@ -35,6 +38,23 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     var isInitialized = false
 
     val calcPage = CalcPage(displayMetrics)
+
+    lateinit var scroller: OverScroller
+    lateinit var zoomer: Zoomer
+
+    // Edge effect/overscroll tracking objects.
+    lateinit var edgeEffectTop: EdgeEffect
+    lateinit var edgeEffectBottom: EdgeEffect
+    lateinit var edgeEffectLeft: EdgeEffect
+    lateinit var edgeEffectRight: EdgeEffect
+
+    fun releaseEdgeEffects() {
+        edgeEffectTop.onRelease()
+        edgeEffectBottom.onRelease()
+        edgeEffectLeft.onRelease()
+        edgeEffectRight.onRelease()
+    }
+
     /**
      * definisco onDrawBitmapMatrix e moveMatrix come matrici rappresentative dell'applicazione
      * che a windowRect ( Rect() che rappresenta la view) associa
@@ -368,50 +388,11 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 canvas.drawBitmap(onDrawBitmap, windowMatrixTransform, null)
 
             }
-//            DrawMode.CHANGE_PAGE -> {
-//                scalingPageRect =
-//                    drawViewModel.pageMaker.calcPageOnWindowRect(windowRect)
-//
-//                /**
-//                 * make il colore di fondo della view
-//                 */
-//                drawViewModel.pageMaker.makePageBackground(canvas, scalingPageRect, windowRect)
-//
-//                /**
-//                 * make lo sfondo bianco della pagina
-//                 */
-//                // TODO: 31/12/2021 in seguito implementerò anche la possibilità di scegliere tra diversi tipi di pagine
-//                val paintSfondoPaginaBianco = Paint().apply {
-//                    color = Color.WHITE
-//                    style = Paint.Style.FILL
-//                    setShadowLayer(
-//                        drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].dimension!!.calcPxFromDim(
-//                            24f.pt,
-//                            scalingPageRect.width().px,
-//                            Length.WIDTH
-//                        ),
-//                        0f,
-//                        8f,
-//                        Color.parseColor("#BF959DA5")
-//                    )
-//                }
-//                canvas.drawRect(scalingPageRect, paintSfondoPaginaBianco)
-//
-//                /**
-//                 * trasformo e disegno la pagina intera memorizzata nella cache
-//                 */
-//                canvas.drawBitmap(
-//                    drawViewModel.data.document.pages[drawViewModel.data.pageIndexNow].bitmapPage!!,
-//                    null,
-//                    scalingPageRect,
-//                    null
-//                )
-//
-//
-//            }
             else -> {}
 
         }
+
+        drawEdgeEffects(canvas)
 
         isDrawing = false
     }
@@ -438,5 +419,61 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
 
 //        draw(drawType = DrawType.REDRAW)
+    }
+
+
+    /**
+     * Draws the overscroll "glow" at the four edges of the chart region, if necessary. The edges
+     * of the chart region are stored in {@link #mContentRect}.
+     */
+    fun drawEdgeEffects(canvas: Canvas) {
+        // The methods below rotate and translate the canvas as needed before drawing the glow,
+        // since EdgeEffectCompat always draws a top-glow at 0,0.
+
+        var needsInvalidate = false
+
+        canvas.apply {
+            save()
+
+            if (!edgeEffectTop.isFinished) {
+                translate(windowRect.left, windowRect.top)
+                edgeEffectTop.setSize(windowRect.width().toInt(), windowRect.height().toInt())
+                if (edgeEffectTop.draw(canvas)) {
+                    needsInvalidate = true
+                }
+            }
+            if (!edgeEffectBottom.isFinished) {
+                translate((2 * windowRect.left - windowRect.right), windowRect.bottom)
+                rotate(180f, windowRect.width(), 0f)
+                edgeEffectBottom.setSize(windowRect.width().toInt(), windowRect.height().toInt())
+                if (edgeEffectBottom.draw(canvas)) {
+                    needsInvalidate = true
+                }
+            }
+            if (!edgeEffectLeft.isFinished) {
+                translate(windowRect.left, windowRect.bottom)
+                rotate(-90f, 0f, 0f)
+                edgeEffectLeft.setSize(windowRect.height().toInt(), windowRect.width().toInt())
+                if (edgeEffectLeft.draw(canvas)) {
+                    needsInvalidate = true
+                }
+            }
+            if (!edgeEffectRight.isFinished) {
+                translate(windowRect.right.toFloat(), windowRect.top.toFloat())
+                rotate(90f, 0f, 0f)
+                edgeEffectRight.setSize(windowRect.height().toInt(), windowRect.width().toInt())
+                if (edgeEffectRight.draw(canvas)) {
+                    needsInvalidate = true
+                }
+
+            }
+
+            canvas.restore()
+        }
+
+        if (needsInvalidate) {
+            postInvalidateOnAnimationRequest?.let { it() }
+        }
+
     }
 }

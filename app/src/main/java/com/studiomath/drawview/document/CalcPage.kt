@@ -3,6 +3,7 @@ package com.studiomath.drawview.document
 import android.graphics.Matrix
 import android.graphics.RectF
 import android.util.DisplayMetrics
+import android.widget.OverScroller
 import androidx.core.graphics.transform
 import androidx.core.util.TypedValueCompat
 import com.studiomath.drawview.document.page.DrawDocumentData
@@ -15,10 +16,14 @@ class CalcPage(
     var needToBeUpdated = true
     val pagesRectOnWindow = mutableListOf<RectF>()
 
+    var contentRect = RectF()
+
+
     data class PagePositionOnWindowOption(
         var horizontalPadding: Float = 8f,
         var topPadding: Float = 8f,
         val betweenPadding: Float = 8f,
+        var bottomPadding: Float = 16f
     )
 
     /**
@@ -35,8 +40,12 @@ class CalcPage(
         val horizontalPadding = TypedValueCompat.dpToPx(pagePositionOnWindowOption.horizontalPadding, displayMetrics)
         val topPadding = TypedValueCompat.dpToPx(pagePositionOnWindowOption.topPadding, displayMetrics)
         val betweenPadding = TypedValueCompat.dpToPx(pagePositionOnWindowOption.betweenPadding, displayMetrics)
+        val bottomPadding = TypedValueCompat.dpToPx(pagePositionOnWindowOption.bottomPadding, displayMetrics)
 
         val scaleFactor = (windowRect.width() - horizontalPadding * 2) / pages.first().dimension!!.width.mm
+
+        var leftMostPosition = horizontalPadding
+        var rightMostPosition = windowRect.width() - horizontalPadding
 
         for (page in pages) {
             val pageWidth = page.dimension!!.width.mm * scaleFactor
@@ -49,7 +58,18 @@ class CalcPage(
                 bottom = top + pageHeight
             }
 
+            if (tempRect.left < leftMostPosition) leftMostPosition = tempRect.left
+            if (tempRect.right > rightMostPosition) rightMostPosition = tempRect.right
+
             pagesRectOnWindow.add(tempRect)
+        }
+
+        contentRect.apply {
+            left = leftMostPosition - horizontalPadding
+            top = 0f
+            right = rightMostPosition + horizontalPadding
+            bottom = pagesRectOnWindow.last().bottom + bottomPadding
+
         }
     }
 
@@ -135,5 +155,24 @@ class CalcPage(
 
 
         return set
+    }
+
+    val scaleMin = 1f
+    val scaleMax = 5f
+    fun constrainMatrixToContentRect(matrix: Matrix){
+        val f = FloatArray(9)
+        matrix.getValues(f)
+
+        if (f[Matrix.MSCALE_X] < scaleMin) f[Matrix.MSCALE_X] = scaleMin
+        if (f[Matrix.MSCALE_X] > scaleMax) f[Matrix.MSCALE_X] = scaleMax
+        if (f[Matrix.MSCALE_Y] < scaleMin) f[Matrix.MSCALE_Y] = scaleMin
+        if (f[Matrix.MSCALE_Y] > scaleMax) f[Matrix.MSCALE_Y] = scaleMax
+
+        if (f[Matrix.MTRANS_X] < contentRect.left) f[Matrix.MTRANS_X] = contentRect.left
+        if (f[Matrix.MTRANS_X] > contentRect.right) f[Matrix.MTRANS_X] = contentRect.right
+        if (f[Matrix.MTRANS_Y] < contentRect.top) f[Matrix.MTRANS_Y] = contentRect.top
+        if (f[Matrix.MTRANS_Y] > contentRect.bottom) f[Matrix.MTRANS_Y] = contentRect.bottom
+
+        matrix.setValues(f)
     }
 }

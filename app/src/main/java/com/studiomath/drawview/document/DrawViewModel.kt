@@ -4,6 +4,7 @@ import android.graphics.Color
 import android.graphics.Path
 import android.util.DisplayMetrics
 import android.view.MotionEvent
+import android.view.ViewConfiguration
 import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.brush.Brush
 import androidx.ink.brush.StockBrushes
@@ -19,7 +20,8 @@ import java.io.File
 class DrawViewModel(
     val filesDir: File,
     var filePath: String,
-    var displayMetrics: DisplayMetrics
+    var displayMetrics: DisplayMetrics,
+    var configuration: ViewConfiguration
 ) : ViewModel() {
 
     var drawManager = DrawManager(this, displayMetrics)

@@ -1,5 +1,7 @@
 package com.studiomath.drawview.document
 
+import android.view.GestureDetector
+import android.view.ScaleGestureDetector
 import android.widget.FrameLayout
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,10 +24,6 @@ fun DrawComponent(
 ){
     val backgroundColor = MaterialTheme.colorScheme.background.toArgb()
 
-    /**
-     * onTouchHover: gestione onTouchListener e onHoverListener
-     */
-    var onTouchHover = OnTouchHover(drawViewModel)
 
     Box {
         if (!drawViewModel.data.isDocumentLoaded || !drawViewModel.data.isDocumentShowed) {
@@ -79,6 +77,14 @@ fun DrawComponent(
                     inProgressStrokesView.maskPath = path
                 }
 
+
+                /**
+                 * onTouchHover: gestione onTouchListener e onHoverListener
+                 */
+                var onTouchHover = OnTouchHover(drawViewModel).apply {
+                    gestureDetector = GestureDetector(context, gestureListener)
+                    scaleGestureDetector = ScaleGestureDetector(context, scaleGestureListener)
+                }
 
                 /**
                  * Imposto gli onTouch e onHoverListener della view

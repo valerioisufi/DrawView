@@ -3,6 +3,8 @@ package com.studiomath.drawview
 import android.app.Activity
 import android.os.Bundle
 import android.view.View
+import android.view.ViewConfiguration
+import android.widget.OverScroller
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
@@ -117,7 +119,8 @@ class DrawActivity : ComponentActivity() {
                     return DrawViewModel(
                         filePath = "$filePath",
                         filesDir = filesDir,
-                        displayMetrics = resources.displayMetrics
+                        displayMetrics = resources.displayMetrics,
+                        configuration = ViewConfiguration.get(this@DrawActivity)
                     ) as T
                 }
             }
@@ -229,7 +232,7 @@ fun DrawActivity(
                             )
                             Icon(
                                 imageVector = Icons.Outlined.KeyboardArrowDown,
-                                contentDescription = "Ordine",
+                                contentDescription = null,
                                 modifier = Modifier
                                     .requiredSize(20.dp)
                             )

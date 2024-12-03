@@ -4,6 +4,10 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Canvas
 import android.view.View
+import android.view.ViewConfiguration
+import android.widget.EdgeEffect
+import android.widget.OverScroller
+import com.studiomath.drawview.document.motion.Zoomer
 
 private const val TAG = "DrawView"
 
@@ -13,11 +17,20 @@ private const val TAG = "DrawView"
 @SuppressLint("ViewConstructor")
 class DrawView(context: Context, val drawViewModel: DrawViewModel) : View(context) {
 
+    init {
+        drawViewModel.drawManager.scroller = OverScroller(context)
+        drawViewModel.drawManager.zoomer = Zoomer(context)
+
+        // Sets up edge effects
+        drawViewModel.drawManager.edgeEffectTop = EdgeEffect(context)
+        drawViewModel.drawManager.edgeEffectBottom = EdgeEffect(context)
+        drawViewModel.drawManager.edgeEffectLeft = EdgeEffect(context)
+        drawViewModel.drawManager.edgeEffectRight = EdgeEffect(context)
+    }
+
     /**
      * Funzioni per impostare il DrawView
      */
-
-
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
 
@@ -31,7 +44,6 @@ class DrawView(context: Context, val drawViewModel: DrawViewModel) : View(contex
     /**
      * onSizeChanged
      */
-
     override fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
         super.onSizeChanged(width, height, oldWidth, oldHeight)
 

@@ -9,8 +9,6 @@ import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.RectF
 import android.util.DisplayMetrics
-import android.util.Log
-import android.widget.EdgeEffect
 import android.widget.OverScroller
 import androidx.annotation.UiThread
 import androidx.core.graphics.transform
@@ -19,10 +17,12 @@ import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.authoring.InProgressStrokesFinishedListener
 import androidx.ink.strokes.Stroke
 import com.studiomath.drawview.document.DrawManager.DrawAttachments.DrawMode
+import com.studiomath.drawview.document.motion.EdgeEffect
 import com.studiomath.drawview.document.motion.Zoomer
 import com.studiomath.drawview.document.page.Dimension
 import com.studiomath.drawview.document.page.Dimension.Companion.Length
 import com.studiomath.drawview.document.page.DrawDocumentData
+import com.studiomath.drawview.document.page.DrawMatrix
 import com.studiomath.drawview.document.page.Measure
 import com.studiomath.drawview.document.page.pt
 import com.studiomath.drawview.document.page.px
@@ -38,21 +38,17 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     var isInitialized = false
 
     val calcPage = CalcPage(displayMetrics)
+    val drawMatrix = DrawMatrix(displayMetrics)
 
     lateinit var scroller: OverScroller
     lateinit var zoomer: Zoomer
+    var contentConstraintsOnWindow = RectF()
 
     // Edge effect/overscroll tracking objects.
-    lateinit var edgeEffectTop: EdgeEffect
-    lateinit var edgeEffectBottom: EdgeEffect
-    lateinit var edgeEffectLeft: EdgeEffect
-    lateinit var edgeEffectRight: EdgeEffect
+    var edgeEffect = EdgeEffect()
 
     fun releaseEdgeEffects() {
-        edgeEffectTop.onRelease()
-        edgeEffectBottom.onRelease()
-        edgeEffectLeft.onRelease()
-        edgeEffectRight.onRelease()
+        edgeEffect.onRelease()
     }
 
     /**
@@ -62,8 +58,11 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
      *
      * moveMatrix in particolare viene utilizzato durante lo scale e il translate della pagina
      */
-    var onDrawBitmapMatrix = Matrix()
-    var moveMatrix = Matrix()
+    var onDrawBitmapMatrix = Matrix() // matrix del contenuto visualizzato nella view
+    val moveMatrix: Matrix
+        get() {
+            return drawMatrix.getMatrixWithConstrains(contentConstraintsOnWindow, calcPage.contentRect)
+        }
 
     /**
      * funzioni il cui compito è quello di disegnare il contenuto della View
@@ -207,6 +206,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                     windowRect,
                                     CalcPage.PagePositionOnWindowOption()
                                 )
+                                contentConstraintsOnWindow = calcPage.getContentConstraintsOnWindow(windowRect)
                                 calcPage.needToBeUpdated = false
                             }
 
@@ -283,6 +283,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             }
             DrawMode.ANIMATE -> {
                 if (!::onDrawBitmap.isInitialized) return
+                updateDrawView(drawAttachments)
 
             }
 
@@ -331,6 +332,11 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             drawAttachments = lastDrawAttachments!!
         }
         lastDrawAttachments = drawAttachments
+
+        var needsInvalidate = false
+//        if (!edgeEffect.isFinished() && edgeEffect.draw(canvas)){
+//            needsInvalidate = true
+//        }
 
         when (drawAttachments.drawMode) {
             DrawMode.UPDATE -> {
@@ -388,11 +394,33 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 canvas.drawBitmap(onDrawBitmap, windowMatrixTransform, null)
 
             }
+            DrawMode.ANIMATE -> {
+                if (scroller.computeScrollOffset()){
+                    val scrollX = scroller.currX
+                    val scrollY = scroller.currY
+                    drawMatrix.setTranslate(scrollX.toFloat(), scrollY.toFloat())
+
+                    needsInvalidate = true
+                }
+
+                drawViewModel.pageMaker.makeWindowBackground(canvas, pagesRectOnWindow, moveMatrix)
+                for (pageRectWithIndex in pagesRectOnWindow){
+                    drawViewModel.pageMaker.makePageBackground(canvas, pageRectWithIndex.rect, windowRect)
+                }
+                for (pageRectWithIndex in pagesRectOnWindow){
+                    canvas.drawBitmap(
+                        drawViewModel.data.document.pages[pageRectWithIndex.index].bitmapPage!!,
+                        null,
+                        pageRectWithIndex.rect,
+                        null
+                    )
+                }
+            }
             else -> {}
 
         }
 
-        drawEdgeEffects(canvas)
+        if (needsInvalidate) postInvalidateRequest?.let { it() }
 
         isDrawing = false
     }
@@ -415,64 +443,6 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     update = DrawAttachments.Update.DRAW_BITMAP
                 }
             )
-        }
-
-
-//        draw(drawType = DrawType.REDRAW)
-    }
-
-
-    /**
-     * Draws the overscroll "glow" at the four edges of the chart region, if necessary. The edges
-     * of the chart region are stored in {@link #mContentRect}.
-     */
-    fun drawEdgeEffects(canvas: Canvas) {
-        // The methods below rotate and translate the canvas as needed before drawing the glow,
-        // since EdgeEffectCompat always draws a top-glow at 0,0.
-
-        var needsInvalidate = false
-
-        canvas.apply {
-            save()
-
-            if (!edgeEffectTop.isFinished) {
-                translate(windowRect.left, windowRect.top)
-                edgeEffectTop.setSize(windowRect.width().toInt(), windowRect.height().toInt())
-                if (edgeEffectTop.draw(canvas)) {
-                    needsInvalidate = true
-                }
-            }
-            if (!edgeEffectBottom.isFinished) {
-                translate((2 * windowRect.left - windowRect.right), windowRect.bottom)
-                rotate(180f, windowRect.width(), 0f)
-                edgeEffectBottom.setSize(windowRect.width().toInt(), windowRect.height().toInt())
-                if (edgeEffectBottom.draw(canvas)) {
-                    needsInvalidate = true
-                }
-            }
-            if (!edgeEffectLeft.isFinished) {
-                translate(windowRect.left, windowRect.bottom)
-                rotate(-90f, 0f, 0f)
-                edgeEffectLeft.setSize(windowRect.height().toInt(), windowRect.width().toInt())
-                if (edgeEffectLeft.draw(canvas)) {
-                    needsInvalidate = true
-                }
-            }
-            if (!edgeEffectRight.isFinished) {
-                translate(windowRect.right.toFloat(), windowRect.top.toFloat())
-                rotate(90f, 0f, 0f)
-                edgeEffectRight.setSize(windowRect.height().toInt(), windowRect.width().toInt())
-                if (edgeEffectRight.draw(canvas)) {
-                    needsInvalidate = true
-                }
-
-            }
-
-            canvas.restore()
-        }
-
-        if (needsInvalidate) {
-            postInvalidateOnAnimationRequest?.let { it() }
         }
 
     }

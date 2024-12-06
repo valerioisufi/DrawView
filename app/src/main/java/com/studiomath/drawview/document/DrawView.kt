@@ -20,12 +20,6 @@ class DrawView(context: Context, val drawViewModel: DrawViewModel) : View(contex
     init {
         drawViewModel.drawManager.scroller = OverScroller(context)
         drawViewModel.drawManager.zoomer = Zoomer(context)
-
-        // Sets up edge effects
-        drawViewModel.drawManager.edgeEffectTop = EdgeEffect(context)
-        drawViewModel.drawManager.edgeEffectBottom = EdgeEffect(context)
-        drawViewModel.drawManager.edgeEffectLeft = EdgeEffect(context)
-        drawViewModel.drawManager.edgeEffectRight = EdgeEffect(context)
     }
 
     /**

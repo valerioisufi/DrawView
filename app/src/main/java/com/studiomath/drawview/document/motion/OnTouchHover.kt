@@ -27,7 +27,7 @@ class OnTouchHover(
 
     var palmRejection: PalmRejection = PalmRejection()
     var motionEventPredictor: MotionEventPredictor? = null
-    private var isStylusActive = true
+    private var isStylusActive = false
     var isStrokeInProgress = false
 
     val currentPointerId = mutableStateOf<Int?>(null)
@@ -45,8 +45,12 @@ class OnTouchHover(
         /**
          * gesture detector
          */
-        gestureDetector.onTouchEvent(event)
-        scaleGestureDetector.onTouchEvent(event)
+        if (!isStrokeInProgress){
+            var isGestureDetected = false
+            isGestureDetected = gestureDetector.onTouchEvent(event)
+            isGestureDetected = scaleGestureDetector.onTouchEvent(event)
+            if (isGestureDetected) return@OnTouchListener true
+        }
 
         /**
          * gestione degli input provenienti da TOOL_TYPE_STYLUS
@@ -171,6 +175,7 @@ class OnTouchHover(
 
     val gestureListener = object : GestureDetector.SimpleOnGestureListener() {
         override fun onDown(e: MotionEvent): Boolean {
+            if (isStrokeInProgress) return false
             // Initiates the decay phase of any active edge effects.
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
                 drawViewModel.drawManager.releaseEdgeEffects()
@@ -180,31 +185,29 @@ class OnTouchHover(
             drawViewModel.drawManager.scroller.forceFinished(true)
             drawViewModel.drawManager.postInvalidateOnAnimationRequest?.let { it() }
             return true
-
-            return true
         }
 
         val scaleTarget = 3f
         override fun onDoubleTap(e: MotionEvent): Boolean {
             if (isStrokeInProgress) return false
 
-            val tempMatrix = Matrix(drawViewModel.drawManager.moveMatrix)
-            val f = FloatArray(9)
-            tempMatrix.getValues(f)
-
-            tempMatrix.setScale(
-                scaleTarget,
-                scaleTarget,
-                detector.focusX,
-                detector.focusY
-            )
-
-            drawViewModel.drawManager.calcPage.constrainMatrixToContentRect(tempMatrix)
-
-            drawViewModel.drawManager.moveMatrix = tempMatrix
-            drawViewModel.drawManager.requestDraw(
-                DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.SCALE_TRANSLATE)
-            )
+//            val tempMatrix = Matrix(drawViewModel.drawManager.moveMatrix)
+//            val f = FloatArray(9)
+//            tempMatrix.getValues(f)
+//
+//            tempMatrix.setScale(
+//                scaleTarget,
+//                scaleTarget,
+//                detector.focusX,
+//                detector.focusY
+//            )
+//
+//            drawViewModel.drawManager.calcPage.constrainMatrixToContentRect(tempMatrix)
+//
+//            drawViewModel.drawManager.moveMatrix = tempMatrix
+//            drawViewModel.drawManager.requestDraw(
+//                DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.SCALE_TRANSLATE)
+//            )
 
             return true
         }
@@ -215,7 +218,16 @@ class OnTouchHover(
             distanceX: Float,
             distanceY: Float
         ): Boolean {
-            isStylusActive = false
+            if (isStrokeInProgress) return false
+
+            drawViewModel.drawManager.drawMatrix.postTranslate(
+                -distanceX,
+                -distanceY
+            )
+
+            drawViewModel.drawManager.requestDraw(
+                DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.SCALE_TRANSLATE)
+            )
             return true
         }
 
@@ -225,6 +237,8 @@ class OnTouchHover(
             velocityX: Float,
             velocityY: Float
         ): Boolean {
+            if (isStrokeInProgress) return false
+
             // Initiates the decay phase of any active edge effects.
             // On Android 12 and later, the edge effect (stretch) must
             // continue.
@@ -237,10 +251,10 @@ class OnTouchHover(
             // Begins the animation.
             drawViewModel.drawManager.scroller.fling(
                 // Current scroll position.
-                startX,
-                startY,
-                velocityX,
-                velocityY,
+                drawViewModel.drawManager.drawMatrix.dx.toInt(),
+                drawViewModel.drawManager.drawMatrix.dy.toInt(),
+                velocityX.toInt(),
+                velocityY.toInt(),
                 /*
                  * Minimum and maximum scroll positions. The minimum scroll
                  * position is generally 0 and the maximum scroll position
@@ -248,8 +262,10 @@ class OnTouchHover(
                  * content width is 1000 pixels and the screen width is 200
                  * pixels, the maximum scroll offset is 800 pixels.
                  */
-                0, surfaceSize.x - contentRect.width(),
-                0, surfaceSize.y - contentRect.height(),
+                (drawViewModel.drawManager.calcPage.contentRect.left * drawViewModel.drawManager.drawMatrix.sx).toInt(),
+                (drawViewModel.drawManager.calcPage.contentRect.right * drawViewModel.drawManager.drawMatrix.sx - drawViewModel.drawManager.windowRect.width()).toInt(),
+                (drawViewModel.drawManager.calcPage.contentRect.top * drawViewModel.drawManager.drawMatrix.sy).toInt(),
+                (drawViewModel.drawManager.calcPage.contentRect.bottom * drawViewModel.drawManager.drawMatrix.sy - drawViewModel.drawManager.windowRect.height()).toInt(),
                 // The edges of the content. This comes into play when using
                 // the EdgeEffect class to draw "glow" overlays.
                 (drawViewModel.drawManager.windowRect.width() / 2).toInt(),
@@ -267,22 +283,34 @@ class OnTouchHover(
 
     val scaleGestureListener = object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
 
+        var previousFocusX = 0f
+        var previousFocusY = 0f
         override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
-            return !isStrokeInProgress
+            if (isStrokeInProgress) return false
+
+            previousFocusX = detector.focusX
+            previousFocusY = detector.focusY
+
+            return true
         }
 
         override fun onScale(detector: ScaleGestureDetector): Boolean {
-            val tempMatrix = Matrix(drawViewModel.drawManager.moveMatrix)
-            tempMatrix.postScale(
+            if (isStrokeInProgress) return false
+
+            drawViewModel.drawManager.drawMatrix.postScale(
                 detector.scaleFactor,
                 detector.scaleFactor,
                 detector.focusX,
                 detector.focusY
             )
+//            drawViewModel.drawManager.drawMatrix.postTranslate(
+//                detector.focusX - previousFocusX,
+//                detector.focusY - previousFocusY
+//            )
 
-            drawViewModel.drawManager.calcPage.constrainMatrixToContentRect(tempMatrix)
+            previousFocusX = detector.focusX
+            previousFocusY = detector.focusY
 
-            drawViewModel.drawManager.moveMatrix = tempMatrix
             drawViewModel.drawManager.requestDraw(
                 DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.SCALE_TRANSLATE)
             )
@@ -291,6 +319,11 @@ class OnTouchHover(
         }
 
         override fun onScaleEnd(detector: ScaleGestureDetector) {
+            drawViewModel.drawManager.requestDraw(
+                DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                }
+            )
         }
 
 

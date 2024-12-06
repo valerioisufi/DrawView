@@ -73,6 +73,18 @@ class CalcPage(
         }
     }
 
+    fun getContentConstraintsOnWindow(windowRect: RectF): RectF {
+        val padding = TypedValueCompat.dpToPx(16f, displayMetrics)
+        var bottom = if (!pagesRectOnWindow.isEmpty() && pagesRectOnWindow.last().bottom + padding < windowRect.bottom) pagesRectOnWindow.last().bottom + padding else windowRect.bottom
+        return RectF(
+            windowRect.left,
+            windowRect.top ,
+            windowRect.right,
+            bottom
+        )
+
+    }
+
     data class PageRectWithIndex(
         val rect: RectF,
         val index: Int
@@ -155,24 +167,5 @@ class CalcPage(
 
 
         return set
-    }
-
-    val scaleMin = 1f
-    val scaleMax = 5f
-    fun constrainMatrixToContentRect(matrix: Matrix){
-        val f = FloatArray(9)
-        matrix.getValues(f)
-
-        if (f[Matrix.MSCALE_X] < scaleMin) f[Matrix.MSCALE_X] = scaleMin
-        if (f[Matrix.MSCALE_X] > scaleMax) f[Matrix.MSCALE_X] = scaleMax
-        if (f[Matrix.MSCALE_Y] < scaleMin) f[Matrix.MSCALE_Y] = scaleMin
-        if (f[Matrix.MSCALE_Y] > scaleMax) f[Matrix.MSCALE_Y] = scaleMax
-
-        if (f[Matrix.MTRANS_X] < contentRect.left) f[Matrix.MTRANS_X] = contentRect.left
-        if (f[Matrix.MTRANS_X] > contentRect.right) f[Matrix.MTRANS_X] = contentRect.right
-        if (f[Matrix.MTRANS_Y] < contentRect.top) f[Matrix.MTRANS_Y] = contentRect.top
-        if (f[Matrix.MTRANS_Y] > contentRect.bottom) f[Matrix.MTRANS_Y] = contentRect.bottom
-
-        matrix.setValues(f)
     }
 }

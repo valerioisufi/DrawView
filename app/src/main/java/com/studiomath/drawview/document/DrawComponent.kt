@@ -79,19 +79,13 @@ fun DrawComponent(
 
 
                 /**
-                 * onTouchHover: gestione onTouchListener e onHoverListener
-                 */
-                var onTouchHover = OnTouchHover(drawViewModel).apply {
-                    gestureDetector = GestureDetector(context, gestureListener)
-                    scaleGestureDetector = ScaleGestureDetector(context, scaleGestureListener)
-                }
-
-                /**
                  * Imposto gli onTouch e onHoverListener della view
                  */
+                var onTouchHover = OnTouchHover(drawViewModel)
                 onTouchHover.motionEventPredictor = MotionEventPredictor.newInstance(rootView)
                 rootView.setOnTouchListener(onTouchHover.onTouchListener)
                 rootView.setOnHoverListener(onTouchHover.onHoverListener)
+
                 rootView.addView(inProgressStrokesView)
                 rootView
 

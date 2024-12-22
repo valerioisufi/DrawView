@@ -213,8 +213,8 @@ class OnScaleTranslate(
                     translate.y
                 )
 
-                drawViewModel.drawManager.moveMatrix =
-                    Matrix(tempMatrix)
+//                drawViewModel.drawManager.moveMatrix =
+//                    Matrix(tempMatrix)
 
                 drawViewModel.drawManager.requestDraw(
                     DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.SCALE_TRANSLATE)

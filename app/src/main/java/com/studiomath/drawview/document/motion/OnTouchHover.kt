@@ -50,7 +50,7 @@ class OnTouchHover(
                 MotionEvent.ACTION_DOWN -> {
                     // Deliver input events as soon as they arrive.
                     // It sometimes causes app crash
-                    view.requestUnbufferedDispatch(event)
+//                    view.requestUnbufferedDispatch(event)
 
                     val pointerIndex = event.actionIndex
                     val pointerId = event.getPointerId(pointerIndex)

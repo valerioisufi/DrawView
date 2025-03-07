@@ -7,7 +7,6 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.widget.EdgeEffect
 import android.widget.OverScroller
-import com.studiomath.drawview.document.motion.Zoomer
 
 private const val TAG = "DrawView"
 
@@ -19,7 +18,7 @@ class DrawView(context: Context, val drawViewModel: DrawViewModel) : View(contex
 
     init {
         drawViewModel.drawManager.scroller = OverScroller(context)
-        drawViewModel.drawManager.zoomer = Zoomer(context)
+//        drawViewModel.drawManager.zoomer = Zoomer(context)
     }
 
     /**

@@ -17,12 +17,10 @@ import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.authoring.InProgressStrokesFinishedListener
 import androidx.ink.strokes.Stroke
 import com.studiomath.drawview.document.DrawManager.DrawAttachments.DrawMode
-import com.studiomath.drawview.document.motion.EdgeEffect
-import com.studiomath.drawview.document.motion.Zoomer
 import com.studiomath.drawview.document.page.Dimension
 import com.studiomath.drawview.document.page.Dimension.Companion.Length
 import com.studiomath.drawview.document.page.DrawDocumentData
-import com.studiomath.drawview.document.page.DrawMatrix
+//import com.studiomath.drawview.document.page.DrawMatrix
 import com.studiomath.drawview.document.page.Measure
 import com.studiomath.drawview.document.page.pt
 import com.studiomath.drawview.document.page.px
@@ -38,18 +36,10 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     var isInitialized = false
 
     val calcPage = CalcPage(displayMetrics)
-    val drawMatrix = DrawMatrix(displayMetrics)
+//    val drawMatrix = DrawMatrix(displayMetrics)
 
     lateinit var scroller: OverScroller
-    lateinit var zoomer: Zoomer
     var contentConstraintsOnWindow = RectF()
-
-    // Edge effect/overscroll tracking objects.
-    var edgeEffect = EdgeEffect()
-
-    fun releaseEdgeEffects() {
-        edgeEffect.onRelease()
-    }
 
     /**
      * definisco onDrawBitmapMatrix e moveMatrix come matrici rappresentative dell'applicazione
@@ -59,10 +49,10 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
      * moveMatrix in particolare viene utilizzato durante lo scale e il translate della pagina
      */
     var onDrawBitmapMatrix = Matrix() // matrix del contenuto visualizzato nella view
-    val moveMatrix: Matrix
-        get() {
-            return drawMatrix.getMatrixWithConstrains(contentConstraintsOnWindow, calcPage.contentRect)
-        }
+    var moveMatrix: Matrix = Matrix()
+//        get() {
+//            return drawMatrix.getMatrixWithConstrains(contentConstraintsOnWindow, calcPage.contentRect)
+//        }
 
     /**
      * funzioni il cui compito è quello di disegnare il contenuto della View
@@ -395,13 +385,13 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
             }
             DrawMode.ANIMATE -> {
-                if (scroller.computeScrollOffset()){
-                    val scrollX = scroller.currX
-                    val scrollY = scroller.currY
-                    drawMatrix.setTranslate(scrollX.toFloat(), scrollY.toFloat())
-
-                    needsInvalidate = true
-                }
+//                if (scroller.computeScrollOffset()){
+//                    val scrollX = scroller.currX
+//                    val scrollY = scroller.currY
+////                    drawMatrix.setTranslate(scrollX.toFloat(), scrollY.toFloat())
+//
+//                    needsInvalidate = true
+//                }
 
                 drawViewModel.pageMaker.makeWindowBackground(canvas, pagesRectOnWindow, moveMatrix)
                 for (pageRectWithIndex in pagesRectOnWindow){

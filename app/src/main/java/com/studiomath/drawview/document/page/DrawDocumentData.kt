@@ -207,6 +207,7 @@ class DrawDocumentData(
         @Transient
         var bitmapPage: Bitmap? = null
 
+        // TODO: introdurre una variabile mutableStateOf di tipo boolean che avverta se bitmapPage è aggiornato o meno
 
         /**
          * grafica contenuta nella pagina
@@ -315,17 +316,17 @@ class DrawDocumentData(
                             height = dimension!!.height.mm
                         })
 
-                        pages.add(Page(1).apply {
-                            dimension = Dimension.A5()
-                            width = dimension!!.width.mm
-                            height = dimension!!.height.mm
-                        })
-
-                        pages.add(Page(2).apply {
-                            dimension = Dimension.A3()
-                            width = dimension!!.width.mm
-                            height = dimension!!.height.mm
-                        })
+//                        pages.add(Page(1).apply {
+//                            dimension = Dimension.A5()
+//                            width = dimension!!.width.mm
+//                            height = dimension!!.height.mm
+//                        })
+//
+//                        pages.add(Page(2).apply {
+//                            dimension = Dimension.A3()
+//                            width = dimension!!.width.mm
+//                            height = dimension!!.height.mm
+//                        })
                     }
                 )
             }

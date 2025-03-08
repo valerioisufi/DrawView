@@ -3,6 +3,7 @@ package com.studiomath.drawview.document
 import android.graphics.Matrix
 import android.graphics.RectF
 import android.util.DisplayMetrics
+import android.util.Log
 import android.widget.OverScroller
 import androidx.core.graphics.transform
 import androidx.core.util.TypedValueCompat
@@ -35,14 +36,21 @@ class CalcPage(
         pages: MutableList<DrawDocumentData.Page>,
         windowRect: RectF,
         pagePositionOnWindowOption: PagePositionOnWindowOption
-    ){
-        pagesRectOnWindow.removeAll{ true }
-        val horizontalPadding = TypedValueCompat.dpToPx(pagePositionOnWindowOption.horizontalPadding, displayMetrics)
-        val topPadding = TypedValueCompat.dpToPx(pagePositionOnWindowOption.topPadding, displayMetrics)
-        val betweenPadding = TypedValueCompat.dpToPx(pagePositionOnWindowOption.betweenPadding, displayMetrics)
-        val bottomPadding = TypedValueCompat.dpToPx(pagePositionOnWindowOption.bottomPadding, displayMetrics)
+    ) {
+        pagesRectOnWindow.removeAll { true }
+        if (pages.isEmpty()) return
 
-        val scaleFactor = (windowRect.width() - horizontalPadding * 2) / pages.first().dimension!!.width.mm
+        val horizontalPadding =
+            TypedValueCompat.dpToPx(pagePositionOnWindowOption.horizontalPadding, displayMetrics)
+        val topPadding =
+            TypedValueCompat.dpToPx(pagePositionOnWindowOption.topPadding, displayMetrics)
+        val betweenPadding =
+            TypedValueCompat.dpToPx(pagePositionOnWindowOption.betweenPadding, displayMetrics)
+        val bottomPadding =
+            TypedValueCompat.dpToPx(pagePositionOnWindowOption.bottomPadding, displayMetrics)
+
+        val scaleFactor =
+            (windowRect.width() - horizontalPadding * 2) / pages.first().dimension!!.width.mm
 
         var leftMostPosition = horizontalPadding
         var rightMostPosition = windowRect.width() - horizontalPadding
@@ -52,7 +60,8 @@ class CalcPage(
             val pageHeight = page.dimension!!.calcHeightFromWidthPx(pageWidth.px)
 
             val tempRect = RectF().apply {
-                top = if (pagesRectOnWindow.isEmpty()) topPadding else pagesRectOnWindow.last().bottom + betweenPadding
+                top =
+                    if (pagesRectOnWindow.isEmpty()) topPadding else pagesRectOnWindow.last().bottom + betweenPadding
                 left = windowRect.width() / 2 - pageWidth / 2
                 right = left + pageWidth
                 bottom = top + pageHeight
@@ -75,10 +84,11 @@ class CalcPage(
 
     fun getContentConstraintsOnWindow(windowRect: RectF): RectF {
         val padding = TypedValueCompat.dpToPx(16f, displayMetrics)
-        var bottom = if (!pagesRectOnWindow.isEmpty() && pagesRectOnWindow.last().bottom + padding < windowRect.bottom) pagesRectOnWindow.last().bottom + padding else windowRect.bottom
+        var bottom =
+            if (!pagesRectOnWindow.isEmpty() && pagesRectOnWindow.last().bottom + padding < windowRect.bottom) pagesRectOnWindow.last().bottom + padding else windowRect.bottom
         return RectF(
             windowRect.left,
-            windowRect.top ,
+            windowRect.top,
             windowRect.right,
             bottom
         )
@@ -96,75 +106,58 @@ class CalcPage(
     fun getPagesRectOnWindowTransformation(
         windowRect: RectF,
         matrix: Matrix
-    ): MutableSet<PageRectWithIndex>{
+    ): MutableSet<PageRectWithIndex> {
         val set = mutableSetOf<PageRectWithIndex>()
 
+        if (pagesRectOnWindow.isEmpty()) return set // Evita errori se l'elenco è vuoto
+
         var startIndex = 0
-        var endIndex = pagesRectOnWindow.size
+        var endIndex = pagesRectOnWindow.size - 1
         var midIndex = 0
 
-        while (true){
-            midIndex = (endIndex - startIndex) / 2 + startIndex
-            val pageRectTransformed = RectF(pagesRectOnWindow[midIndex]).transform(matrix)
+        // Ricerca binaria per trovare una pagina visibile
+        while (startIndex <= endIndex) {
+            midIndex = (startIndex + endIndex) / 2
+            val pageRectTransformed = RectF(pagesRectOnWindow[midIndex])
+            matrix.mapRect(pageRectTransformed)
 
             if (pageRectTransformed.bottom < windowRect.top) {
-                endIndex = midIndex
-                continue
+                startIndex = midIndex + 1
             } else if (pageRectTransformed.top > windowRect.bottom) {
-                startIndex = midIndex
-                continue
+                endIndex = midIndex - 1
+            } else {
+                set.add(PageRectWithIndex(pageRectTransformed, midIndex))
+                break
             }
-
-            set.add(
-                PageRectWithIndex(
-                    pageRectTransformed,
-                    midIndex
-                )
-            )
-            break
         }
 
-        var topIndex = midIndex
-        while (true){
-            topIndex--
-            if (topIndex < 0) break
+        if (set.isEmpty()) return set // Se non è stata trovata nessuna pagina visibile, interrompi
 
-            val pageRectTransformed = RectF(pagesRectOnWindow[topIndex]).transform(matrix)
+        var topIndex = midIndex - 1
+        while (topIndex >= 0) {
+            val pageRectTransformed = RectF(pagesRectOnWindow[topIndex])
+            matrix.mapRect(pageRectTransformed)
 
             if (pageRectTransformed.bottom > windowRect.top) {
-                set.add(
-                    PageRectWithIndex(
-                        pageRectTransformed,
-                        topIndex
-                    )
-
-                )
-                continue
+                set.add(PageRectWithIndex(pageRectTransformed, topIndex))
+                topIndex--
+            } else {
+                break
             }
-
-            break
         }
 
-        var bottomIndex = midIndex
-        while (true){
-            bottomIndex++
-            if (bottomIndex >= pagesRectOnWindow.size) break
-
-            val pageRectTransformed = RectF(pagesRectOnWindow[bottomIndex]).transform(matrix)
+        var bottomIndex = midIndex + 1
+        while (bottomIndex < pagesRectOnWindow.size) {
+            val pageRectTransformed = RectF(pagesRectOnWindow[bottomIndex])
+            matrix.mapRect(pageRectTransformed)
 
             if (pageRectTransformed.top < windowRect.bottom) {
-                set.add(
-                    PageRectWithIndex(
-                        pageRectTransformed,
-                        bottomIndex
-                    )
-                )
-                continue
+                set.add(PageRectWithIndex(pageRectTransformed, bottomIndex))
+                bottomIndex++
+            } else {
+                break
             }
-
-            break
         }
-
 
         return set
     }

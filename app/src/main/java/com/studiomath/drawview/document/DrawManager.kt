@@ -9,6 +9,7 @@ import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.RectF
 import android.util.DisplayMetrics
+import android.util.Log
 import android.widget.OverScroller
 import androidx.annotation.UiThread
 import androidx.core.graphics.transform
@@ -358,6 +359,10 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                  * trasformo e disegno la pagina intera memorizzata nella cache
                  */
                 for (pageRectWithIndex in pagesRectOnWindow){
+                    if (! drawViewModel.data.document.pages[pageRectWithIndex.index].isPrepared){
+                        // TODO: da rivedere se mantenere o se inserire direttamente chiamata a prepare() quando viene aggiunta una pagina
+                        drawViewModel.data.document.pages[pageRectWithIndex.index].prepare()
+                    }
                     canvas.drawBitmap(
                         drawViewModel.data.document.pages[pageRectWithIndex.index].bitmapPage!!,
                         null,
@@ -410,7 +415,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
         }
 
-        if (needsInvalidate) postInvalidateRequest?.let { it() }
+        if (needsInvalidate) postInvalidateOnAnimationRequest?.let { it() }
 
         isDrawing = false
     }

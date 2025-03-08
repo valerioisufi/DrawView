@@ -90,8 +90,12 @@ import androidx.ink.brush.StockBrushes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.studiomath.drawview.document.DrawComponent
+import com.studiomath.drawview.document.DrawManager
+import com.studiomath.drawview.document.DrawManager.DrawAttachments
 import com.studiomath.drawview.document.DrawViewModel
 import com.studiomath.drawview.document.DrawViewModel.ToolUtilities
+import com.studiomath.drawview.document.page.Dimension
+import com.studiomath.drawview.document.page.DrawDocumentData.Page
 import com.studiomath.drawview.document.page.pt
 import com.studiomath.drawview.ui.composeComponents.ColorWheel
 import com.studiomath.drawview.ui.composeComponents.SizeSlider
@@ -267,13 +271,41 @@ fun DrawActivity(
                         .padding(horizontal = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    ToolButton{
+                    ToolButton(
+                        onClick = {
+                            drawViewModel.data.document.pages.removeAt(drawViewModel.data.document.pages.lastIndex)
+                            drawViewModel.drawManager.calcPage.needToBeUpdated = true
+                            drawViewModel.drawManager.requestDraw(
+                                DrawAttachments(drawMode = DrawAttachments.DrawMode.UPDATE).apply {
+                                    update = DrawAttachments.Update.DRAW_BITMAP
+                                }
+                            )
+                        }
+
+                    ){
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.Undo,
                             contentDescription = "Undo",
                         )
                     }
-                    ToolButton{
+                    ToolButton(
+                        onClick = {
+                            drawViewModel.data.document.pages.add(
+                                Page(1).apply {
+                                    dimension = Dimension.A4()
+                                    width = dimension!!.width.mm
+                                    height = dimension!!.height.mm
+                                }
+                            )
+                            drawViewModel.drawManager.calcPage.needToBeUpdated = true
+                            drawViewModel.drawManager.requestDraw(
+                                DrawAttachments(drawMode = DrawAttachments.DrawMode.UPDATE).apply {
+                                    update = DrawAttachments.Update.DRAW_BITMAP
+                                }
+                            )
+                        }
+
+                    ){
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.Redo,
                             contentDescription = "Redo",

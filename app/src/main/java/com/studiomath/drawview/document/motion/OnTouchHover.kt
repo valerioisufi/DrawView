@@ -25,7 +25,7 @@ class OnTouchHover(
 
     var palmRejection: PalmRejection = PalmRejection()
     var motionEventPredictor: MotionEventPredictor? = null
-    private var isStylusActive = false
+    private var isStylusActive = true
     var isStrokeInProgress = false
 
     val currentPointerId = mutableStateOf<Int?>(null)
@@ -50,7 +50,7 @@ class OnTouchHover(
                 MotionEvent.ACTION_DOWN -> {
                     // Deliver input events as soon as they arrive.
                     // It sometimes causes app crash
-//                    view.requestUnbufferedDispatch(event)
+                    view.requestUnbufferedDispatch(event)
 
                     val pointerIndex = event.actionIndex
                     val pointerId = event.getPointerId(pointerIndex)

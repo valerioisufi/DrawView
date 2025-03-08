@@ -320,6 +320,12 @@ class DrawDocumentData(
                             width = dimension!!.width.mm
                             height = dimension!!.height.mm
                         })
+
+                        pages.add(Page(2).apply {
+                            dimension = Dimension.A3()
+                            width = dimension!!.width.mm
+                            height = dimension!!.height.mm
+                        })
                     }
                 )
             }

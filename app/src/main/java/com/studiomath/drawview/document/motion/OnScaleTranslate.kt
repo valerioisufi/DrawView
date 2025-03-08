@@ -126,11 +126,11 @@ class OnScaleTranslate(
 
             MotionEvent.ACTION_UP -> {
                 velocityTracker!!.computeCurrentVelocity(1000)
-                drawViewModel.drawManager.scroller.fling(
-                    translate.x.toInt(), translate.y.toInt(),
-                    velocityTracker!!.xVelocity.toInt(), velocityTracker!!.yVelocity.toInt(),
-                    -1000, 1000, -1000, 1000
-                )
+//                drawViewModel.drawManager.scroller.fling(
+//                    translate.x.toInt(), translate.y.toInt(),
+//                    velocityTracker!!.xVelocity.toInt(), velocityTracker!!.yVelocity.toInt(),
+//                    -1000, 1000, -1000, 1000
+//                )
 
                 startMatrix = Matrix(drawViewModel.drawManager.moveMatrix)
                 continueFling()
@@ -144,12 +144,12 @@ class OnScaleTranslate(
 
     private fun continueFling() {
         if (drawViewModel.drawManager.scroller.computeScrollOffset()) {
-            val tempMatrix = Matrix(startMatrix)
-            tempMatrix.postTranslate(drawViewModel.drawManager.scroller.currX.toFloat(), drawViewModel.drawManager.scroller.currY.toFloat())
-            applyBounds(tempMatrix)
-            drawViewModel.drawManager.moveMatrix = tempMatrix
-            drawViewModel.drawManager.requestDraw(DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.SCALE_TRANSLATE))
-            Handler(Looper.getMainLooper()).postDelayed({ continueFling() }, 16)
+//            val tempMatrix = Matrix(startMatrix)
+//            tempMatrix.postTranslate(drawViewModel.drawManager.scroller.currX.toFloat(), drawViewModel.drawManager.scroller.currY.toFloat())
+//            applyBounds(tempMatrix)
+//            drawViewModel.drawManager.moveMatrix = tempMatrix
+//            drawViewModel.drawManager.requestDraw(DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.SCALE_TRANSLATE))
+//            Handler(Looper.getMainLooper()).postDelayed({ continueFling() }, 16)
         } else {
             drawViewModel.drawManager.requestDraw(
                 DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
@@ -160,18 +160,18 @@ class OnScaleTranslate(
     }
 
     private fun applyBounds(matrix: Matrix) {
-        val rect = RectF(0f, 0f, drawViewModel.drawManager.contentConstraintsOnWindow.width(), drawViewModel.drawManager.contentConstraintsOnWindow.height())
-        matrix.mapRect(rect)
-        val dx = when {
-            rect.left > 0 -> -rect.left
-            rect.right < drawViewModel.drawManager.windowRect.width() -> drawViewModel.drawManager.windowRect.width() - rect.right
-            else -> 0f
-        }
-        val dy = when {
-            rect.top > 0 -> -rect.top
-            rect.bottom < drawViewModel.drawManager.windowRect.height() -> drawViewModel.drawManager.windowRect.height() - rect.bottom
-            else -> 0f
-        }
-        matrix.postTranslate(dx / 2, dy / 2)
+//        val rect = RectF(0f, 0f, drawViewModel.drawManager.contentConstraintsOnWindow.width(), drawViewModel.drawManager.contentConstraintsOnWindow.height())
+//        matrix.mapRect(rect)
+//        val dx = when {
+//            rect.left > 0 -> -rect.left
+//            rect.right < drawViewModel.drawManager.windowRect.width() -> drawViewModel.drawManager.windowRect.width() - rect.right
+//            else -> 0f
+//        }
+//        val dy = when {
+//            rect.top > 0 -> -rect.top
+//            rect.bottom < drawViewModel.drawManager.windowRect.height() -> drawViewModel.drawManager.windowRect.height() - rect.bottom
+//            else -> 0f
+//        }
+//        matrix.postTranslate(dx / 2, dy / 2)
     }
 }

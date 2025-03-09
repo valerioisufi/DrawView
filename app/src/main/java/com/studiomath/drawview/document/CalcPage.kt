@@ -1,15 +1,20 @@
 package com.studiomath.drawview.document
 
+import android.animation.ValueAnimator
 import android.graphics.Matrix
 import android.graphics.PointF
 import android.graphics.RectF
 import android.util.DisplayMetrics
 import android.util.Log
+import android.view.animation.OvershootInterpolator
 import android.widget.OverScroller
+import androidx.core.animation.addListener
+import androidx.core.animation.doOnEnd
 import androidx.core.graphics.transform
 import androidx.core.util.TypedValueCompat
 import com.studiomath.drawview.document.page.DrawDocumentData
 import com.studiomath.drawview.document.page.px
+import kotlin.math.abs
 import kotlin.math.sqrt
 
 class CalcPage(
@@ -163,7 +168,7 @@ class CalcPage(
         return set
     }
 
-    fun applyBounds(matrix: Matrix, contentRect: RectF, windowRect: RectF) {
+    fun applyBounds(matrix: Matrix, contentRect: RectF, windowRect: RectF): Pair<Float, Float> {
         val transformedContentRect = RectF(contentRect)
         matrix.mapRect(transformedContentRect)
 
@@ -174,31 +179,95 @@ class CalcPage(
 
         var offsetX = 0f
         var offsetY = 0f
+        var excessX = 0f
+        var excessY = 0f
 
         // Se il contenuto è più piccolo della finestra, centrarlo
         if (contentWidth < windowWidth) {
             offsetX = (windowWidth - contentWidth) / 2 - transformedContentRect.left
+            // Eccedenza: distanza tra il limite (centrato) e la posizione senza vincolo
+            excessX = - offsetX
         } else {
             // Altrimenti, mantenerlo nei limiti della finestra
             if (transformedContentRect.left > 0) {
+                excessX = transformedContentRect.left // Quanto eccede a sinistra
                 offsetX = -transformedContentRect.left
             } else if (transformedContentRect.right < windowWidth) {
+                excessX = transformedContentRect.right - windowWidth // Quanto eccede a destra
                 offsetX = windowWidth - transformedContentRect.right
             }
         }
 
         // Stessa logica per l'asse Y
         if (contentHeight < windowHeight) {
-            offsetY = (windowHeight - contentHeight) / 2 - transformedContentRect.top
+            offsetY = -transformedContentRect.top
+            excessY = transformedContentRect.top
         } else {
             if (transformedContentRect.top > 0) {
+                excessY = transformedContentRect.top // Quanto eccede in alto
                 offsetY = -transformedContentRect.top
             } else if (transformedContentRect.bottom < windowHeight) {
+                excessY = transformedContentRect.bottom - windowHeight // Quanto eccede in basso
                 offsetY = windowHeight - transformedContentRect.bottom
             }
         }
 
         // Applica la correzione alla matrice
         matrix.postTranslate(offsetX, offsetY)
+
+        // Restituisce di quanto eccede oltre il bordo
+        return Pair(excessX, excessY)
     }
+
+    fun applyElasticEffect(excessX: Float, excessY: Float): Matrix {
+        val elasticMatrix = Matrix()
+
+        // Coefficiente di elasticità di base
+        val elasticityFactor = 0.8f
+        val dampingFactor = 0.02f // Maggiore è questo valore, più rapidamente si smorza la crescita
+
+        fun calculateElasticEffect(excess: Float): Float {
+            return (elasticityFactor * excess) / (1 + dampingFactor * abs(excess))
+        }
+
+        // Se c'è un eccesso, applica la trasformazione elastica
+        if (excessX != 0f || excessY != 0f) {
+            val elasticX = calculateElasticEffect(excessX)
+            val elasticY = calculateElasticEffect(excessY)
+
+            Log.d("ELASTIC_EFFECT", "applyElasticEffect: $elasticX, $elasticY")
+
+            elasticMatrix.postTranslate(elasticX, elasticY)
+        }
+
+        return elasticMatrix
+    }
+
+    fun startBounceBackAnimation(excessX: Float, excessY: Float, elasticMatrix: Matrix, updateCallback: () -> Unit, onEndCallback: () -> Unit) {
+        val animator =
+            ValueAnimator.ofFloat(1f, 0f) // Da 1 (massima deviazione) a 0 (rimbalzo completato)
+        animator.duration = 300 // Durata dell'animazione in ms
+        animator.interpolator = OvershootInterpolator() // Effetto rimbalzo fluido
+
+        animator.addUpdateListener { animation ->
+            val progress = animation.animatedValue as Float
+
+            // Calcoliamo l'effetto elastico ridotto progressivamente
+            val bounceX = excessX * progress
+            val bounceY = excessY * progress
+
+            // Creiamo una matrice per il rimbalzo
+            elasticMatrix.set(applyElasticEffect(bounceX, bounceY))
+
+            // Chiamare updateCallback per ridisegnare la view
+            updateCallback()
+        }
+
+        animator.doOnEnd {
+            onEndCallback()
+        }
+
+        animator.start()
+    }
+
 }

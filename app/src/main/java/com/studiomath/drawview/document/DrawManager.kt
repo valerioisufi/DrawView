@@ -54,9 +54,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
     var moveMatrixNeedsUpdate = false
     var startAnimateMatrix = Matrix()
-//        get() {
-//            return drawMatrix.getMatrixWithConstrains(contentConstraintsOnWindow, calcPage.contentRect)
-//        }
+    var elasticMatrix = Matrix()
 
     /**
      * funzioni il cui compito è quello di disegnare il contenuto della View
@@ -177,10 +175,15 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         enum class Invalidate {
             INVALIDATE, POST_INVALIDATE, POST_INVALIDATE_ON_ANIMATION
         }
+        enum class AnimationType {
+            NONE, BOUNCE_BACK, FLING
+        }
 
         var update: Update? = null
         var strokesIdToRemove: Set<InProgressStrokeId>? = null
         var invalidateType = Invalidate.INVALIDATE
+        var animation: (() -> Unit)? = null
+        var animationType = AnimationType.NONE
     }
     var drawStack = mutableListOf<DrawAttachments>()
 
@@ -291,6 +294,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 if (!::onDrawBitmap.isInitialized) return
                 if (::jobOnDrawBitmap.isInitialized) jobOnDrawBitmap.cancel()
 
+                moveMatrix.postConcat(elasticMatrix)
                 pagesRectOnWindow = calcPage.getPagesRectOnWindowTransformation(windowRect, moveMatrix)
                 updateDrawView(drawAttachments)
 
@@ -303,6 +307,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 if (!::onDrawBitmap.isInitialized) return
                 if (::jobOnDrawBitmap.isInitialized) jobOnDrawBitmap.cancel()
 
+                moveMatrix.postConcat(elasticMatrix)
                 pagesRectOnWindow = calcPage.getPagesRectOnWindowTransformation(windowRect, moveMatrix)
                 updateDrawView(drawAttachments)
 
@@ -361,10 +366,10 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
         var tmpRect = RectF(calcPage.contentRect)
         moveMatrix.mapRect(tmpRect)
-        canvas.drawRect(tmpRect, Paint().apply {
-            color = Color.RED
-            style = Paint.Style.STROKE
-        })
+//        canvas.drawRect(tmpRect, Paint().apply {
+//            color = Color.RED
+//            style = Paint.Style.STROKE
+//        })
 
         when (drawAttachments.drawMode) {
             DrawMode.UPDATE -> {
@@ -427,28 +432,38 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
             }
             DrawMode.ANIMATE -> {
-                if (scroller.computeScrollOffset()){
-                    var translate = floatArrayOf(0f, 0f)
-                    drawViewModel.drawManager.startAnimateMatrix.mapPoints(translate)
+                when (drawAttachments.animationType){
+                    DrawAttachments.AnimationType.FLING -> {
+                        if (scroller.computeScrollOffset()) {
+                            var translate = floatArrayOf(0f, 0f)
+                            drawViewModel.drawManager.startAnimateMatrix.mapPoints(translate)
 
-                    var transformedContentRect = RectF(drawViewModel.drawManager.calcPage.contentRect)
-                    drawViewModel.drawManager.moveMatrix.mapRect(transformedContentRect)
+                            var transformedContentRect =
+                                RectF(drawViewModel.drawManager.calcPage.contentRect)
+                            drawViewModel.drawManager.moveMatrix.mapRect(transformedContentRect)
 
-                    val deltaScrollX = scroller.currX - translate[0].toInt()
-                    val deltaScrollY = scroller.currY - translate[1].toInt()
+                            val deltaScrollX = scroller.currX - translate[0].toInt()
+                            val deltaScrollY = scroller.currY - translate[1].toInt()
 
-                    moveMatrix = Matrix(startAnimateMatrix).apply {
-                        postTranslate(deltaScrollX.toFloat(), deltaScrollY.toFloat())
+                            moveMatrix = Matrix(startAnimateMatrix).apply {
+                                postTranslate(deltaScrollX.toFloat(), deltaScrollY.toFloat())
+                            }
+
+                            needsInvalidate = true
+                        } else {
+                            drawViewModel.drawManager.requestDraw(
+                                DrawAttachments(drawMode = DrawMode.UPDATE).apply {
+                                    update = DrawAttachments.Update.DRAW_BITMAP
+                                }
+                            )
+                        }
                     }
 
-                    needsInvalidate = true
-                }
-                else{
-                    drawViewModel.drawManager.requestDraw(
-                        DrawAttachments(drawMode = DrawMode.UPDATE).apply {
-                            update = DrawAttachments.Update.DRAW_BITMAP
-                        }
-                    )
+                    DrawAttachments.AnimationType.BOUNCE_BACK -> {
+//                        elasticMatrix.preConcat(moveMatrix)
+                    }
+
+                    else -> {}
                 }
 
                 /**
@@ -480,7 +495,9 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         }
 
         if (needsInvalidate) requestDraw(
-            DrawAttachments(drawMode = DrawMode.ANIMATE)
+            DrawAttachments(drawMode = DrawMode.ANIMATE).apply {
+                animationType = DrawAttachments.AnimationType.FLING
+            }
         )
 
         isDrawing = false

@@ -48,6 +48,8 @@ class OnTouchHover(
 
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    drawViewModel.drawManager.scroller.forceFinished(true)
+
                     // Deliver input events as soon as they arrive.
                     // It sometimes causes app crash
                     view.requestUnbufferedDispatch(event)

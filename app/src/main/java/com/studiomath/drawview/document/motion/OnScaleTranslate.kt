@@ -10,6 +10,8 @@ import android.util.Log
 import android.view.MotionEvent
 import android.view.VelocityTracker
 import com.studiomath.drawview.document.DrawManager
+import com.studiomath.drawview.document.DrawManager.DrawAttachments
+import com.studiomath.drawview.document.DrawManager.DrawAttachments.DrawMode
 import com.studiomath.drawview.document.DrawViewModel
 import kotlin.math.abs
 import kotlin.math.pow
@@ -26,7 +28,7 @@ class OnScaleTranslate(
     private var drawViewModel: DrawViewModel
 ) {
     var touchSlop = drawViewModel.configuration.scaledTouchSlop
-    var minimumScrollOffset = drawViewModel.configuration.scaledMinimumFlingVelocity
+    var minVelocity = drawViewModel.configuration.scaledMinimumFlingVelocity
     var maximumScrollOffset = drawViewModel.configuration.scaledMaximumFlingVelocity
 
     var velocityTracker: VelocityTracker? = null
@@ -67,6 +69,9 @@ class OnScaleTranslate(
 
     var translate = PointF(0f, 0f)
     var scaleFactor = 1f
+
+    var excessX = 0f
+    var excessY = 0f
 
     var isScaling = false
     var continueScaleTranslate = false
@@ -198,8 +203,21 @@ class OnScaleTranslate(
                     translate.y
                 )
 
-                drawViewModel.drawManager.calcPage.apply {
-                    applyBounds(tempMatrix, contentRect, drawViewModel.drawManager.windowRect)
+                drawViewModel.drawManager.apply {
+                    val result = calcPage.applyBounds(tempMatrix, calcPage.contentRect, windowRect)
+                    excessX = result.first
+                    excessY = result.second
+
+                    var transformedContentRect =
+                        RectF(drawViewModel.drawManager.calcPage.contentRect)
+                    drawViewModel.drawManager.moveMatrix.mapRect(transformedContentRect)
+
+                    if (transformedContentRect.width() < drawViewModel.drawManager.windowRect.width() && !isScaling){
+                        excessX = 0f
+                    }
+                    Log.d("BOUNCE", "Eccesso X: $excessX, Eccesso Y: $excessY")
+
+                    elasticMatrix = calcPage.applyElasticEffect(excessX, excessY)
                 }
 
                 drawViewModel.drawManager.moveMatrix =
@@ -207,7 +225,7 @@ class OnScaleTranslate(
 
                 Log.d("SCALE_TRANSLATE", "onDrawView: moveMatrix = ${drawViewModel.drawManager.moveMatrix}")
                 drawViewModel.drawManager.requestDraw(
-                    DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.SCALE_TRANSLATE)
+                    DrawAttachments(drawMode = DrawMode.SCALE_TRANSLATE)
                 )
 
             }
@@ -238,50 +256,115 @@ class OnScaleTranslate(
             MotionEvent.ACTION_UP -> {
                 velocityTracker!!.computeCurrentVelocity(1000)
 
-                var transformedContentRect = RectF(drawViewModel.drawManager.calcPage.contentRect)
-                drawViewModel.drawManager.moveMatrix.mapRect(transformedContentRect)
+                drawViewModel.drawManager.calcPage.applyBounds(
+                    drawViewModel.drawManager.moveMatrix,
+                    drawViewModel.drawManager.calcPage.contentRect,
+                    drawViewModel.drawManager.windowRect
+                )
+                Log.d("BOUNCE_BACK", "moveMatrix after applyBounds: ${drawViewModel.drawManager.moveMatrix}")
 
-                Log.d("FLING", "transformedContentRect: $transformedContentRect")
-
-                var startPointScroller = floatArrayOf(0f, 0f)
-                drawViewModel.drawManager.moveMatrix.mapPoints(startPointScroller)
 
 
-                val xOffset = startPointScroller[0] - transformedContentRect.left
-                // Quanto può scorrere a sinistra
-                var minX = (drawViewModel.drawManager.windowRect.width() - transformedContentRect.width() + xOffset).coerceAtMost(xOffset).toInt()
-                // Quanto può scorrere a destra
-                var maxX = xOffset.toInt()
+                Log.d("FLING", "excessX: $excessX, excessY: $excessY")
 
-                var xVelocity = velocityTracker!!.xVelocity.toInt()
+                if (excessX != 0f || excessY != 0f) {
+                    Log.d("FLING", "Disabilitato: fuori dai limiti")
+                    Log.d("BOUNCE_BACK", "1, moveMatrix: ${drawViewModel.drawManager.moveMatrix}, startAnimateMatrix: ${drawViewModel.drawManager.startAnimateMatrix}, elasticMatrix: ${drawViewModel.drawManager.elasticMatrix}")
 
-                if (transformedContentRect.width() < drawViewModel.drawManager.windowRect.width()) {
-                    minX = Int.MIN_VALUE
-                    maxX = Int.MAX_VALUE
-                    xVelocity = 0
+                    drawViewModel.drawManager.startAnimateMatrix.set(drawViewModel.drawManager.moveMatrix)
+
+                    // Invece di fare il fling, applica un'animazione di rimbalzo
+                    drawViewModel.drawManager.calcPage.startBounceBackAnimation(
+                        excessX, excessY, drawViewModel.drawManager.elasticMatrix,
+                        updateCallback = {
+                            drawViewModel.drawManager.moveMatrix.set(drawViewModel.drawManager.startAnimateMatrix)
+                            Log.d("BOUNCE_BACK", "moveMatrix: ${drawViewModel.drawManager.moveMatrix}, startAnimateMatrix: ${drawViewModel.drawManager.startAnimateMatrix}, elasticMatrix: ${drawViewModel.drawManager.elasticMatrix}")
+                            // Ridisegna la view
+                            drawViewModel.drawManager.requestDraw(
+                                DrawAttachments(drawMode = DrawMode.ANIMATE).apply {
+                                    animationType = DrawAttachments.AnimationType.BOUNCE_BACK
+                                }
+                            )
+                        },
+                        onEndCallback = {
+                            drawViewModel.drawManager.requestDraw(
+                                DrawAttachments(drawMode = DrawMode.UPDATE).apply {
+                                    update = DrawAttachments.Update.DRAW_BITMAP
+                                }
+                            )
+                        }
+                    )
+
+
+                } else {
+                    // Calcola i limiti normali del fling
+                    var transformedContentRect =
+                        RectF(drawViewModel.drawManager.calcPage.contentRect)
+                    drawViewModel.drawManager.moveMatrix.mapRect(transformedContentRect)
+
+                    Log.d("FLING", "transformedContentRect: $transformedContentRect")
+
+                    var startPointScroller = floatArrayOf(0f, 0f)
+                    drawViewModel.drawManager.moveMatrix.mapPoints(startPointScroller)
+
+
+                    val xOffset = startPointScroller[0] - transformedContentRect.left
+                    // Quanto può scorrere a sinistra
+                    var minX =
+                        (drawViewModel.drawManager.windowRect.width() - transformedContentRect.width() + xOffset).coerceAtMost(
+                            xOffset
+                        ).toInt()
+                    // Quanto può scorrere a destra
+                    var maxX = xOffset.toInt()
+
+                    var velocityX = velocityTracker!!.xVelocity.toInt()
+
+                    if (transformedContentRect.width() < drawViewModel.drawManager.windowRect.width()) {
+                        minX = Int.MIN_VALUE
+                        maxX = Int.MAX_VALUE
+                        velocityX = 0
+                    }
+
+                    val yOffset = startPointScroller[1] - transformedContentRect.top
+                    val minY =
+                        (drawViewModel.drawManager.windowRect.height() - transformedContentRect.height() + yOffset).coerceAtMost(
+                            0f
+                        ).toInt()
+                    val maxY = yOffset.toInt()
+                    val velocityY = velocityTracker!!.yVelocity.toInt()
+
+                    if (abs(velocityX) > minVelocity || abs(velocityY) > minVelocity) {
+                        drawViewModel.drawManager.scroller.fling(
+                            startPointScroller[0].toInt(), startPointScroller[1].toInt(),
+                            velocityX, velocityY,
+                            minX, maxX, minY, maxY,
+                            200, 200
+                        )
+
+                        Log.d("FLING", "Avviato con velocità X: $velocityX, Y: $velocityY")
+                    } else {
+                        Log.d("FLING", "Velocità insufficiente per il fling")
+                    }
+
+                    Log.d(
+                        "FLING",
+                        "startX: ${startPointScroller[0].toInt()}, startY: ${startPointScroller[1].toInt()}"
+                    )
+                    Log.d(
+                        "FLING",
+                        "velocityX: ${velocityTracker!!.xVelocity.toInt()}, velocityY: ${velocityTracker!!.yVelocity.toInt()}"
+                    )
+                    Log.d("FLING", "minX: $minX, maxX: $maxX, minY: $minY, maxY: $maxY")
+
+                    drawViewModel.drawManager.startAnimateMatrix =
+                        Matrix(drawViewModel.drawManager.moveMatrix)
+
+                    drawViewModel.drawManager.requestDraw(
+                        DrawAttachments(drawMode = DrawMode.ANIMATE).apply {
+                            animationType = DrawAttachments.AnimationType.FLING
+                        }
+                    )
                 }
-
-                val yOffset = startPointScroller[1] - transformedContentRect.top
-                val minY = (drawViewModel.drawManager.windowRect.height() - transformedContentRect.height() + yOffset).coerceAtMost(0f).toInt()
-                val maxY = yOffset.toInt()
-                val yVelocity = velocityTracker!!.yVelocity.toInt()
-
-                drawViewModel.drawManager.scroller.fling(
-                    startPointScroller[0].toInt(), startPointScroller[1].toInt(),
-                    xVelocity, yVelocity,
-                    minX, maxX, minY, maxY,
-                    200, 200
-                )
-
-                Log.d("FLING", "startX: ${startPointScroller[0].toInt()}, startY: ${startPointScroller[1].toInt()}")
-                Log.d("FLING", "velocityX: ${velocityTracker!!.xVelocity.toInt()}, velocityY: ${velocityTracker!!.yVelocity.toInt()}")
-                Log.d("FLING", "minX: $minX, maxX: $maxX, minY: $minY, maxY: $maxY")
-
-                drawViewModel.drawManager.startAnimateMatrix = Matrix(drawViewModel.drawManager.moveMatrix)
-
-                drawViewModel.drawManager.requestDraw(
-                    DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.ANIMATE)
-                )
 
                 velocityTracker!!.recycle()
                 velocityTracker = null

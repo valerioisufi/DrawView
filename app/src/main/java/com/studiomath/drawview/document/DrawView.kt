@@ -40,7 +40,7 @@ class DrawView(context: Context, val drawViewModel: DrawViewModel) : View(contex
     override fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
         super.onSizeChanged(width, height, oldWidth, oldHeight)
 
-        drawViewModel.drawManager.onSizeChanged(width, height)
+        drawViewModel.drawManager.onSizeChanged(width, height, oldWidth, oldHeight)
     }
 
     override fun onAttachedToWindow() {

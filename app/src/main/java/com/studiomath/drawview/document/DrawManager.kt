@@ -51,6 +51,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
      */
     var onDrawBitmapMatrix = Matrix() // matrix del contenuto visualizzato nella view
     var moveMatrix: Matrix = Matrix()
+
+    var moveMatrixNeedsUpdate = false
 //        get() {
 //            return drawMatrix.getMatrixWithConstrains(contentConstraintsOnWindow, calcPage.contentRect)
 //        }
@@ -192,6 +194,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
                         jobOnDrawBitmap = scope.launch {
                             if (calcPage.needToBeUpdated){
+                                var oldContentRect = RectF(calcPage.contentRect)
+
                                 calcPage.calcPagesRectOnWindow(
                                     drawViewModel.data.document.pages,
                                     windowRect,
@@ -199,6 +203,28 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                 )
                                 contentConstraintsOnWindow = calcPage.getContentConstraintsOnWindow(windowRect)
                                 calcPage.needToBeUpdated = false
+
+                                if (moveMatrixNeedsUpdate) {
+                                    val values = FloatArray(9)
+                                    moveMatrix.getValues(values)
+
+                                    // Estrarre la traslazione attuale
+                                    val transX = values[Matrix.MTRANS_X]
+                                    val transY = values[Matrix.MTRANS_Y]
+
+                                    // Calcolare il rapporto tra le nuove e le vecchie dimensioni del contentRect
+                                    val scaleX = calcPage.contentRect.width() / oldContentRect.width()
+                                    val scaleY = calcPage.contentRect.height() / oldContentRect.height()
+
+                                    // Calcolare la nuova traslazione scalata
+                                    val newTransX = transX * scaleX
+                                    val newTransY = transY * scaleY
+
+                                    // Applicare la traslazione corretta alla matrice
+                                    moveMatrix.postTranslate(newTransX - transX, newTransY - transY)
+
+                                    moveMatrixNeedsUpdate = false
+                                }
                             }
 
                             pagesRectOnWindow = calcPage.getPagesRectOnWindowTransformation(windowRect, moveMatrix)
@@ -423,10 +449,14 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     /**
      * onSizeChanged
      */
-    fun onSizeChanged(width: Int, height: Int) {
+    fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
 
         if (::onDrawBitmap.isInitialized) onDrawBitmap.recycle()
         onDrawBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+
+        if (oldWidth != 0 && oldHeight != 0) {
+            moveMatrixNeedsUpdate = true
+        }
 
         windowRect = RectF(0f, 0f, width.toFloat(), height.toFloat())
 

@@ -53,6 +53,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     var moveMatrix: Matrix = Matrix()
 
     var moveMatrixNeedsUpdate = false
+    var startAnimateMatrix = Matrix()
 //        get() {
 //            return drawMatrix.getMatrixWithConstrains(contentConstraintsOnWindow, calcPage.contentRect)
 //        }
@@ -300,6 +301,9 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             }
             DrawMode.ANIMATE -> {
                 if (!::onDrawBitmap.isInitialized) return
+                if (::jobOnDrawBitmap.isInitialized) jobOnDrawBitmap.cancel()
+
+                pagesRectOnWindow = calcPage.getPagesRectOnWindowTransformation(windowRect, moveMatrix)
                 updateDrawView(drawAttachments)
 
             }
@@ -354,6 +358,13 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 //        if (!edgeEffect.isFinished() && edgeEffect.draw(canvas)){
 //            needsInvalidate = true
 //        }
+
+        var tmpRect = RectF(calcPage.contentRect)
+        moveMatrix.mapRect(tmpRect)
+        canvas.drawRect(tmpRect, Paint().apply {
+            color = Color.RED
+            style = Paint.Style.STROKE
+        })
 
         when (drawAttachments.drawMode) {
             DrawMode.UPDATE -> {
@@ -416,19 +427,46 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
             }
             DrawMode.ANIMATE -> {
-//                if (scroller.computeScrollOffset()){
-//                    val scrollX = scroller.currX
-//                    val scrollY = scroller.currY
-////                    drawMatrix.setTranslate(scrollX.toFloat(), scrollY.toFloat())
-//
-//                    needsInvalidate = true
-//                }
+                if (scroller.computeScrollOffset()){
+                    var translate = floatArrayOf(0f, 0f)
+                    drawViewModel.drawManager.startAnimateMatrix.mapPoints(translate)
 
+                    var transformedContentRect = RectF(drawViewModel.drawManager.calcPage.contentRect)
+                    drawViewModel.drawManager.moveMatrix.mapRect(transformedContentRect)
+
+                    val deltaScrollX = scroller.currX - translate[0].toInt()
+                    val deltaScrollY = scroller.currY - translate[1].toInt()
+
+                    moveMatrix = Matrix(startAnimateMatrix).apply {
+                        postTranslate(deltaScrollX.toFloat(), deltaScrollY.toFloat())
+                    }
+
+                    needsInvalidate = true
+                }
+                else{
+                    drawViewModel.drawManager.requestDraw(
+                        DrawAttachments(drawMode = DrawMode.UPDATE).apply {
+                            update = DrawAttachments.Update.DRAW_BITMAP
+                        }
+                    )
+                }
+
+                /**
+                 * make il colore di fondo della view
+                 */
                 drawViewModel.pageMaker.makeWindowBackground(canvas, pagesRectOnWindow, moveMatrix)
                 for (pageRectWithIndex in pagesRectOnWindow){
                     drawViewModel.pageMaker.makePageBackground(canvas, pageRectWithIndex.rect, windowRect)
                 }
+
+                /**
+                 * trasformo e disegno la pagina intera memorizzata nella cache
+                 */
                 for (pageRectWithIndex in pagesRectOnWindow){
+                    if (! drawViewModel.data.document.pages[pageRectWithIndex.index].isPrepared){
+                        // TODO: da rivedere se mantenere o se inserire direttamente chiamata a prepare() quando viene aggiunta una pagina
+                        drawViewModel.data.document.pages[pageRectWithIndex.index].prepare()
+                    }
                     canvas.drawBitmap(
                         drawViewModel.data.document.pages[pageRectWithIndex.index].bitmapPage!!,
                         null,
@@ -441,7 +479,9 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
         }
 
-        if (needsInvalidate) postInvalidateOnAnimationRequest?.let { it() }
+        if (needsInvalidate) requestDraw(
+            DrawAttachments(drawMode = DrawMode.ANIMATE)
+        )
 
         isDrawing = false
     }

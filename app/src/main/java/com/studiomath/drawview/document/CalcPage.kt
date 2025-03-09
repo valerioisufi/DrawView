@@ -162,4 +162,43 @@ class CalcPage(
 
         return set
     }
+
+    fun applyBounds(matrix: Matrix, contentRect: RectF, windowRect: RectF) {
+        val transformedContentRect = RectF(contentRect)
+        matrix.mapRect(transformedContentRect)
+
+        val contentWidth = transformedContentRect.width()
+        val contentHeight = transformedContentRect.height()
+        val windowWidth = windowRect.width()
+        val windowHeight = windowRect.height()
+
+        var offsetX = 0f
+        var offsetY = 0f
+
+        // Se il contenuto è più piccolo della finestra, centrarlo
+        if (contentWidth < windowWidth) {
+            offsetX = (windowWidth - contentWidth) / 2 - transformedContentRect.left
+        } else {
+            // Altrimenti, mantenerlo nei limiti della finestra
+            if (transformedContentRect.left > 0) {
+                offsetX = -transformedContentRect.left
+            } else if (transformedContentRect.right < windowWidth) {
+                offsetX = windowWidth - transformedContentRect.right
+            }
+        }
+
+        // Stessa logica per l'asse Y
+        if (contentHeight < windowHeight) {
+            offsetY = (windowHeight - contentHeight) / 2 - transformedContentRect.top
+        } else {
+            if (transformedContentRect.top > 0) {
+                offsetY = -transformedContentRect.top
+            } else if (transformedContentRect.bottom < windowHeight) {
+                offsetY = windowHeight - transformedContentRect.bottom
+            }
+        }
+
+        // Applica la correzione alla matrice
+        matrix.postTranslate(offsetX, offsetY)
+    }
 }

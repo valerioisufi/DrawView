@@ -198,6 +198,10 @@ class OnScaleTranslate(
                     translate.y
                 )
 
+                drawViewModel.drawManager.calcPage.apply {
+                    applyBounds(tempMatrix, contentRect, drawViewModel.drawManager.windowRect)
+                }
+
                 drawViewModel.drawManager.moveMatrix =
                     Matrix(tempMatrix)
 
@@ -245,20 +249,28 @@ class OnScaleTranslate(
 
                 val xOffset = startPointScroller[0] - transformedContentRect.left
                 // Quanto può scorrere a sinistra
-                val minX = (drawViewModel.drawManager.windowRect.width() - transformedContentRect.width() + xOffset).coerceAtMost(xOffset).toInt()
+                var minX = (drawViewModel.drawManager.windowRect.width() - transformedContentRect.width() + xOffset).coerceAtMost(xOffset).toInt()
                 // Quanto può scorrere a destra
-                val maxX = xOffset.toInt()
+                var maxX = xOffset.toInt()
+
+                var xVelocity = velocityTracker!!.xVelocity.toInt()
+
+                if (transformedContentRect.width() < drawViewModel.drawManager.windowRect.width()) {
+                    minX = Int.MIN_VALUE
+                    maxX = Int.MAX_VALUE
+                    xVelocity = 0
+                }
 
                 val yOffset = startPointScroller[1] - transformedContentRect.top
                 val minY = (drawViewModel.drawManager.windowRect.height() - transformedContentRect.height() + yOffset).coerceAtMost(0f).toInt()
                 val maxY = yOffset.toInt()
-
+                val yVelocity = velocityTracker!!.yVelocity.toInt()
 
                 drawViewModel.drawManager.scroller.fling(
                     startPointScroller[0].toInt(), startPointScroller[1].toInt(),
-                    velocityTracker!!.xVelocity.toInt(), velocityTracker!!.yVelocity.toInt(),
+                    xVelocity, yVelocity,
                     minX, maxX, minY, maxY,
-//                    200, 200
+                    200, 200
                 )
 
                 Log.d("FLING", "startX: ${startPointScroller[0].toInt()}, startY: ${startPointScroller[1].toInt()}")
@@ -280,36 +292,4 @@ class OnScaleTranslate(
         continueScaleTranslate = true
     }
 
-//    private fun continueFling() {
-//        if (drawViewModel.drawManager.scroller.computeScrollOffset()) {
-//            val tempMatrix = Matrix(drawViewModel.drawManager.moveMatrix)
-//            tempMatrix.postTranslate(drawViewModel.drawManager.scroller.currX.toFloat(), drawViewModel.drawManager.scroller.currY.toFloat())
-////            applyBounds(tempMatrix)
-//            drawViewModel.drawManager.moveMatrix = tempMatrix
-//            drawViewModel.drawManager.requestDraw(DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.SCALE_TRANSLATE))
-//            Handler(Looper.getMainLooper()).postDelayed({ continueFling() }, 16)
-//        } else {
-//            drawViewModel.drawManager.requestDraw(
-//                DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-//                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
-//                }
-//            )
-//        }
-//    }
-
-//    private fun applyBounds(matrix: Matrix) {
-//        val rect = RectF(0f, 0f, drawViewModel.contentWidth, drawViewModel.contentHeight)
-//        matrix.mapRect(rect)
-//        val dx = when {
-//            rect.left > 0 -> -rect.left
-//            rect.right < drawViewModel.viewWidth -> drawViewModel.viewWidth - rect.right
-//            else -> 0f
-//        }
-//        val dy = when {
-//            rect.top > 0 -> -rect.top
-//            rect.bottom < drawViewModel.viewHeight -> drawViewModel.viewHeight - rect.bottom
-//            else -> 0f
-//        }
-//        matrix.postTranslate(dx / 2, dy / 2)
-//    }
 }

@@ -32,6 +32,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlin.collections.forEach
+import androidx.core.graphics.createBitmap
 
 class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetrics): InProgressStrokesFinishedListener {
     var isInitialized = false
@@ -518,7 +519,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
 
         if (::onDrawBitmap.isInitialized) onDrawBitmap.recycle()
-        onDrawBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        onDrawBitmap = createBitmap(width, height)
 
         if (oldWidth != 0 && oldHeight != 0) {
             moveMatrixNeedsUpdate = true

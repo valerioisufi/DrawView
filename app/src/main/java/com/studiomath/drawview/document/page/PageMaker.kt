@@ -17,6 +17,8 @@ import com.studiomath.drawview.document.page.Dimension.Companion.Length
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import androidx.core.graphics.createBitmap
+import androidx.core.graphics.toColorInt
 
 class PageMaker(
     var displayMetrics: DisplayMetrics
@@ -33,7 +35,7 @@ class PageMaker(
         pagesRectWithIndex: Set<CalcPage.PageRectWithIndex>,
         pages: DrawDocumentData.Document
     ): Bitmap {
-        var bitmap = Bitmap.createBitmap(bitmapRect.width(), bitmapRect.height(), Bitmap.Config.ARGB_8888)
+        var bitmap = createBitmap(bitmapRect.width(), bitmapRect.height())
         var canvas = Canvas(bitmap)
 
         for (pageRectWithIndex in pagesRectWithIndex){
@@ -214,7 +216,7 @@ class PageMaker(
         }
 
         val paintViewBackground = Paint().apply {
-            color = Color.parseColor("#FFFFFF")
+            color = "#FFFFFF".toColorInt()
         }
         canvas.drawPath(pageRectPath, paintViewBackground)
         //canvas.drawColor(ResourcesCompat.getColor(resources, R.color.dark_elevation_00dp, null))
@@ -251,7 +253,7 @@ class PageMaker(
                 24f * scaleFactor,
                 0f,
                 8f,
-                Color.parseColor("#BF959DA5")
+                "#BF959DA5".toColorInt()
             )
         }
 

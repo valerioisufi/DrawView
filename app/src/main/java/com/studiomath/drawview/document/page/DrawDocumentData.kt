@@ -39,6 +39,7 @@ import kotlinx.serialization.json.Json
 import java.io.File
 import kotlin.collections.forEach
 import kotlin.math.roundToInt
+import androidx.core.graphics.createBitmap
 
 class DrawDocumentData(
     filesDir: File,
@@ -221,12 +222,11 @@ class DrawDocumentData(
         fun prepare() {
             dimension = Dimension(width.mm, height.mm)
 
-            bitmapPage = Bitmap.createBitmap(
+            bitmapPage = createBitmap(
                 dimension!!.calcWidthFromResolutionPxInch(resolutionPxInchPageDefault)
                     .toInt(),
                 dimension!!.calcHeightFromResolutionPxInch(resolutionPxInchPageDefault)
-                    .toInt(),
-                Bitmap.Config.ARGB_8888
+                    .toInt()
             )
             strokeData.forEach { stroke ->
                 stroke.toInkStroke()

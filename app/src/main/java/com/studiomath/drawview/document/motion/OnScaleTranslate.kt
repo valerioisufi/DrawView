@@ -346,16 +346,6 @@ class OnScaleTranslate(
                         Log.d("FLING", "Velocità insufficiente per il fling")
                     }
 
-                    Log.d(
-                        "FLING",
-                        "startX: ${startPointScroller[0].toInt()}, startY: ${startPointScroller[1].toInt()}"
-                    )
-                    Log.d(
-                        "FLING",
-                        "velocityX: ${velocityTracker!!.xVelocity.toInt()}, velocityY: ${velocityTracker!!.yVelocity.toInt()}"
-                    )
-                    Log.d("FLING", "minX: $minX, maxX: $maxX, minY: $minY, maxY: $maxY")
-
                     drawViewModel.drawManager.startAnimateMatrix =
                         Matrix(drawViewModel.drawManager.moveMatrix)
 

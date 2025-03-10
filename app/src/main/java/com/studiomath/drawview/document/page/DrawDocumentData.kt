@@ -357,6 +357,28 @@ class DrawDocumentData(
      * gestione documento
      */
 
+    fun addPage(page: Page){
+        document.pages.add(page)
+        drawViewModel.drawManager.calcPage.needToBeUpdated = true
+        drawViewModel.drawManager.requestDraw(
+            DrawAttachments(drawMode = DrawAttachments.DrawMode.UPDATE).apply {
+                update = DrawAttachments.Update.DRAW_BITMAP
+            }
+        )
+    }
+
+    fun removePage(index: Int = document.pages.lastIndex){
+        if (index >= 0 && index < document.pages.size){
+            document.pages.removeAt(index)
+            drawViewModel.drawManager.calcPage.needToBeUpdated = true
+            drawViewModel.drawManager.requestDraw(
+                DrawAttachments(drawMode = DrawAttachments.DrawMode.UPDATE).apply {
+                    update = DrawAttachments.Update.DRAW_BITMAP
+                }
+            )
+        }
+    }
+
 
     fun cancelStrokeData(currentStrokeId: InProgressStrokeId, event: MotionEvent){
         drawViewModel.cancelStrokeInProgress?.let { it(currentStrokeId, event) }

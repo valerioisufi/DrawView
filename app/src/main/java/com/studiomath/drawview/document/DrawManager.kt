@@ -206,6 +206,15 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                     CalcPage.PagePositionOnWindowOption()
                                 )
                                 contentConstraintsOnWindow = calcPage.getContentConstraintsOnWindow(windowRect)
+                                /*
+                                applico i bounds alla matrice di trasformazione e ricalcolo pagesRectOnWindow e contentRect
+                                 */
+                                calcPage.applyBounds(moveMatrix, calcPage.contentRect, windowRect)
+                                calcPage.calcPagesRectOnWindow(
+                                    drawViewModel.data.document.pages,
+                                    windowRect,
+                                    CalcPage.PagePositionOnWindowOption()
+                                )
                                 calcPage.needToBeUpdated = false
 
                                 if (moveMatrixNeedsUpdate) {

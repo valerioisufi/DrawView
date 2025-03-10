@@ -273,13 +273,7 @@ fun DrawActivity(
                 ) {
                     ToolButton(
                         onClick = {
-                            drawViewModel.data.document.pages.removeAt(drawViewModel.data.document.pages.lastIndex)
-                            drawViewModel.drawManager.calcPage.needToBeUpdated = true
-                            drawViewModel.drawManager.requestDraw(
-                                DrawAttachments(drawMode = DrawAttachments.DrawMode.UPDATE).apply {
-                                    update = DrawAttachments.Update.DRAW_BITMAP
-                                }
-                            )
+                            drawViewModel.data.removePage()
                         }
 
                     ){
@@ -290,19 +284,14 @@ fun DrawActivity(
                     }
                     ToolButton(
                         onClick = {
-                            drawViewModel.data.document.pages.add(
+                            drawViewModel.data.addPage(
                                 Page(1).apply {
                                     dimension = Dimension.A4()
                                     width = dimension!!.width.mm
                                     height = dimension!!.height.mm
                                 }
                             )
-                            drawViewModel.drawManager.calcPage.needToBeUpdated = true
-                            drawViewModel.drawManager.requestDraw(
-                                DrawAttachments(drawMode = DrawAttachments.DrawMode.UPDATE).apply {
-                                    update = DrawAttachments.Update.DRAW_BITMAP
-                                }
-                            )
+
                         }
 
                     ){

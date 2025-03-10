@@ -79,6 +79,7 @@ class CalcPage(
             pagesRectOnWindow.add(tempRect)
         }
 
+        // TODO: devo inserire l'aggiornamento di contentRect in una funzione a parte, svincolata da questa funzione
         contentRect.apply {
             left = leftMostPosition - horizontalPadding
             top = 0f

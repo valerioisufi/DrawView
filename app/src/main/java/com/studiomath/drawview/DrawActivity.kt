@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.displayCutout
@@ -79,8 +80,10 @@ import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -307,111 +310,209 @@ fun DrawActivity(
                         thickness = 2.dp
                     )
 
-
-                    var selectedTool by remember { mutableStateOf(ToolUtilities.Tool.INK_PEN) }
-
                     var penSettingsExpanded by remember { mutableStateOf(false) }
                     ToolButton(
                         onClick = {
-                            if (selectedTool == ToolUtilities.Tool.INK_PEN){
+                            if (drawViewModel.selectedTool == ToolUtilities.Tool.INK_PEN) {
                                 penSettingsExpanded = true
                             } else {
                                 drawViewModel.activeBrush = drawViewModel.penTool.getBrush(0)
-                                selectedTool = ToolUtilities.Tool.INK_PEN
+                                drawViewModel.selectedTool = ToolUtilities.Tool.INK_PEN
                             }
                         },
                         onLongClick = {
                             drawViewModel.activeBrush = drawViewModel.penTool.getBrush(0)
-                            selectedTool = ToolUtilities.Tool.INK_PEN
+                            drawViewModel.selectedTool = ToolUtilities.Tool.INK_PEN
                             penSettingsExpanded = true
                         },
-                        selected = selectedTool == ToolUtilities.Tool.INK_PEN,
+                        selected = drawViewModel.selectedTool == ToolUtilities.Tool.INK_PEN,
                         dropDownMenu = {
                             var size by remember { mutableFloatStateOf(drawViewModel.activeBrush.size) }
-                            ColorWheel(
-                                color = Color(drawViewModel.activeBrush.colorIntArgb),
-                                onColorChanged = {
-                                    drawViewModel.activeBrush = drawViewModel.activeBrush.copyWithColorIntArgb(
-                                        colorIntArgb = it.toArgb()
-                                    )
-                                }
-                            )
 
-                            SizeSlider(
-                                size = size.pt,
-                                onSizeChanged = {
-                                    size = it.pt
-                                    drawViewModel.activeBrush = drawViewModel.activeBrush.copy(
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(text = "Seleziona il colore", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                ColorWheel(
+                                    color = Color(drawViewModel.activeBrush.colorIntArgb),
+                                    onColorChanged = {
+                                        drawViewModel.activeBrush = drawViewModel.activeBrush.copyWithColorIntArgb(
+                                            colorIntArgb = it.toArgb()
+                                        )
+                                    }
+                                )
+
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                Text(text = "Dimensione pennello", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                SizeSlider(
+                                    modifier = Modifier.padding(8.dp),
+                                    size = size.pt,
+                                    onSizeChanged = {
                                         size = it.pt
-                                    )
-                                }
-                            )
+                                        drawViewModel.activeBrush = drawViewModel.activeBrush.copy(
+                                            size = it.pt
+                                        )
+                                    }
+                                )
+                            }
                         },
                         expanded = penSettingsExpanded,
                         onDismissRequest = { penSettingsExpanded = false }
-                    ){
+                    ) {
                         Icon(
                             painter = painterResource(id = R.drawable.icon_ink_pen),
-                            contentDescription = "Grid View",
+                            contentDescription = "Ink Pen",
                         )
                     }
 
                     var highlighterSettingsExpanded by remember { mutableStateOf(false) }
                     ToolButton(
                         onClick = {
-                            if (selectedTool == ToolUtilities.Tool.INK_HIGHLIGHTER){
+                            if (drawViewModel.selectedTool == ToolUtilities.Tool.INK_HIGHLIGHTER) {
                                 highlighterSettingsExpanded = true
                             } else {
                                 drawViewModel.activeBrush = drawViewModel.highlighterTool.getBrush(0)
-                                selectedTool = ToolUtilities.Tool.INK_HIGHLIGHTER
+                                drawViewModel.selectedTool = ToolUtilities.Tool.INK_HIGHLIGHTER
                             }
                         },
                         onLongClick = {
                             drawViewModel.activeBrush = drawViewModel.highlighterTool.getBrush(0)
-                            selectedTool = ToolUtilities.Tool.INK_HIGHLIGHTER
-                            penSettingsExpanded = true
+                            drawViewModel.selectedTool = ToolUtilities.Tool.INK_HIGHLIGHTER
+                            highlighterSettingsExpanded = true
                         },
-                        selected = selectedTool == ToolUtilities.Tool.INK_HIGHLIGHTER,
+                        selected = drawViewModel.selectedTool == ToolUtilities.Tool.INK_HIGHLIGHTER,
                         dropDownMenu = {
                             var size by remember { mutableFloatStateOf(drawViewModel.activeBrush.size) }
-                            ColorWheel(
-                                color = Color(drawViewModel.activeBrush.colorIntArgb),
-                                onColorChanged = {
-                                    drawViewModel.activeBrush = drawViewModel.activeBrush.copyWithColorIntArgb(
-                                        colorIntArgb = it.toArgb()
-                                    )
-                                }
-                            )
 
-                            SizeSlider(
-                                size = size.pt,
-                                onSizeChanged = {
-                                    size = it.pt
-                                    drawViewModel.activeBrush = drawViewModel.activeBrush.copy(
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(text = "Seleziona il colore evidenziatore", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                ColorWheel(
+                                    color = Color(drawViewModel.activeBrush.colorIntArgb),
+                                    onColorChanged = {
+                                        drawViewModel.activeBrush = drawViewModel.activeBrush.copyWithColorIntArgb(
+                                            colorIntArgb = it.toArgb()
+                                        )
+                                    }
+                                )
+
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                Text(text = "Dimensione evidenziatore", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                SizeSlider(
+                                    modifier = Modifier.padding(8.dp),
+                                    size = size.pt,
+                                    onSizeChanged = {
                                         size = it.pt
-                                    )
-                                }
-                            )
+                                        drawViewModel.activeBrush = drawViewModel.activeBrush.copy(
+                                            size = it.pt
+                                        )
+                                    }
+                                )
+                            }
                         },
                         expanded = highlighterSettingsExpanded,
                         onDismissRequest = { highlighterSettingsExpanded = false }
-                    ){
+                    ) {
                         Icon(
                             painter = painterResource(id = R.drawable.icon_ink_highlighter),
-                            contentDescription = "Grid View",
+                            contentDescription = "Ink Highlighter",
                         )
                     }
 
-                    ToolButton(){
+                    var eraserSettingsExpanded by remember { mutableStateOf(false) }
+                    ToolButton(
+                        onClick = {
+                            if (drawViewModel.selectedTool == ToolUtilities.Tool.ERASER) {
+                                eraserSettingsExpanded = true
+                            } else {
+                                drawViewModel.activeBrush = drawViewModel.eraserTool.getBrush(0)
+                                drawViewModel.selectedTool = ToolUtilities.Tool.ERASER
+                            }
+                        },
+                        onLongClick = {
+                            drawViewModel.activeBrush = drawViewModel.eraserTool.getBrush(0)
+                            drawViewModel.selectedTool = ToolUtilities.Tool.ERASER
+                            eraserSettingsExpanded = true
+                        },
+                        selected = drawViewModel.selectedTool == ToolUtilities.Tool.ERASER,
+                        dropDownMenu = {
+                            var size by remember { mutableFloatStateOf(drawViewModel.activeBrush.size) }
+
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(text = "Dimensione evidenziatore", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                SizeSlider(
+                                    modifier = Modifier.padding(8.dp),
+                                    size = size.pt,
+                                    onSizeChanged = {
+                                        size = it.pt
+                                        drawViewModel.activeBrush = drawViewModel.activeBrush.copy(
+                                            size = it.pt
+                                        )
+                                    }
+                                )
+                            }
+                        },
+                        expanded = eraserSettingsExpanded,
+                        onDismissRequest = { eraserSettingsExpanded = false }
+                    ) {
                         Icon(
                             painter = painterResource(id = R.drawable.icon_ink_eraser),
                             contentDescription = "Eraser",
                         )
                     }
-                    ToolButton(){
+
+                    ToolButton(
+                        onClick = {
+                            drawViewModel.activeBrush = drawViewModel.lazoTool.getBrush(0)
+                            drawViewModel.selectedTool = ToolUtilities.Tool.LAZO
+                        },
+                        selected = drawViewModel.selectedTool == ToolUtilities.Tool.LAZO
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.icon_lasso_select),
+                            contentDescription = "Lasso Select",
+                        )
+                    }
+
+                    ToolButton(
+                        onClick = {
+                            drawViewModel.selectedTool = ToolUtilities.Tool.TEXT
+                        },
+                        selected = drawViewModel.selectedTool == ToolUtilities.Tool.TEXT
+                    ) {
                         Icon(
                             painter = painterResource(id = R.drawable.icon_text_fields),
-                            contentDescription = "Text field",
+                            contentDescription = "Text Field",
+                        )
+                    }
+
+                    ToolButton(
+                        onClick = {
+                            drawViewModel.selectedTool = ToolUtilities.Tool.PAN
+                        },
+                        selected = drawViewModel.selectedTool == ToolUtilities.Tool.PAN
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.icon_pan_tool),
+                            contentDescription = "Pan Tool",
                         )
                     }
 

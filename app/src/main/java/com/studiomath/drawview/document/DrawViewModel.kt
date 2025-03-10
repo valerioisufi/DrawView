@@ -5,6 +5,11 @@ import android.graphics.Path
 import android.util.DisplayMetrics
 import android.view.MotionEvent
 import android.view.ViewConfiguration
+import androidx.annotation.ColorInt
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.brush.Brush
 import androidx.ink.brush.StockBrushes
@@ -33,7 +38,7 @@ class DrawViewModel(
     @Serializable
     data class ToolUtilities(val toolType: Tool){
         enum class Tool {
-            INK_PEN, INK_HIGHLIGHTER, ERASER, TEXT, LAZO
+            INK_PEN, INK_HIGHLIGHTER, ERASER, TEXT, LAZO, PAN
         }
         @Serializable
         data class BrushSettings(
@@ -47,13 +52,16 @@ class DrawViewModel(
             if (index >= brushList.size) {
                 when(toolType){
                     Tool.INK_PEN -> brushList.add(BrushSettings(3f, Color.BLUE))
-                    Tool.INK_HIGHLIGHTER -> brushList.add(BrushSettings(15f, Color.YELLOW))
+                    Tool.INK_HIGHLIGHTER -> brushList.add(BrushSettings(15f, Color.argb(0.25f, 1f, 1f, 0f)))
+                    Tool.ERASER -> brushList.add(BrushSettings(20f, Color.argb(0.8f, 1f, 1f, 1f)))
+                    Tool.LAZO -> brushList.add(BrushSettings(2f, Color.argb(1f, 0.53f, 0.6f, 0.7f)))
                     else -> brushList.add(BrushSettings(4f, Color.BLACK))
                 }
             }
             var family = when(toolType){
                 Tool.INK_PEN -> StockBrushes.pressurePenLatest
                 Tool.INK_HIGHLIGHTER -> StockBrushes.highlighterLatest
+                Tool.LAZO -> StockBrushes.dashedLineLatest
                 else -> StockBrushes.markerLatest
             }
             return Brush.createWithColorIntArgb(
@@ -67,8 +75,9 @@ class DrawViewModel(
     val penTool = ToolUtilities(ToolUtilities.Tool.INK_PEN)
     val highlighterTool = ToolUtilities(ToolUtilities.Tool.INK_HIGHLIGHTER)
     val eraserTool = ToolUtilities(ToolUtilities.Tool.ERASER)
+    val lazoTool = ToolUtilities(ToolUtilities.Tool.LAZO)
 
-
+    var selectedTool by mutableStateOf(ToolUtilities.Tool.INK_PEN)
     var activeBrush = penTool.getBrush(0)
     fun getActiveBrushScaled() = activeBrush.copy(
         size = drawManager.dimToPx(activeBrush.size.pt),

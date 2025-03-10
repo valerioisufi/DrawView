@@ -38,7 +38,7 @@ class OnTouchHover(
 
         if (event.action == MotionEvent.ACTION_DOWN) onScaleTranslate.continueScaleTranslate = false
         if (!isStylusActive && event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS) isStylusActive = true
-        isStrokeInProgress = event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS || (event.pointerCount == 1 && !isStylusActive && !onScaleTranslate.continueScaleTranslate)
+        isStrokeInProgress = (event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS || (event.pointerCount == 1 && !isStylusActive && !onScaleTranslate.continueScaleTranslate)) && drawViewModel.selectedTool != DrawViewModel.ToolUtilities.Tool.PAN
 
 
         /**
@@ -103,7 +103,7 @@ class OnTouchHover(
         /**
          * eseguo lo scaling
          */
-        if ((event.pointerCount == 1 || event.pointerCount == 2) && event.getToolType(0) != MotionEvent.TOOL_TYPE_STYLUS) {
+        if ((event.pointerCount == 1 || event.pointerCount == 2) && event.getToolType(0) != MotionEvent.TOOL_TYPE_STYLUS || drawViewModel.selectedTool == DrawViewModel.ToolUtilities.Tool.PAN) {
             onScaleTranslate.onScaleTranslate(event)
 
             if(!isStylusActive) {

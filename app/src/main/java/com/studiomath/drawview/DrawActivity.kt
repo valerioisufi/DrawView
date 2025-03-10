@@ -455,7 +455,7 @@ fun DrawActivity(
                                 modifier = Modifier.padding(16.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Text(text = "Dimensione evidenziatore", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Text(text = "Dimensione gomma", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                                 Spacer(modifier = Modifier.height(8.dp))
 
                                 SizeSlider(

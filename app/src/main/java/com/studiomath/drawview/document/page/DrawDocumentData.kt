@@ -112,19 +112,6 @@ class DrawDocumentData(
                     ToolType.MOUSE -> InputToolType.MOUSE
                     else -> InputToolType.UNKNOWN
                 }
-            val batch = MutableStrokeInputBatch()
-            inputs.forEach { input ->
-                batch.addOrThrow(
-                    type = toolType,
-                    x = input.x,
-                    y = input.y,
-                    elapsedTimeMillis = input.timeMillis.toLong(),
-                    strokeUnitLengthCm = if(input.strokeUnitLengthCm != null) input.strokeUnitLengthCm!! else androidx.ink.strokes.StrokeInput.NO_STROKE_UNIT_LENGTH,
-                    pressure = if(input.pressure != null) input.pressure!! else androidx.ink.strokes.StrokeInput.NO_PRESSURE,
-                    tiltRadians  = if(input.tilt != null) input.tilt!! else androidx.ink.strokes.StrokeInput.NO_TILT,
-                    orientationRadians = if(input.orientation != null) input.orientation!! else androidx.ink.strokes.StrokeInput.NO_ORIENTATION
-                )
-            }
 
             val brushFamily =
                 when (brush){
@@ -150,21 +137,9 @@ class DrawDocumentData(
             PRESSURE_PEN, HIGHLIGHTER, MARKER
         }
 
-        // TODO: utlizzare invece una lista di float
-        @Serializable
-        data class StrokeInput(
-            @SerialName("x") var x: Float = 0f, @SerialName("y") var y: Float = 0f
-        ) {
-            @SerialName("m") var timeMillis: Float = 0f
-            @SerialName("l") var strokeUnitLengthCm: Float? = null
-            @SerialName("p") var pressure: Float? = null
-            @SerialName("t") var tilt: Float? = null
-            @SerialName("o") var orientation: Float? = null
-        }
 
         @SerialName("tT") var toolType = ToolType.UNKNOWN
         @SerialName("b") var brush: BrushFamily = BrushFamily.PRESSURE_PEN
-        @SerialName("i") var inputs = mutableListOf<StrokeInput>()
 
         @SerialName("s") var size: Float = 8f
         @SerialName("c") var color: Int = 0xFFFFFF

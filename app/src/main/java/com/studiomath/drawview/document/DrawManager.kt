@@ -133,25 +133,24 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 }
             }
 
-
-            val canvas = Canvas(onDrawBitmap)
-            canvas.clipRect(pageRectWithIndex.rect)
-            strokes.values.forEach { stroke ->
-                drawViewModel.pageMaker.canvasStrokeRenderer.draw(
-                    stroke = stroke,
-                    canvas = canvas,
-                    strokeToScreenTransform = Matrix()
-                )
-            }
-
-            requestDraw(
-                DrawAttachments(drawMode = DrawMode.REFRESH).apply {
-                    strokesIdToRemove = strokes.keys
-                    invalidateType = DrawAttachments.Invalidate.INVALIDATE
-                }
-            )
-
         }
+
+        val canvas = Canvas(onDrawBitmap)
+//        canvas.clipRect(pageRectWithIndex.rect)
+        strokes.values.forEach { stroke ->
+            drawViewModel.pageMaker.canvasStrokeRenderer.draw(
+                stroke = stroke,
+                canvas = canvas,
+                strokeToScreenTransform = Matrix()
+            )
+        }
+        requestDraw(
+            DrawAttachments(drawMode = DrawMode.REFRESH).apply {
+                strokesIdToRemove = strokes.keys
+                invalidateType = DrawAttachments.Invalidate.INVALIDATE
+            }
+        )
+
     }
 
     /**
@@ -270,7 +269,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                             // update all bitmapPages
                             for ((index, page) in drawViewModel.data.document.pages.withIndex()) {
                                 page.bitmapPage = drawViewModel.pageMaker.makePage(
-                                    page.bitmapPage,
+                                    Rect(0, 0, page.bitmapPage!!.width, page.bitmapPage!!.height),
                                     null,
                                     page
                                 )

@@ -39,11 +39,11 @@ class PageMaker(
         var canvas = Canvas(bitmap)
 
         for (pageRectWithIndex in pagesRectWithIndex){
-            canvas.drawBitmap(
-                makePage(bitmap, pageRectWithIndex.rect, pages.pages[pageRectWithIndex.index]),
-                0f,
-                0f,
-                null
+            makePage(
+                Rect(0, 0, bitmap.width, bitmap.height),
+                bitmap,
+                pages.pages[pageRectWithIndex.index],
+                pageRectWithIndex.rect
             )
 
         }
@@ -51,27 +51,29 @@ class PageMaker(
     }
 
     suspend fun makePage(
+        bitmapRect: Rect,
         bitmapSource: Bitmap?,
-        clipRect: RectF? = null,
-        page: DrawDocumentData.Page
+        page: DrawDocumentData.Page,
+        clipRect: RectF? = null
     ): Bitmap =
         withContext(Dispatchers.Default) {
             if (!page.isPrepared){
                 page.prepare()
             }
-            var bitmap: Bitmap = if (bitmapSource != null) Bitmap.createBitmap(bitmapSource) else Bitmap.createBitmap(page.bitmapPage!!)
+            var bitmap: Bitmap = bitmapSource ?: createBitmap(bitmapRect.width(), bitmapRect.height())
             val canvas = Canvas(bitmap)
 
             /**
              * verifico se il Rect passato come parametro alla funzione sia
              * uguale a null, in tal caso ne creo uno io con le dimensioni della Bitmap
              */
-            var clipRect = if (clipRect != null) clipRect else RectF().apply {
-                left = 0f
-                top = 0f
-                right = bitmap.width.toFloat()
-                bottom = bitmap.height.toFloat()
-            }
+            var clipRect = clipRect
+                ?: RectF().apply {
+                    left = 0f
+                    top = 0f
+                    right = bitmap.width.toFloat()
+                    bottom = bitmap.height.toFloat()
+                }
 
 
 

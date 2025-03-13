@@ -83,40 +83,37 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     @UiThread
     override fun onStrokesFinished(strokes: Map<InProgressStrokeId, Stroke>) {
 
-        for (pageRectWithIndex in pagesRectOnWindow){
+        scope.launch {
+            for (pageRectWithIndex in pagesRectOnWindow){
                 val matrix = Matrix().apply {
                     setRectToRect(pageRectWithIndex.rect, drawViewModel.data.document.pages[pageRectWithIndex.index].rect(), Matrix.ScaleToFit.CENTER)
                 }
 
-            // TODO: implementare algoritmo di intersezione
-            strokes.values.forEach{ stroke ->
-                var serializedStroke = DrawDocumentData.Stroke(0).apply {
-                    this.stroke = stroke
-                    toSerializedStroke()
-                        inputs.forEach{ input ->
-                            var point = floatArrayOf(input.x, input.y)
-                            matrix.mapPoints(point)
-                            input.apply {
-                                x = point[0]
-                                y = point[1]
+                // TODO: implementare algoritmo di intersezione
+                drawViewModel.data.documentMutex.withLock{
+                    strokes.values.forEach{ stroke ->
+                        var serializedStroke = DrawDocumentData.Stroke(0).apply {
+                            this.stroke = stroke
+                            toSerializedStroke()
+                            inputs.forEach{ input ->
+                                var point = floatArrayOf(input.x, input.y)
+                                matrix.mapPoints(point)
+                                input.apply {
+                                    x = point[0]
+                                    y = point[1]
+                                }
                             }
+                            size = matrix.mapRadius(size)
+                            toInkStroke()
                         }
-                        size = matrix.mapRadius(size)
-                        toInkStroke()
+                        drawViewModel.data.document.pages[pageRectWithIndex.index].strokeData.add(serializedStroke)
                     }
-
-            }
-        }
-
-        scope.launch {
-            for (pageRectWithIndex in pagesRectOnWindow) {
-                drawViewModel.data.documentMutex.withLock {
-                    drawViewModel.data.document.pages[pageRectWithIndex.index].strokeData.add(
-                        serializedStroke
-                    )
                 }
+
+
+
+                drawViewModel.data.saveDocument()
             }
-            drawViewModel.data.saveDocument()
         }
 
         for (pageRectWithIndex in pagesRectOnWindow) {

@@ -1,20 +1,11 @@
 package com.studiomath.drawview.document.motion
 
 import android.annotation.SuppressLint
-import android.graphics.Matrix
-import android.os.Build
-import android.util.Log
-import android.view.GestureDetector
 import android.view.MotionEvent
-import android.view.ScaleGestureDetector
-import android.view.VelocityTracker
 import android.view.View
 import androidx.compose.runtime.mutableStateOf
-import androidx.core.view.GestureDetectorCompat
-import androidx.core.view.ScaleGestureDetectorCompat
 import androidx.ink.authoring.InProgressStrokeId
 import androidx.input.motionprediction.MotionEventPredictor
-import com.studiomath.drawview.document.DrawManager
 import com.studiomath.drawview.document.DrawViewModel
 
 class OnTouchHover(

@@ -72,9 +72,9 @@ class DrawDocumentData(
 
             brush =
                 when (stroke!!.brush.family){
-                    StockBrushes.pressurePenLatest -> BrushFamily.PRESSURE_PEN
-                    StockBrushes.highlighterLatest -> BrushFamily.HIGHLIGHTER
-                    StockBrushes.markerLatest -> BrushFamily.MARKER
+                    StockBrushes.pressurePen() -> BrushFamily.PRESSURE_PEN
+                    StockBrushes.highlighter() -> BrushFamily.HIGHLIGHTER
+                    StockBrushes.marker() -> BrushFamily.MARKER
                     else -> BrushFamily.MARKER
                 }
 
@@ -114,7 +114,7 @@ class DrawDocumentData(
                 }
             val batch = MutableStrokeInputBatch()
             inputs.forEach { input ->
-                batch.addOrThrow(
+                batch.add(
                     type = toolType,
                     x = input.x,
                     y = input.y,
@@ -128,9 +128,9 @@ class DrawDocumentData(
 
             val brushFamily =
                 when (brush){
-                    BrushFamily.PRESSURE_PEN -> StockBrushes.pressurePenLatest
-                    BrushFamily.HIGHLIGHTER -> StockBrushes.highlighterLatest
-                    BrushFamily.MARKER -> StockBrushes.markerLatest
+                    BrushFamily.PRESSURE_PEN -> StockBrushes.pressurePen()
+                    BrushFamily.HIGHLIGHTER -> StockBrushes.highlighter()
+                    BrushFamily.MARKER -> StockBrushes.marker()
                 }
             val brush = Brush.createWithColorIntArgb(
                 family = brushFamily,

@@ -59,10 +59,10 @@ class DrawViewModel(
                 }
             }
             var family = when(toolType){
-                Tool.INK_PEN -> StockBrushes.pressurePenLatest
-                Tool.INK_HIGHLIGHTER -> StockBrushes.highlighterLatest
-                Tool.LAZO -> StockBrushes.dashedLineLatest
-                else -> StockBrushes.markerLatest
+                Tool.INK_PEN -> StockBrushes.pressurePen()
+                Tool.INK_HIGHLIGHTER -> StockBrushes.highlighter()
+                Tool.LAZO -> StockBrushes.dashedLine()
+                else -> StockBrushes.marker()
             }
             return Brush.createWithColorIntArgb(
                 family = family,

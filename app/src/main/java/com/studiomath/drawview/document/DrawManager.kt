@@ -7,18 +7,17 @@ import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.RectF
 import android.util.DisplayMetrics
-import android.util.Log
 import android.widget.OverScroller
 import androidx.annotation.UiThread
 import androidx.core.graphics.createBitmap
+import androidx.core.graphics.withClip
 import androidx.core.graphics.withMatrix
+import androidx.core.graphics.withSave
 import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.authoring.InProgressStrokesFinishedListener
 import androidx.ink.strokes.Stroke
-import com.studiomath.drawview.document.page.Dimension.Companion.Length
 import com.studiomath.drawview.document.page.DrawDocumentData
 import com.studiomath.drawview.document.page.Measure
-import com.studiomath.drawview.document.page.pt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -274,7 +273,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                 }
                             }
 
-                            // Determine the pure mathematical projection (without temporary elasticity)
+                            // Actual matrix (without fixed elasticity) used for the cache
                             pagesRectOnWindow = calcPage.getPagesRectOnWindowTransformation(windowRect, moveMatrix)
                             drawViewModel.maskPath?.invoke(getMaskPath())
 
@@ -438,36 +437,50 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 drawViewModel.removeFinishedStrokes?.let { it(drawAttachments.strokesIdToRemove ?: emptySet()) }
             }
             DrawAttachments.DrawMode.SCALE_TRANSLATE -> {
-                // Background rendering
+                // 1. FIRST calculate the relative transformation and the bounds of the high-resolution bitmap
+                val inverseDrawMatrix = Matrix()
+                var relativeTransform: Matrix? = null
+                val onDrawBitmapBounds = RectF()
+
+                if (onDrawBitmapMatrix.invert(inverseDrawMatrix)) {
+                    relativeTransform = Matrix(inverseDrawMatrix)
+                    val currentRenderMatrix = Matrix(moveMatrix).apply { postConcat(elasticMatrix) }
+                    relativeTransform.postConcat(currentRenderMatrix)
+
+                    // Find EXACTLY where the onDrawBitmap will be located on the screen in this frame
+                    onDrawBitmapBounds.set(windowRect)
+                    relativeTransform.mapRect(onDrawBitmapBounds)
+                }
+
+                // 2. Render view and pages background
                 drawViewModel.pageMaker.makeWindowBackground(canvas, pagesRectOnWindow, moveMatrix)
                 for (pageRectWithIndex in pagesRectOnWindow){
                     drawViewModel.pageMaker.makePageBackground(canvas, pageRectWithIndex.rect, windowRect)
                 }
 
-                // Render individual prepared pages
-                for (pageRectWithIndex in pagesRectOnWindow){
-                    val page = drawViewModel.data.document.pages[pageRectWithIndex.index]
-                    if (!page.isPrepared) page.prepare()
-
-                    page.bitmapPage?.let {
-                        canvas.drawBitmap(it, null, pageRectWithIndex.rect, null)
+                // 3. Draw individual pages ONLY in the "empty" areas
+                canvas.withSave {
+                    if (relativeTransform != null && !onDrawBitmapBounds.isEmpty) {
+                        // "Clip out" (exclude) the area that will be covered by the onDrawBitmap.
+                        // Individual pages will be drawn solely to fill the "borders" exposed by pan/zoom.
+                        clipOutRect(onDrawBitmapBounds)
                     }
-                }
 
-                // MATRIX INVERSION:
-                // To achieve smooth 60fps zooming, we don't redraw the vector strokes on every frame.
-                // Instead, we take the last generated high-res bitmap, calculate the difference between
-                // its original matrix and the current gesture matrix, and apply that exact relative
-                // transformation to the bitmap.
-                val inverseDrawMatrix = Matrix()
-                if (onDrawBitmapMatrix.invert(inverseDrawMatrix)) {
-                    val relativeTransform = Matrix(inverseDrawMatrix)
-                    val currentRenderMatrix = Matrix(moveMatrix).apply { postConcat(elasticMatrix) }
+                    for (pageRectWithIndex in pagesRectOnWindow) {
+                        val page = drawViewModel.data.document.pages[pageRectWithIndex.index]
+                        if (!page.isPrepared) page.prepare()
 
-                    relativeTransform.postConcat(currentRenderMatrix)
+                        page.bitmapPage?.let {
+                            drawBitmap(it, null, pageRectWithIndex.rect, null)
+                        }
+                    }
+                } // Remove the clipping restriction (done automatically by withSave)
 
-                    canvas.clipRect(windowRect)
-                    onDrawBitmap?.let { canvas.drawBitmap(it, relativeTransform, null) }
+                // 4. Draw the onDrawBitmap (High resolution) exactly in the "hole" left behind
+                if (relativeTransform != null && onDrawBitmap != null) {
+                    canvas.withClip(windowRect) {
+                        drawBitmap(onDrawBitmap!!, relativeTransform, null)
+                    }
                 }
             }
             DrawAttachments.DrawMode.ANIMATE -> {

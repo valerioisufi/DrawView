@@ -3,321 +3,223 @@ package com.studiomath.drawview.document.motion
 import android.annotation.SuppressLint
 import android.view.MotionEvent
 import android.view.View
-import androidx.compose.runtime.mutableStateOf
 import androidx.ink.authoring.InProgressStrokeId
 import androidx.input.motionprediction.MotionEventPredictor
 import com.studiomath.drawview.document.DrawViewModel
 
+/**
+ * Orchestrates touch and hover events on the drawing canvas.
+ *
+ * It differentiates between drawing actions (strokes) and viewport manipulations (pan/zoom),
+ * while also handling palm rejection and motion prediction to ensure smooth ink rendering.
+ *
+ * @property drawViewModel The main ViewModel containing drawing state and configurations.
+ */
 class OnTouchHover(
     private var drawViewModel: DrawViewModel,
 ) {
 
+    /** Handler for native scale and translate gestures. */
     var onScaleTranslate: OnScaleTranslate = OnScaleTranslate(drawViewModel)
 
     var palmRejection: PalmRejection = PalmRejection()
+
+    /** Predicts future motion events to reduce perceived latency during fast drawing. */
     var motionEventPredictor: MotionEventPredictor? = null
+
+    /** Flag indicating if a stylus (active pen) has been detected during this session. */
     private var isStylusActive = false
+
+    /** Flag indicating if a drawing stroke is currently being actively traced. */
     var isStrokeInProgress = false
 
-    val currentPointerId = mutableStateOf<Int?>(null)
-    val currentStrokeId = mutableStateOf<InProgressStrokeId?>(null)
+    // Standard nullable variables are used here instead of Jetpack Compose's mutableStateOf.
+    // Since this class operates within the standard View system (OnTouchListener),
+    // using Compose state would introduce unnecessary overhead.
 
+    /** The ID of the pointer (finger/stylus) currently driving the active stroke. */
+    private var currentPointerId: Int? = null
+
+    /** The ID of the stroke currently being rendered by the Ink library. */
+    private var currentStrokeId: InProgressStrokeId? = null
+
+    /**
+     * Main touch listener attached to the drawing view.
+     * Evaluates touch events and routes them to either the drawing logic or the camera manipulation logic.
+     */
     @SuppressLint("ClickableViewAccessibility")
     val onTouchListener = View.OnTouchListener { view, event ->
+        // Ignore touches if the document is not fully loaded and displayed
         if (!drawViewModel.data.isDocumentLoaded || !drawViewModel.data.isDocumentShowed) return@OnTouchListener false
+
+        // Record the event for motion prediction (improves ink latency)
         motionEventPredictor?.record(event)
 
-        if (event.action == MotionEvent.ACTION_DOWN) onScaleTranslate.continueScaleTranslate = false
-        if (!isStylusActive && event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS) isStylusActive = true
-        isStrokeInProgress = (event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS || (event.pointerCount == 1 && !isStylusActive && !onScaleTranslate.continueScaleTranslate)) && drawViewModel.selectedTool != DrawViewModel.ToolUtilities.Tool.PAN
+        // Reset the translation continuation flag on a new touch sequence
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            onScaleTranslate.continueScaleTranslate = false
+        }
+
+        // Detect if the user has started using a stylus
+        if (!isStylusActive && event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS) {
+            isStylusActive = true
+        }
+
+        // Determine if the current action is a drawing stroke.
+        // A stroke happens if:
+        // 1. A stylus is used.
+        // 2. A single finger is used, NO stylus has been detected yet, and we aren't already panning.
+        // AND the selected tool is not the PAN tool.
+        isStrokeInProgress = (event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS ||
+                (event.pointerCount == 1 && !isStylusActive && !onScaleTranslate.continueScaleTranslate)) &&
+                drawViewModel.selectedTool != DrawViewModel.ToolUtilities.Tool.PAN
 
 
-        /**
-         * gestione degli input provenienti da TOOL_TYPE_STYLUS
-         */
-        if (isStrokeInProgress) {
-
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    drawViewModel.drawManager.scroller.forceFinished(true)
-
-                    // Deliver input events as soon as they arrive.
-                    // It sometimes causes app crash
-                    view.requestUnbufferedDispatch(event)
-
-                    val pointerIndex = event.actionIndex
-                    val pointerId = event.getPointerId(pointerIndex)
-                    currentPointerId.value = pointerId
-                    currentStrokeId.value =
-                        drawViewModel.startStrokeInProgress?.let {
-                            it(event, pointerId, drawViewModel.getActiveBrushScaled())
-                        }
-
-                }
-
-                MotionEvent.ACTION_MOVE -> {
-
-                    val pointerId = checkNotNull(currentPointerId.value)
-                    val strokeId = checkNotNull(currentStrokeId.value)
-                    drawViewModel.addToStrokeInProgress?.let {
-                        it(event, pointerId, strokeId, motionEventPredictor!!.predict())
-                    }
-
-                }
-
-                MotionEvent.ACTION_UP -> {
-                    val pointerIndex = event.actionIndex
-                    val pointerId = event.getPointerId(pointerIndex)
-                    check(pointerId == currentPointerId.value)
-                    val currentStrokeId = checkNotNull(currentStrokeId.value)
-                    drawViewModel.finishStrokeInProgress?.let {
-                        it(event, pointerId, currentStrokeId)
-                    }
-
-                }
-
-                MotionEvent.ACTION_CANCEL -> {
-                    val pointerIndex = event.actionIndex
-                    val pointerId = event.getPointerId(pointerIndex)
-                    check(pointerId == currentPointerId.value)
-
-                    val currentStrokeId = checkNotNull(currentStrokeId.value)
-                    drawViewModel.data.cancelStrokeData(currentStrokeId, event)
-                }
-            }
-
+        // If a palm is detected resting on the screen, ignore the input and cancel any active stroke.
+        if (isPalmDetected(event)) {
+            cancelCurrentStroke(event)
             return@OnTouchListener true
-
         }
 
 
         /**
-         * eseguo lo scaling
+         * Handle drawing inputs (Stylus or Single Finger)
          */
-        if ((event.pointerCount == 1 || event.pointerCount == 2) && event.getToolType(0) != MotionEvent.TOOL_TYPE_STYLUS || drawViewModel.selectedTool == DrawViewModel.ToolUtilities.Tool.PAN) {
-            onScaleTranslate.onScaleTranslate(event)
+        if (isStrokeInProgress) {
+            handleStrokeEvent(view, event)
+            return@OnTouchListener true
+        }
 
-            if(!isStylusActive) {
+
+        /**
+         * Handle viewport manipulation (Scaling and Panning)
+         */
+        val isScalePanInput = (event.pointerCount == 1 || event.pointerCount == 2) &&
+                event.getToolType(0) != MotionEvent.TOOL_TYPE_STYLUS ||
+                drawViewModel.selectedTool == DrawViewModel.ToolUtilities.Tool.PAN
+
+        if (isScalePanInput) {
+            // Route the event to the native gesture detectors
+            onScaleTranslate.onScaleTranslate(view.context, event)
+
+            // If the user accidentally started a stroke with a finger but is now panning/zooming,
+            // cancel the erroneous stroke.
+            if (!isStylusActive) {
                 val pointerIndex = event.actionIndex
                 val pointerId = event.getPointerId(pointerIndex)
-                if(pointerId == currentPointerId.value && currentStrokeId.value != null){
-                    drawViewModel.data.cancelStrokeData(currentStrokeId.value!!, event)
+
+                if (pointerId == currentPointerId && currentStrokeId != null) {
+                    cancelCurrentStroke(event)
                 }
-
-
             }
-
         }
 
         return@OnTouchListener true
     }
 
-    val onHoverListener = View.OnHoverListener { view, event ->
-//        draw(makeCursore = true)
-
+    /**
+     * Hover listener for detecting stylus movements above the screen (e.g., to draw a cursor).
+     */
+    val onHoverListener = View.OnHoverListener { _, _ ->
+        // Future implementation: logic for rendering a hover cursor
         return@OnHoverListener true
-
-//        Log.d(TAG, "onHoverView: ${event.action}")
-//
-//        when (event.action) {
-//            MotionEvent.ACTION_HOVER_ENTER -> hoverStart(drawView, event)
-//            MotionEvent.ACTION_HOVER_MOVE -> hoverMove(drawView, event)
-//            MotionEvent.ACTION_HOVER_EXIT -> hoverUp(drawView, event)
-//        }
     }
 
+    /**
+     * Manages the lifecycle of a drawing stroke (Down, Move, Up, Cancel).
+     * Uses safe fallbacks to prevent crashes if stroke or pointer IDs are unexpectedly lost.
+     *
+     * @param view The View receiving the touch events.
+     * @param event The motion event representing the stroke action.
+     */
+    private fun handleStrokeEvent(view: View, event: MotionEvent) {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                // Stop any ongoing camera fling animations when drawing starts
+                drawViewModel.drawManager.scroller.forceFinished(true)
+
+                // Deliver input events to the view hierarchy unbuffered for lower latency
+                view.requestUnbufferedDispatch(event)
+
+                val pointerIndex = event.actionIndex
+                val pointerId = event.getPointerId(pointerIndex)
+
+                currentPointerId = pointerId
+                currentStrokeId = drawViewModel.startStrokeInProgress?.invoke(
+                    event, pointerId, drawViewModel.getActiveBrushScaled()
+                )
+            }
+
+            MotionEvent.ACTION_MOVE -> {
+                val pointerId = currentPointerId ?: return
+                val strokeId = currentStrokeId ?: return
+
+                // Use hardware/software prediction to draw ink slightly ahead of the actual touch point
+                val predictedEvent = motionEventPredictor?.predict()
+
+                drawViewModel.addToStrokeInProgress?.invoke(
+                    event, pointerId, strokeId, predictedEvent
+                )
+            }
+
+            MotionEvent.ACTION_UP -> {
+                val pointerIndex = event.actionIndex
+                val pointerId = event.getPointerId(pointerIndex)
+
+                if (pointerId == currentPointerId) {
+                    currentStrokeId?.let { strokeId ->
+                        drawViewModel.finishStrokeInProgress?.invoke(event, pointerId, strokeId)
+                    }
+                }
+                resetStrokeState()
+            }
+
+            MotionEvent.ACTION_CANCEL -> {
+                val pointerIndex = event.actionIndex
+                val pointerId = event.getPointerId(pointerIndex)
+
+                if (pointerId == currentPointerId) {
+                    cancelCurrentStroke(event)
+                }
+            }
+        }
+    }
 
     /**
-     * funzine che restituisce TRUE quando viene appoggiato sullo schermo il palmo della mano
+     * Safely cancels the active stroke if one exists, and resets the local stroke state.
+     * This prevents corrupted or incomplete ink data from being saved.
+     *
+     * @param event The motion event that triggered the cancellation.
      */
-    // TODO: 23/01/2022 qui devo tener conto del fatto che, quando viene
-    //  rilevato il palmo, alcune azioni come lo scale potrebbero aver avuto inizio.
-    //  Per cui devo ultimare tali azioni
-    private fun palmRejection(event: MotionEvent): Boolean {
+    private fun cancelCurrentStroke(event: MotionEvent) {
+        currentStrokeId?.let { strokeId ->
+            drawViewModel.data.cancelStrokeData(strokeId, event)
+        }
+        resetStrokeState()
+    }
+
+    /**
+     * Clears the current pointer and stroke IDs, effectively ending the active drawing session.
+     */
+    private fun resetStrokeState() {
+        currentPointerId = null
+        currentStrokeId = null
+    }
+
+    /**
+     * Detects whether a palm is resting on the screen.
+     *
+     * @param event The current motion event.
+     * @return true if a palm is detected, false otherwise.
+     */
+    private fun isPalmDetected(event: MotionEvent): Boolean {
         for (i in 0 until event.pointerCount) {
+            // A very small ratio between the minor and major axis of the touch area
+            // is a strong heuristic indicator of a palm resting on the screen.
             if (event.getToolMinor(i) / event.getToolMajor(i) < 0.5) {
                 return true
             }
         }
-
-//        val pointerIndex = event.actionIndex
-//        val pointerId = event.getPointerId(pointerIndex)
-//        check(pointerId == currentPointerId.value)
-//
-//        val currentStrokeId = checkNotNull(currentStrokeId.value)
-//        drawViewModel.data.cancelStrokeData(currentStrokeId, event)
         return false
     }
-
-//    val gestureListener = object : GestureDetector.SimpleOnGestureListener() {
-//        override fun onDown(e: MotionEvent): Boolean {
-//            if (isStrokeInProgress) return false
-//            // Initiates the decay phase of any active edge effects.
-//            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-//                drawViewModel.drawManager.releaseEdgeEffects()
-//            }
-//
-//            // Aborts any active scroll animations and invalidates.
-//            drawViewModel.drawManager.scroller.forceFinished(true)
-//            drawViewModel.drawManager.postInvalidateOnAnimationRequest?.let { it() }
-//            return true
-//        }
-//
-//        val scaleTarget = 3f
-//        override fun onDoubleTap(e: MotionEvent): Boolean {
-//            if (isStrokeInProgress) return false
-//
-////            val tempMatrix = Matrix(drawViewModel.drawManager.moveMatrix)
-////            val f = FloatArray(9)
-////            tempMatrix.getValues(f)
-////
-////            tempMatrix.setScale(
-////                scaleTarget,
-////                scaleTarget,
-////                detector.focusX,
-////                detector.focusY
-////            )
-////
-////            drawViewModel.drawManager.calcPage.constrainMatrixToContentRect(tempMatrix)
-////
-////            drawViewModel.drawManager.moveMatrix = tempMatrix
-////            drawViewModel.drawManager.requestDraw(
-////                DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.SCALE_TRANSLATE)
-////            )
-//
-//            return true
-//        }
-//
-//        override fun onScroll(
-//            e1: MotionEvent?,
-//            e2: MotionEvent,
-//            distanceX: Float,
-//            distanceY: Float
-//        ): Boolean {
-//            if (isStrokeInProgress) return false
-//
-//            if(!isStylusActive) {
-//                val pointerIndex = e2.actionIndex
-//                val pointerId = e2.getPointerId(pointerIndex)
-//                if(pointerId == currentPointerId.value && currentStrokeId.value != null){
-//                    drawViewModel.data.cancelStrokeData(currentStrokeId.value!!, e2)
-//                }
-//            }
-//
-//            drawViewModel.drawManager.drawMatrix.postTranslate(
-//                -distanceX,
-//                -distanceY
-//            )
-//
-//            drawViewModel.drawManager.requestDraw(
-//                DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.SCALE_TRANSLATE)
-//            )
-//            return true
-//        }
-//
-//        override fun onFling(
-//            e1: MotionEvent?,
-//            e2: MotionEvent,
-//            velocityX: Float,
-//            velocityY: Float
-//        ): Boolean {
-//            if (isStrokeInProgress) return false
-//
-//            // Initiates the decay phase of any active edge effects.
-//            // On Android 12 and later, the edge effect (stretch) must
-//            // continue.
-//            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-//               drawViewModel.drawManager.releaseEdgeEffects()
-//            }
-//
-//            // Before flinging, stops the current animation.
-//            drawViewModel.drawManager.scroller.forceFinished(true)
-//            // Begins the animation.
-//            drawViewModel.drawManager.scroller.fling(
-//                // Current scroll position.
-//                drawViewModel.drawManager.drawMatrix.dx.toInt(),
-//                drawViewModel.drawManager.drawMatrix.dy.toInt(),
-//                velocityX.toInt(),
-//                velocityY.toInt(),
-//                /*
-//                 * Minimum and maximum scroll positions. The minimum scroll
-//                 * position is generally 0 and the maximum scroll position
-//                 * is generally the content size less the screen size. So if the
-//                 * content width is 1000 pixels and the screen width is 200
-//                 * pixels, the maximum scroll offset is 800 pixels.
-//                 */
-//                (drawViewModel.drawManager.calcPage.contentRect.left * drawViewModel.drawManager.drawMatrix.sx).toInt(),
-//                (drawViewModel.drawManager.calcPage.contentRect.right * drawViewModel.drawManager.drawMatrix.sx - drawViewModel.drawManager.windowRect.width()).toInt(),
-//                (drawViewModel.drawManager.calcPage.contentRect.top * drawViewModel.drawManager.drawMatrix.sy).toInt(),
-//                (drawViewModel.drawManager.calcPage.contentRect.bottom * drawViewModel.drawManager.drawMatrix.sy - drawViewModel.drawManager.windowRect.height()).toInt(),
-//                // The edges of the content. This comes into play when using
-//                // the EdgeEffect class to draw "glow" overlays.
-//                (drawViewModel.drawManager.windowRect.width() / 2).toInt(),
-//                (drawViewModel.drawManager.windowRect.height() / 2).toInt()
-//            )
-//
-//            drawViewModel.drawManager.requestDraw(
-//                DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.ANIMATE).apply {
-//                }
-//            )
-//
-//            return true
-//        }
-//    }
-//
-//    val scaleGestureListener = object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
-//
-//        var previousFocusX = 0f
-//        var previousFocusY = 0f
-//        override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
-//            if (isStrokeInProgress) return false
-//
-//            if(!isStylusActive) {
-//                val pointerIndex = detector.eve2.actionIndex
-//                val pointerId = e2.getPointerId(pointerIndex)
-//                if(pointerId == currentPointerId.value && currentStrokeId.value != null){
-//                    drawViewModel.data.cancelStrokeData(currentStrokeId.value!!, e2)
-//                }
-//            }
-//
-//            previousFocusX = detector.focusX
-//            previousFocusY = detector.focusY
-//
-//            return true
-//        }
-//
-//        override fun onScale(detector: ScaleGestureDetector): Boolean {
-//            if (isStrokeInProgress) return false
-//
-//            drawViewModel.drawManager.drawMatrix.postScale(
-//                detector.scaleFactor,
-//                detector.scaleFactor,
-//                detector.focusX,
-//                detector.focusY
-//            )
-////            drawViewModel.drawManager.drawMatrix.postTranslate(
-////                detector.focusX - previousFocusX,
-////                detector.focusY - previousFocusY
-////            )
-//
-//            previousFocusX = detector.focusX
-//            previousFocusY = detector.focusY
-//
-//            drawViewModel.drawManager.requestDraw(
-//                DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.SCALE_TRANSLATE)
-//            )
-//
-//            return true
-//        }
-//
-//        override fun onScaleEnd(detector: ScaleGestureDetector) {
-//            drawViewModel.drawManager.requestDraw(
-//                DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-//                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
-//                }
-//            )
-//        }
-//
-//
-//    }
 }

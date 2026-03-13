@@ -1,368 +1,308 @@
 package com.studiomath.drawview.document.motion
 
+import android.content.Context
 import android.graphics.Matrix
-import android.graphics.PointF
 import android.graphics.RectF
-import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
+import android.view.GestureDetector
 import android.view.MotionEvent
-import android.view.VelocityTracker
-import com.studiomath.drawview.document.DrawManager
+import android.view.ScaleGestureDetector
 import com.studiomath.drawview.document.DrawManager.DrawAttachments
 import com.studiomath.drawview.document.DrawManager.DrawAttachments.DrawMode
 import com.studiomath.drawview.document.DrawViewModel
 import kotlin.math.abs
-import kotlin.math.pow
-import kotlin.math.sqrt
-
-
 
 /**
- * scale e translate
+ * Manages native Scale (Pinch-to-zoom) and Translate (Pan) gestures.
+ * * It relies on Android's native [ScaleGestureDetector] and [GestureDetector]
+ * to provide smooth, highly optimized, and stable viewport manipulations.
+ * * @property drawViewModel The ViewModel containing the drawing state and managers.
  */
-
-
 class OnScaleTranslate(
     private var drawViewModel: DrawViewModel
 ) {
-    var touchSlop = drawViewModel.configuration.scaledTouchSlop
-    var minVelocity = drawViewModel.configuration.scaledMinimumFlingVelocity
-    var maximumScrollOffset = drawViewModel.configuration.scaledMaximumFlingVelocity
+    companion object {
+        private const val TAG = "OnScaleTranslate"
 
-    var velocityTracker: VelocityTracker? = null
-    var startMatrix = Matrix()
+        /** Maximum allowed zoom level. */
+        private const val MAX_SCALE = 5f
 
+        /** Minimum allowed zoom level. */
+        private const val MIN_SCALE = 0.5f
 
-    class MatrixTransformation() {
-        var pointers = mutableListOf<PointF>()
-            set(value) {
-                field = value
-
-                if (value.size == 1) {
-                    distance = 1f
-                    focusPos = PointF(
-                        pointers[0].x,
-                        pointers[0].y
-                    )
-
-                } else if (value.size == 2) {
-                    distance = sqrt((pointers[1].x - pointers[0].x).pow(2) + (pointers[1].y - pointers[0].y).pow(2))
-                    focusPos = PointF(
-                        (pointers[0].x + pointers[1].x) / 2,
-                        (pointers[0].y + pointers[1].y) / 2
-                    )
-
-                }
-            }
-
-        var distance = 1f
-        var focusPos = PointF()
+        /** Maximum pixel distance allowed for over-scrolling before bounds limit the fling. */
+        private const val OVERSCROLL_LIMIT = 200
     }
 
-    var down = MatrixTransformation()
-    var move = MatrixTransformation()
-
-    val FIRST_POINTER_INDEX = 0
-    val SECOND_POINTER_INDEX = 1
-
-    var translate = PointF(0f, 0f)
-    var scaleFactor = 1f
-
-    var excessX = 0f
-    var excessY = 0f
-
-    var isScaling = false
+    /** Flag indicating if the gesture interceptor should continue processing the touch event. */
     var continueScaleTranslate = false
 
-    fun onInterceptScaleTranslate(event: MotionEvent): Boolean{
-        /*
-         * This method JUST determines whether we want to intercept the motion.
-         * If we return true, onMotionEvent will be called and we do the actual
-         * scrolling there.
-         */
-        return continueScaleTranslate
-    }
+    /** Flag indicating whether an active multi-touch pinch-to-zoom gesture is occurring. */
+    var isScaling = false
 
-    fun onScaleTranslate(event: MotionEvent) {
-        if (velocityTracker == null){
-            velocityTracker = VelocityTracker.obtain()
-        }
-        /**
-         * funzione che si occupa dello scale e dello spostamento
-         */
+    /** The out-of-bounds horizontal distance (used for elastic bounce-back). */
+    var excessX = 0f
 
-        /**
-         * Matrix()
-         * https://i-rant.arnaudbos.com/matrices-for-developers/
-         * https://i-rant.arnaudbos.com/2d-transformations-android-java/
-         */
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                velocityTracker!!.addMovement(event)
+    /** The out-of-bounds vertical distance (used for elastic bounce-back). */
+    var excessY = 0f
 
-                down.pointers = mutableListOf(
-                    PointF(
-                        event.getX(FIRST_POINTER_INDEX),
-                        event.getY(FIRST_POINTER_INDEX)
-                    )
-                )
+    // Lazy initialization for native detectors (since they require a Context)
+    private var scaleDetector: ScaleGestureDetector? = null
+    private var gestureDetector: GestureDetector? = null
 
-                startMatrix =
-                    Matrix(drawViewModel.drawManager.moveMatrix)
-//                    drawLastPath = false
+    // Tracks the focal point during a zoom to allow simultaneous panning (two-finger drag)
+    private var lastFocusX = 0f
+    private var lastFocusY = 0f
 
-                drawViewModel.drawManager.scroller.forceFinished(true)
-            }
+    /**
+     * Initializes the native gesture detectors.
+     * This is called lazily upon receiving the first touch event.
+     * * @param context The Context required by Android's native gesture detectors.
+     */
+    private fun initDetectors(context: Context) {
+        if (scaleDetector != null) return
 
-            MotionEvent.ACTION_POINTER_DOWN -> {
-                velocityTracker!!.addMovement(event)
+        // 1. Handler for Pinch-to-Zoom (Scaling)
+        scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
                 isScaling = true
-
-                down.pointers = mutableListOf(
-                    PointF(
-                        event.getX(FIRST_POINTER_INDEX),
-                        event.getY(FIRST_POINTER_INDEX)
-                    ),
-                    PointF(
-                        event.getX(SECOND_POINTER_INDEX),
-                        event.getY(SECOND_POINTER_INDEX)
-                    )
-                )
-
-                startMatrix =
-                    Matrix(drawViewModel.drawManager.moveMatrix)
-
+                lastFocusX = detector.focusX
+                lastFocusY = detector.focusY
+                return true
             }
 
-            MotionEvent.ACTION_MOVE -> {
-                velocityTracker!!.addMovement(event)
+            override fun onScale(detector: ScaleGestureDetector): Boolean {
+                val scaleFactor = detector.scaleFactor
+                val focusX = detector.focusX
+                val focusY = detector.focusY
 
-                if (event.pointerCount == 1) {
-                    if (isScaling) {
-                    }
-
-                    move.pointers = mutableListOf(
-                        PointF(
-                            event.getX(FIRST_POINTER_INDEX),
-                            event.getY(FIRST_POINTER_INDEX)
-                        )
-                    )
-
-                } else if (event.pointerCount == 2) {
-                    move.pointers = mutableListOf(
-                        PointF(
-                            event.getX(FIRST_POINTER_INDEX),
-                            event.getY(FIRST_POINTER_INDEX)
-                        ),
-                        PointF(
-                            event.getX(SECOND_POINTER_INDEX),
-                            event.getY(SECOND_POINTER_INDEX)
-                        )
-                    )
-
-                }
-
-
-                translate = PointF(
-                    move.focusPos.x - down.focusPos.x,
-                    move.focusPos.y - down.focusPos.y
-                )
-                scaleFactor =
-                    (move.distance / down.distance)
-
-
-                val tempMatrix = Matrix(startMatrix)
-
+                val tempMatrix = Matrix(drawViewModel.drawManager.moveMatrix)
                 val f = FloatArray(9)
                 tempMatrix.getValues(f)
 
-                /**
-                 * scale max e scale min
-                 */
-                val lastScaleFactor = f[Matrix.MSCALE_X]
+                val currentScale = f[Matrix.MSCALE_X]
+                var adjustedScaleFactor = scaleFactor
 
-                val scaleMax = 5f
-                val scaleMin = 0.5f
-                if (lastScaleFactor * scaleFactor < scaleMin) {
-                    scaleFactor = scaleMin / lastScaleFactor
-                }
-                if (lastScaleFactor * scaleFactor > scaleMax) {
-                    scaleFactor = scaleMax / lastScaleFactor
-                }
-                tempMatrix.postScale(
-                    scaleFactor,
-                    scaleFactor,
-                    down.focusPos.x,
-                    down.focusPos.y
-                )
-
-                tempMatrix.postTranslate(
-                    translate.x,
-                    translate.y
-                )
-
-                drawViewModel.drawManager.apply {
-                    val result = calcPage.applyBounds(tempMatrix, calcPage.contentRect, windowRect)
-                    excessX = result.first
-                    excessY = result.second
-
-                    var transformedContentRect =
-                        RectF(drawViewModel.drawManager.calcPage.contentRect)
-                    drawViewModel.drawManager.moveMatrix.mapRect(transformedContentRect)
-
-                    if (transformedContentRect.width() < drawViewModel.drawManager.windowRect.width() && !isScaling){
-                        excessX = 0f
-                    }
-                    Log.d("BOUNCE", "Eccesso X: $excessX, Eccesso Y: $excessY")
-
-                    elasticMatrix = calcPage.applyElasticEffect(excessX, excessY)
+                // Constrain the scale factor within the allowed MIN_SCALE and MAX_SCALE bounds
+                if (currentScale * adjustedScaleFactor < MIN_SCALE) {
+                    adjustedScaleFactor = MIN_SCALE / currentScale
+                } else if (currentScale * adjustedScaleFactor > MAX_SCALE) {
+                    adjustedScaleFactor = MAX_SCALE / currentScale
                 }
 
-                drawViewModel.drawManager.moveMatrix =
-                    Matrix(tempMatrix)
+                // Apply the scaling transformation anchored to the current focal point
+                tempMatrix.postScale(adjustedScaleFactor, adjustedScaleFactor, focusX, focusY)
 
-                Log.d("SCALE_TRANSLATE", "onDrawView: moveMatrix = ${drawViewModel.drawManager.moveMatrix}")
-                drawViewModel.drawManager.requestDraw(
-                    DrawAttachments(drawMode = DrawMode.SCALE_TRANSLATE)
-                )
+                // Apply the translation (pan) generated by moving the two fingers while zooming
+                val dx = focusX - lastFocusX
+                val dy = focusY - lastFocusY
+                tempMatrix.postTranslate(dx, dy)
 
+                lastFocusX = focusX
+                lastFocusY = focusY
+
+                applyMatrixAndRequestDraw(tempMatrix)
+                return true
             }
 
-            MotionEvent.ACTION_POINTER_UP -> {
-                if (event.actionIndex == 1) {
-                    down.pointers = mutableListOf(
-                        PointF(
-                            event.getX(FIRST_POINTER_INDEX),
-                            event.getY(FIRST_POINTER_INDEX)
-                        )
-                    )
-                } else if (event.actionIndex == 0) {
-                    down.pointers = mutableListOf(
-                        PointF(
-                            event.getX(SECOND_POINTER_INDEX),
-                            event.getY(SECOND_POINTER_INDEX)
-                        )
-                    )
-                }
-
-                startMatrix =
-                    Matrix(drawViewModel.drawManager.moveMatrix)
+            override fun onScaleEnd(detector: ScaleGestureDetector) {
                 isScaling = false
+                checkBoundsAndBounceBack()
+            }
+        })
 
+        // 2. Handler for Single-finger Pan and Fling
+        gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(e: MotionEvent): Boolean {
+                // Stop any ongoing fling animation if the user touches the screen again
+                drawViewModel.drawManager.scroller.forceFinished(true)
+                return true
             }
 
-            MotionEvent.ACTION_UP -> {
-                velocityTracker!!.computeCurrentVelocity(1000)
+            override fun onScroll(e1: MotionEvent?, e2: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
+                // Ignore single-finger scroll if a two-finger scaling gesture is currently active
+                if (isScaling) return true
 
-                drawViewModel.drawManager.calcPage.applyBounds(
-                    drawViewModel.drawManager.moveMatrix,
-                    drawViewModel.drawManager.calcPage.contentRect,
-                    drawViewModel.drawManager.windowRect
-                )
-                Log.d("BOUNCE_BACK", "moveMatrix after applyBounds: ${drawViewModel.drawManager.moveMatrix}")
+                val tempMatrix = Matrix(drawViewModel.drawManager.moveMatrix)
+                // Native distanceX/Y are positive when the finger moves up/left.
+                // We invert them to map the camera movement correctly.
+                tempMatrix.postTranslate(-distanceX, -distanceY)
 
+                applyMatrixAndRequestDraw(tempMatrix)
+                return true
+            }
 
+            override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
+                return handleFling(velocityX, velocityY)
+            }
+        })
+    }
 
-                Log.d("FLING", "excessX: $excessX, excessY: $excessY")
+    /**
+     * Determines whether the motion event should be intercepted by the scaling/translating logic.
+     * * @param event The motion event dispatched to the view.
+     * @return true if the event should be intercepted.
+     */
+    fun onInterceptScaleTranslate(event: MotionEvent): Boolean {
+        return continueScaleTranslate
+    }
 
-                if (excessX != 0f || excessY != 0f) {
-                    Log.d("FLING", "Disabilitato: fuori dai limiti")
-                    Log.d("BOUNCE_BACK", "1, moveMatrix: ${drawViewModel.drawManager.moveMatrix}, startAnimateMatrix: ${drawViewModel.drawManager.startAnimateMatrix}, elasticMatrix: ${drawViewModel.drawManager.elasticMatrix}")
+    /**
+     * Main entry point for processing touch events related to scaling and translating.
+     * * @param context The UI Context.
+     * @param event The motion event captured by the view.
+     */
+    fun onScaleTranslate(context: Context, event: MotionEvent) {
+        initDetectors(context)
 
-                    drawViewModel.drawManager.startAnimateMatrix.set(drawViewModel.drawManager.moveMatrix)
+        val action = event.actionMasked
 
-                    // Invece di fare il fling, applica un'animazione di rimbalzo
-                    drawViewModel.drawManager.calcPage.startBounceBackAnimation(
-                        excessX, excessY, drawViewModel.drawManager.elasticMatrix,
-                        updateCallback = {
-                            drawViewModel.drawManager.moveMatrix.set(drawViewModel.drawManager.startAnimateMatrix)
-                            Log.d("BOUNCE_BACK", "moveMatrix: ${drawViewModel.drawManager.moveMatrix}, startAnimateMatrix: ${drawViewModel.drawManager.startAnimateMatrix}, elasticMatrix: ${drawViewModel.drawManager.elasticMatrix}")
-                            // Ridisegna la view
-                            drawViewModel.drawManager.requestDraw(
-                                DrawAttachments(drawMode = DrawMode.ANIMATE).apply {
-                                    animationType = DrawAttachments.AnimationType.BOUNCE_BACK
-                                }
-                            )
-                        },
-                        onEndCallback = {
-                            drawViewModel.drawManager.requestDraw(
-                                DrawAttachments(drawMode = DrawMode.UPDATE).apply {
-                                    update = DrawAttachments.Update.DRAW_BITMAP
-                                }
-                            )
-                        }
-                    )
+        // Feed the touch event to the native detectors for processing
+        scaleDetector?.onTouchEvent(event)
+        gestureDetector?.onTouchEvent(event)
 
-
-                } else {
-                    // Calcola i limiti normali del fling
-                    var transformedContentRect =
-                        RectF(drawViewModel.drawManager.calcPage.contentRect)
-                    drawViewModel.drawManager.moveMatrix.mapRect(transformedContentRect)
-
-                    Log.d("FLING", "transformedContentRect: $transformedContentRect")
-
-                    var startPointScroller = floatArrayOf(0f, 0f)
-                    drawViewModel.drawManager.moveMatrix.mapPoints(startPointScroller)
-
-
-                    val xOffset = startPointScroller[0] - transformedContentRect.left
-                    // Quanto può scorrere a sinistra
-                    var minX =
-                        (drawViewModel.drawManager.windowRect.width() - transformedContentRect.width() + xOffset).coerceAtMost(
-                            xOffset
-                        ).toInt()
-                    // Quanto può scorrere a destra
-                    var maxX = xOffset.toInt()
-
-                    var velocityX = velocityTracker!!.xVelocity.toInt()
-
-                    if (transformedContentRect.width() < drawViewModel.drawManager.windowRect.width()) {
-                        minX = Int.MIN_VALUE
-                        maxX = Int.MAX_VALUE
-                        velocityX = 0
-                    }
-
-                    val yOffset = startPointScroller[1] - transformedContentRect.top
-                    val minY =
-                        (drawViewModel.drawManager.windowRect.height() - transformedContentRect.height() + yOffset).coerceAtMost(
-                            0f
-                        ).toInt()
-                    val maxY = yOffset.toInt()
-                    val velocityY = velocityTracker!!.yVelocity.toInt()
-
-                    if (abs(velocityX) > minVelocity || abs(velocityY) > minVelocity) {
-                        drawViewModel.drawManager.scroller.fling(
-                            startPointScroller[0].toInt(), startPointScroller[1].toInt(),
-                            velocityX, velocityY,
-                            minX, maxX, minY, maxY,
-                            200, 200
-                        )
-
-                        Log.d("FLING", "Avviato con velocità X: $velocityX, Y: $velocityY")
-                    } else {
-                        Log.d("FLING", "Velocità insufficiente per il fling")
-                    }
-
-                    drawViewModel.drawManager.startAnimateMatrix =
-                        Matrix(drawViewModel.drawManager.moveMatrix)
-
-                    drawViewModel.drawManager.requestDraw(
-                        DrawAttachments(drawMode = DrawMode.ANIMATE).apply {
-                            animationType = DrawAttachments.AnimationType.FLING
-                        }
-                    )
-                }
-
-                velocityTracker!!.recycle()
-                velocityTracker = null
-
+        // Check for bounds and bounce-back when the user lifts their finger(s),
+        // provided no fling animation was triggered.
+        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+            if (drawViewModel.drawManager.scroller.isFinished) {
+                checkBoundsAndBounceBack()
             }
         }
 
         continueScaleTranslate = true
     }
 
+    /**
+     * Calculates page boundaries, applies the elastic overscroll effect if needed,
+     * and triggers a UI update with the temporary transformation matrix.
+     * * @param tempMatrix The temporary matrix representing the new viewport state.
+     */
+    private fun applyMatrixAndRequestDraw(tempMatrix: Matrix) {
+        drawViewModel.drawManager.apply {
+            val result = calcPage.applyBounds(tempMatrix, calcPage.contentRect, windowRect)
+            excessX = result.first
+            excessY = result.second
+
+            val transformedContentRect = RectF(calcPage.contentRect)
+            moveMatrix.mapRect(transformedContentRect)
+
+            // Prevent horizontal elastic effect if the content is smaller than the window width
+            // and we are not currently scaling.
+            if (transformedContentRect.width() < windowRect.width() && !isScaling) {
+                excessX = 0f
+            }
+
+            elasticMatrix = calcPage.applyElasticEffect(excessX, excessY)
+            moveMatrix = Matrix(tempMatrix)
+
+            Log.d(TAG, "onDrawView: moveMatrix = $moveMatrix")
+            requestDraw(DrawAttachments(drawMode = DrawMode.SCALE_TRANSLATE))
+        }
+    }
+
+    /**
+     * Checks if the viewport is out of bounds upon gesture release.
+     * - If it is out of bounds, it triggers an elastic bounce-back animation.
+     * - If it is within bounds, it triggers a high-quality bitmap update to finalize the gesture.
+     */
+    private fun checkBoundsAndBounceBack() {
+        drawViewModel.drawManager.apply {
+            calcPage.applyBounds(moveMatrix, calcPage.contentRect, windowRect)
+
+            if (excessX != 0f || excessY != 0f) {
+                Log.d(TAG, "Starting Bounce Back animation")
+                startAnimateMatrix.set(moveMatrix)
+
+                calcPage.startBounceBackAnimation(
+                    excessX, excessY, elasticMatrix,
+                    updateCallback = {
+                        moveMatrix.set(startAnimateMatrix)
+                        requestDraw(
+                            DrawAttachments(drawMode = DrawMode.ANIMATE).apply {
+                                animationType = DrawAttachments.AnimationType.BOUNCE_BACK
+                            }
+                        )
+                    },
+                    onEndCallback = {
+                        requestDraw(
+                            DrawAttachments(drawMode = DrawMode.UPDATE).apply {
+                                update = DrawAttachments.Update.DRAW_BITMAP
+                            }
+                        )
+                    }
+                )
+            } else {
+                // No excess bounds reached. The gesture ended in a valid position.
+                // Request a high-quality Bitmap update to "commit" the visual result.
+                Log.d(TAG, "Gesture ended within limits, requesting UPDATE DRAW_BITMAP")
+                requestDraw(
+                    DrawAttachments(drawMode = DrawMode.UPDATE).apply {
+                        update = DrawAttachments.Update.DRAW_BITMAP
+                    }
+                )
+            }
+        }
+    }
+
+    /**
+     * Calculates and executes the inertial fling animation when the user swipes and releases quickly.
+     * * @param velocityX The initial X velocity of the fling.
+     * @param velocityY The initial Y velocity of the fling.
+     * @return true if the fling was successfully initiated, false otherwise.
+     */
+    private fun handleFling(velocityX: Float, velocityY: Float): Boolean {
+        // Prevent fling if we are already out of bounds (let bounce-back handle it instead).
+        if (excessX != 0f || excessY != 0f) {
+            Log.d(TAG, "Fling disabled: out of bounds. Falling back to Bounce Back.")
+            checkBoundsAndBounceBack()
+            return true
+        }
+
+        val manager = drawViewModel.drawManager
+        val transformedContentRect = RectF(manager.calcPage.contentRect)
+        manager.moveMatrix.mapRect(transformedContentRect)
+
+        val startPointScroller = floatArrayOf(0f, 0f)
+        manager.moveMatrix.mapPoints(startPointScroller)
+
+        // Calculate horizontal fling constraints
+        val xOffset = startPointScroller[0] - transformedContentRect.left
+        var minX = (manager.windowRect.width() - transformedContentRect.width() + xOffset).coerceAtMost(xOffset).toInt()
+        var maxX = xOffset.toInt()
+        var vX = velocityX.toInt()
+
+        if (transformedContentRect.width() < manager.windowRect.width()) {
+            minX = Int.MIN_VALUE
+            maxX = Int.MAX_VALUE
+            vX = 0
+        }
+
+        // Calculate vertical fling constraints
+        val yOffset = startPointScroller[1] - transformedContentRect.top
+        val minY = (manager.windowRect.height() - transformedContentRect.height() + yOffset).coerceAtMost(0f).toInt()
+        val maxY = yOffset.toInt()
+        val vY = velocityY.toInt()
+
+        val minVelocity = drawViewModel.configuration.scaledMinimumFlingVelocity
+
+        // Initiate the fling if the velocity exceeds the minimum threshold
+        if (abs(vX) > minVelocity || abs(vY) > minVelocity) {
+            Log.d(TAG, "Starting Fling with velocity X: $vX, Y: $vY")
+            manager.scroller.fling(
+                startPointScroller[0].toInt(), startPointScroller[1].toInt(),
+                vX, vY,
+                minX, maxX, minY, maxY,
+                OVERSCROLL_LIMIT, OVERSCROLL_LIMIT
+            )
+
+            manager.startAnimateMatrix = Matrix(manager.moveMatrix)
+            manager.requestDraw(
+                DrawAttachments(drawMode = DrawMode.ANIMATE).apply {
+                    animationType = DrawAttachments.AnimationType.FLING
+                }
+            )
+            return true
+        }
+        return false
+    }
 }

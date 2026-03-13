@@ -81,7 +81,7 @@ fun DrawComponent(
                 /**
                  * Imposto gli onTouch e onHoverListener della view
                  */
-                var onTouchHover = OnTouchHover(drawViewModel)
+                val onTouchHover = OnTouchHover(drawViewModel)
                 onTouchHover.motionEventPredictor = MotionEventPredictor.newInstance(rootView)
                 rootView.setOnTouchListener(onTouchHover.onTouchListener)
                 rootView.setOnHoverListener(onTouchHover.onHoverListener)

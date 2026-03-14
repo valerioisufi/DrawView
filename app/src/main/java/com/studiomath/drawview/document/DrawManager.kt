@@ -69,7 +69,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     /** Set containing the currently visible pages and their mapped screen coordinates. */
     var pagesRectOnWindow = mutableSetOf<CalcPage.PageRectWithIndex>()
 
-    /** FASE 3: Oggetto attualmente "sollevato" dall'utente per essere disegnato in overlay fluido */
+    /** Oggetto attualmente "sollevato" dall'utente per essere disegnato in overlay fluido */
     var activeDraggedImage: com.studiomath.drawview.document.page.Image? = null
 
     /**
@@ -203,6 +203,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     }
 
     // Safe, nullable state variables to prevent UninitializedPropertyAccessException crashes
+
+    /** The high-resolution bitmap cache representing the current viewport. */
     var onDrawBitmap: Bitmap? = null
     var jobOnDrawBitmap: Job? = null
     var jobCache: Job? = null
@@ -216,13 +218,21 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         val drawMode: DrawMode,
     ){
         /** Defines the type of rendering logic to execute. */
-        enum class DrawMode { UPDATE, REFRESH, SCALE_TRANSLATE, PREVIEW, ANIMATE }
+        enum class DrawMode {
+            UPDATE, REFRESH, SCALE_TRANSLATE, PREVIEW, ANIMATE
+        }
         /** Defines the type of cache update required. */
-        enum class Update { DRAW_BITMAP, CACHE_ALL, CACHE_PAGE_ONLY }
+        enum class Update {
+            DRAW_BITMAP, CACHE_ALL, CACHE_PAGE_ONLY
+        }
         /** Defines how the Android View should be invalidated. */
-        enum class Invalidate { INVALIDATE, POST_INVALIDATE, POST_INVALIDATE_ON_ANIMATION }
+        enum class Invalidate {
+            INVALIDATE, POST_INVALIDATE, POST_INVALIDATE_ON_ANIMATION
+        }
         /** Defines the type of ongoing animation. */
-        enum class AnimationType { NONE, BOUNCE_BACK, FLING }
+        enum class AnimationType {
+            NONE, BOUNCE_BACK, FLING
+        }
 
         var update: Update? = null
         var strokesIdToRemove: Set<InProgressStrokeId>? = null
@@ -444,46 +454,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 for (pageRectWithIndex in pagesRectOnWindow){
                     drawViewModel.pageMaker.makePageBackground(canvas, pageRectWithIndex.rect, windowRect)
                 }
-
-                // 1. Disegna il livello statico "scongelato" (Senza l'immagine che stiamo trascinando)
                 onDrawBitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
-
-                // 2. FASE 3: DISEGNA L'IMMAGINE IN OVERLAY (120 FPS!)
-                activeDraggedImage?.let { img ->
-                    img.bitmapCache?.let { bmp ->
-                        if (document != null) {
-                            // Trova l'indice della pagina a cui appartiene l'immagine che stiamo muovendo
-                            val pageIndex = document.pages.indexOfFirst { page -> page.imageData.contains(img) }
-
-                            if (pageIndex != -1) {
-                                // Trova a quali coordinate dello schermo si trova quella pagina
-                                val pageInfo = pagesRectOnWindow.find { it.index == pageIndex }
-                                val page = document.pages[pageIndex]
-
-                                if (pageInfo != null) {
-                                    val overlayMatrix = Matrix()
-                                    // Adatta i pixel dell'immagine ai millimetri del foglio
-                                    val scaleX = img.width / bmp.width.toFloat()
-                                    val scaleY = img.height / bmp.height.toFloat()
-                                    overlayMatrix.postScale(scaleX, scaleY)
-
-                                    overlayMatrix.postRotate(img.rotation, img.width / 2f, img.height / 2f)
-                                    overlayMatrix.postTranslate(img.x, img.y)
-
-                                    // Converte i millimetri del foglio nei pixel esatti dello schermo (incluso zoom e pan)
-                                    val mmToScreenMatrix = Matrix().apply {
-                                        setRectToRect(page.rect(), pageInfo.rect, Matrix.ScaleToFit.CENTER)
-                                    }
-                                    overlayMatrix.postConcat(mmToScreenMatrix)
-
-                                    // Stampa l'immagine fluida e reattiva sopra tutto il resto!
-                                    canvas.drawBitmap(bmp, overlayMatrix, null)
-                                }
-                            }
-                        }
-                    }
-                }
-
+                // Notify the view model to remove ink library strokes that are now baked into the bitmap
                 drawViewModel.removeFinishedStrokes?.let { it(drawAttachments.strokesIdToRemove ?: emptySet()) }
             }
             DrawAttachments.DrawMode.SCALE_TRANSLATE -> {
@@ -572,6 +544,42 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 }
             }
             else -> {}
+        }
+
+        // FASE 3 FIX: DISEGNA L'IMMAGINE IN OVERLAY (Sempre in cima a tutto)
+        activeDraggedImage?.let { img ->
+            img.bitmapCache?.let { bmp ->
+                if (document != null) {
+                    // Trova l'indice della pagina a cui appartiene l'immagine che stiamo muovendo
+                    val pageIndex = document.pages.indexOfFirst { page -> page.imageData.contains(img) }
+
+                    if (pageIndex != -1) {
+                        // Trova a quali coordinate dello schermo si trova quella pagina
+                        val pageInfo = pagesRectOnWindow.find { it.index == pageIndex }
+                        val page = document.pages[pageIndex]
+
+                        if (pageInfo != null) {
+                            val overlayMatrix = Matrix()
+                            // Adatta i pixel dell'immagine ai millimetri del foglio
+                            val scaleX = img.width / bmp.width.toFloat()
+                            val scaleY = img.height / bmp.height.toFloat()
+                            overlayMatrix.postScale(scaleX, scaleY)
+
+                            overlayMatrix.postRotate(img.rotation, img.width / 2f, img.height / 2f)
+                            overlayMatrix.postTranslate(img.x, img.y)
+
+                            // Converte i millimetri del foglio nei pixel esatti dello schermo (incluso zoom e pan)
+                            val mmToScreenMatrix = Matrix().apply {
+                                setRectToRect(page.rect(), pageInfo.rect, Matrix.ScaleToFit.CENTER)
+                            }
+                            overlayMatrix.postConcat(mmToScreenMatrix)
+
+                            // Stampa l'immagine fluida e reattiva sopra tutto il resto!
+                            canvas.drawBitmap(bmp, overlayMatrix, null)
+                        }
+                    }
+                }
+            }
         }
 
         // If the animation is still ongoing, request another frame

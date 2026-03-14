@@ -134,9 +134,7 @@ class OnTouchHover(
                         lastTouchX = event.x
                         lastTouchY = event.y
 
-                        // 4. OTTIMIZZAZIONE: Richiedi solo un REFRESH (velocissimo!)
-                        // Il DrawManager disegnerà il background statico e stamperà l'immagine
-                        // in overlay nella sua nuova posizione.
+                        // Disegna fluidamente in overlay sopra lo sfondo
                         drawViewModel.drawManager.requestDraw(
                             DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.REFRESH)
                         )
@@ -146,16 +144,24 @@ class OnTouchHover(
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     // Release the image and save its new position to the database
                     draggedImage?.let { img ->
-                        // 5. Rilascia l'immagine
+                        // 1. Rilascia l'immagine e spegni la modalità overlay
                         img.isDragging = false
                         drawViewModel.drawManager.activeDraggedImage = null
 
+                        // 2. Salva la nuova posizione nel Database
                         draggedImagePageDbId?.let { pageDbId ->
                             drawViewModel.updateImageInDatabase(pageDbId, img)
                         }
 
-                        // 6. Il Database Update si occuperà di chiamare un DRAW_BITMAP
-                        // per rimettere l'immagine nel livello statico
+                        // 3. FONDAMENTALE: Richiedi IMMEDIATAMENTE di ricalcolare il livello statico.
+                        // Poiché isDragging ora è false, l'immagine verrà "stampata" correttamente
+                        // nella sua nuova posizione sul documento.
+                        drawViewModel.drawManager.requestDraw(
+                            DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                                update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                            }
+                        )
+
                         draggedImage = null
                         draggedImagePageDbId = null
                         return@OnTouchListener true

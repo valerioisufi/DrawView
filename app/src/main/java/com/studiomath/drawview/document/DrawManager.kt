@@ -131,9 +131,23 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             // FIX: Pulisci sempre le flag della vecchia selezione prima di calcolarne una nuova!
             drawViewModel.clearSelection()
 
-            // Troviamo la pagina su cui l'utente ha disegnato. (Se il tratto è a cavallo,
-            // per ora consideriamo il centro del bounding box del lasso o la prima visibile)
-            val pageInfo = pagesRectOnWindow.firstOrNull()
+            // FIX: Trovare la pagina CORRETTA su cui l'utente ha disegnato il lazo.
+            // Il tratto lassoInkStroke in questo momento ha le coordinate in pixel (schermo).
+            val lassoScreenBox = lassoInkStroke.shape.computeBoundingBox()
+            var targetPageInfo: CalcPage.PageRectWithIndex? = null
+
+            if (lassoScreenBox != null) {
+                // Calcoliamo il centro esatto del lazo disegnato dall'utente
+                val centerX = lassoScreenBox.xMin + (lassoScreenBox.xMax - lassoScreenBox.xMin) / 2f
+                val centerY = lassoScreenBox.yMin + (lassoScreenBox.yMax - lassoScreenBox.yMin) / 2f
+
+                // Cerchiamo quale pagina visibile contiene questo punto
+                targetPageInfo = pagesRectOnWindow.find { it.rect.contains(centerX, centerY) }
+            }
+
+            // Se per qualche motivo il centro sfugge, usiamo la prima pagina come fallback di sicurezza
+            val pageInfo = targetPageInfo ?: pagesRectOnWindow.firstOrNull()
+
             if (pageInfo != null) {
                 val page = document.pages.getOrNull(pageInfo.index)
                 if (page != null) {
@@ -161,7 +175,20 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     }
 
                     // Creiamo la Mesh chiusa nativa (C++) per l'hit testing
-                    val selectionRegion = mmLassoBatch.createClosedShape()
+                    // Proteggiamo la chiamata nativa con un try-catch per evitare crash su forme impossibili
+                    val selectionRegion = try {
+                        mmLassoBatch.createClosedShape()
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        drawViewModel.removeFinishedStrokes?.invoke(strokes.keys)
+                        requestDraw(
+                            DrawAttachments(drawMode = DrawAttachments.DrawMode.UPDATE).apply {
+                                update = DrawAttachments.Update.DRAW_BITMAP
+                            }
+                        )
+                        return
+                    }
+
                     val lassoBox = selectionRegion.computeBoundingBox()
 
                     if (lassoBox != null) {

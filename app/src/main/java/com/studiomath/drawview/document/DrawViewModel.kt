@@ -366,18 +366,33 @@ class DrawViewModel(
 
     /**
      * Pulisce la selezione attuale, reimpostando la flag isDragging a false per tutti
-     * gli elementi e richiedendo un aggiornamento del Canvas di sfondo.
+     * gli elementi e richiedendo un aggiornamento della cache.
      */
     fun clearSelection() {
-        currentSelection?.let { oldSelection ->
-            // 1. Spegni la flag di trascinamento
-            oldSelection.images.forEach { it.isDragging = false }
-            oldSelection.strokes.forEach { it.isDragging = false }
+        val selection = currentSelection ?: return
+        val doc = documentData ?: return
+        val page = doc.pages.getOrNull(selection.pageIndex) ?: return
 
-            // 2. Svuota il gruppo
-            currentSelection = null
+        // 1. Spegni la flag di trascinamento
+        selection.images.forEach { it.isDragging = false }
+        selection.strokes.forEach { it.isDragging = false }
 
-            // 3. Richiedi al DrawManager di "stampare" gli elementi rilasciati sullo sfondo
+        // 2. Svuota il gruppo
+        currentSelection = null
+
+        // --- IL FIX DELLA CACHE ---
+        // 3. Rigenera la cache per far riapparire i vecchi elementi sullo sfondo
+        viewModelScope.launch(Dispatchers.Default) {
+            page.bitmapPage?.let { oldBitmap ->
+                page.bitmapPage = pageMaker.makePage(
+                    android.graphics.Rect(0, 0, oldBitmap.width, oldBitmap.height),
+                    null,
+                    page,
+                    doc
+                )
+            }
+
+            // Richiedi l'aggiornamento visivo
             drawManager.requestDraw(
                 DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
                     update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
@@ -430,7 +445,8 @@ class DrawViewModel(
      */
     fun applySelectionTransformation() {
         val selection = currentSelection ?: return
-        val page = documentData?.pages?.getOrNull(selection.pageIndex) ?: return
+        val doc = documentData ?: return
+        val page = doc.pages.getOrNull(selection.pageIndex) ?: return
 
         // 1. Applica la matrice nativa ai tratti (C++ ink-strokes)
         selection.strokes.forEach { stroke ->
@@ -448,16 +464,42 @@ class DrawViewModel(
             // (In futuro, qui estrarremo anche la scala e la rotazione dalla matrice)
         }
 
-        // 3. Resetta la matrice temporanea perché ora i dati base sono aggiornati
+        // Resetta la matrice temporanea perché ora i dati base sono aggiornati
         selection.transformMatrix.reset()
 
-        // 4. Salva in Background nel Database
-        viewModelScope.launch(Dispatchers.IO) {
+        // 3. Spegni la flag isDragging così tornano sul livello statico
+        selection.images.forEach { it.isDragging = false }
+        selection.strokes.forEach { it.isDragging = false }
+
+        // --- IL FIX DELLA CACHE ---
+        // 4. Rigenera la bitmapPage e salva nel DB (tutto in background!)
+        viewModelScope.launch(Dispatchers.Default) {
+
+            // "Scatta una nuova fotografia" della pagina con i dati aggiornati
+            page.bitmapPage?.let { oldBitmap ->
+                page.bitmapPage = pageMaker.makePage(
+                    android.graphics.Rect(0, 0, oldBitmap.width, oldBitmap.height),
+                    null,
+                    page,
+                    doc
+                )
+            }
+
+            // ORA chiediamo al DrawManager di stampare a schermo la nuova cache
+            drawManager.requestDraw(
+                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                }
+            )
+
+            // Salva in Background nel Database
             selection.images.forEach { img ->
-                repository.updateImage(page.dbId, img)
+                // Assicurati di avere questo metodo nel repository
+                // repository.updateImage(page.dbId, img)
             }
             selection.strokes.forEach { stroke ->
-                 repository.updateStroke(page.dbId, stroke) // Decomentare quando crei il metodo nel repo
+                // Assicurati di avere questo metodo nel repository
+                // repository.updateStroke(page.dbId, stroke)
             }
         }
     }

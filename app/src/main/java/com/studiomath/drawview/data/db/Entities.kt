@@ -67,7 +67,7 @@ data class PageEntity(
 
 /**
  * EXCLUSIVE table for Strokes.
- * This solves the monolithic JSON performance issues.
+ * Uses native binary encoding (BLOB) for extreme performance.
  */
 @Entity(
     tableName = "strokes",
@@ -89,8 +89,38 @@ data class StrokeEntity(
     val size: Float,
     val toolType: String,
     val brushFamily: String,
-    val inputsJson: String // JSON string containing ONLY the list of points for THIS stroke
-)
+    val inputs: ByteArray // CAMBIATO: Da String (JSON) a ByteArray (Protobuf Binario)
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+
+        other as StrokeEntity
+
+        if (id != other.id) return false
+        if (pageId != other.pageId) return false
+        if (zIndex != other.zIndex) return false
+        if (color != other.color) return false
+        if (size != other.size) return false
+        if (toolType != other.toolType) return false
+        if (brushFamily != other.brushFamily) return false
+        if (!inputs.contentEquals(other.inputs)) return false
+
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = id
+        result = 31 * result + pageId
+        result = 31 * result + zIndex
+        result = 31 * result + color
+        result = 31 * result + size.hashCode()
+        result = 31 * result + toolType.hashCode()
+        result = 31 * result + brushFamily.hashCode()
+        result = 31 * result + inputs.contentHashCode()
+        return result
+    }
+}
 
 /**
  * Table for Images inside a page.

@@ -33,6 +33,7 @@ androidx-ink-geometry = { module = "androidx.ink:ink-geometry", version.ref = "i
 androidx-ink-nativeloader = { module = "androidx.ink:ink-nativeloader", version.ref = "inkVersion" }
 androidx-ink-rendering = { module = "androidx.ink:ink-rendering", version.ref = "inkVersion" }
 androidx-ink-strokes = { module = "androidx.ink:ink-strokes", version.ref = "inkVersion" }
+androidx-ink-storage = { group = "androidx.ink", name = "ink-storage", version.ref = "inkVersion" }
 androidx-input-motionprediction = { module = "androidx.input:input-motionprediction", version.ref = "inputMotionprediction" }
 androidx-junit = { module = "androidx.test.ext:junit", version.ref = "androidxJunit" }
 androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycleRuntimeKtx" }
@@ -60,6 +61,6 @@ androidx-compose-foundation = { group = "androidx.compose.foundation", name = "f
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
-ksp = { id = "com.google.devtools.ksp", version.ref = "ksp"}
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 

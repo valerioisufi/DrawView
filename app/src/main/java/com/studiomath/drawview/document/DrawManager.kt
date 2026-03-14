@@ -169,21 +169,11 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 val newStrokesToSave = mutableListOf<DomainStroke>()
 
                 strokes.values.forEach { inkStroke ->
-                    // Convert the native Ink Stroke into a custom serializable domain object
+                    // FASE 4: Usiamo i nuovi metodi ultra-veloci basati su binario
                     val domainStroke = DomainStroke(domainPage.strokeData.size).apply {
                         this.stroke = inkStroke
-                        toSerializedStroke() // Populates properties from Ink stroke
-
-                        // Map physical input points to the page's coordinate space
-                        inputs.forEach { input ->
-                            val point = floatArrayOf(input.x, input.y)
-                            matrix.mapPoints(point)
-                            input.x = point[0]
-                            input.y = point[1]
-                        }
-                        size = matrix.mapRadius(size)
-
-                        toInkStroke() // Re-generate scaled ink stroke for memory
+                        extractProperties()    // Estrae colore, spessore e tipo di strumento
+                        applyTransform(matrix) // Applica lo zoom e converte i pixel in mm in C++ nativo!
                     }
 
                     // Update in-memory state
@@ -192,9 +182,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     newStrokesToSave.add(domainStroke)
                 }
 
-                // PHASE 5: Instant Database Save
+                // Instant Database Save
                 // Send ONLY the newly drawn strokes to the Repository for a rapid SQL insertion.
-                // No more monolithic JSON file rewriting.
                 if (newStrokesToSave.isNotEmpty()) {
                     drawViewModel.saveNewStrokesToDatabase(domainPage.dbId, newStrokesToSave)
                 }

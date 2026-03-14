@@ -2,6 +2,11 @@ package com.studiomath.drawview.data.repository
 
 import android.content.Context
 import android.util.Log
+import androidx.ink.brush.Brush
+import androidx.ink.brush.StockBrushes
+import androidx.ink.storage.decode
+import androidx.ink.storage.encode
+import androidx.ink.strokes.StrokeInputBatch
 import com.studiomath.drawview.data.db.*
 import com.studiomath.drawview.document.page.Document
 import com.studiomath.drawview.document.page.Image
@@ -13,6 +18,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 
 /**
  * Repository responsible for handling document data operations.
@@ -121,11 +128,16 @@ class DrawDocumentRepository(context: Context) {
     }
 
     /**
-     * Saves a single stroke to the database extremely fast.
+     * Saves a single stroke to the database using extreme fast binary encoding.
      */
     suspend fun saveNewStroke(pageId: Int, domainStroke: Stroke) = withContext(Dispatchers.IO) {
         try {
-            val inputsJsonString = Json.encodeToString(domainStroke.inputs)
+            val nativeStroke = domainStroke.stroke ?: return@withContext
+
+            // 1. Usa l'encoding binario compresso (ProtoBuf) di Ink
+            val outputStream = ByteArrayOutputStream()
+            nativeStroke.inputs.encode(outputStream)
+            val byteArray = outputStream.toByteArray()
 
             val strokeEntity = StrokeEntity(
                 pageId = pageId,
@@ -134,7 +146,7 @@ class DrawDocumentRepository(context: Context) {
                 size = domainStroke.size,
                 toolType = domainStroke.toolType.name,
                 brushFamily = domainStroke.brush.name,
-                inputsJson = inputsJsonString
+                inputs = byteArray // Salva i byte raw nel DB
             )
 
             strokeDao.insert(strokeEntity)
@@ -144,22 +156,41 @@ class DrawDocumentRepository(context: Context) {
     }
 
     /**
-     * Maps a Database StrokeEntity into an in-memory Domain Stroke.
+     * Maps a Database StrokeEntity into an in-memory Domain Stroke using binary decoding.
      */
     private fun mapStrokeEntityToDomain(entity: StrokeEntity): Stroke? {
         return try {
-            val inputs = Json.decodeFromString<List<Stroke.StrokeInput>>(entity.inputsJson)
+            // 1. Decodifica i byte raw direttamente nel batch nativo
+            val inputStream = ByteArrayInputStream(entity.inputs)
+            val batch = StrokeInputBatch.decode(inputStream)
 
+            // 2. Ricostruisci il Brush
+            val brushFamilyEnum = try { Stroke.BrushFamily.valueOf(entity.brushFamily) } catch (e: Exception) { Stroke.BrushFamily.PRESSURE_PEN }
+            val nativeFamily = when (brushFamilyEnum) {
+                Stroke.BrushFamily.PRESSURE_PEN -> StockBrushes.pressurePen()
+                Stroke.BrushFamily.HIGHLIGHTER -> StockBrushes.highlighter()
+                Stroke.BrushFamily.MARKER -> StockBrushes.marker()
+            }
+            val targetBrush = Brush.createWithColorIntArgb(
+                family = nativeFamily,
+                colorIntArgb = entity.color,
+                size = entity.size,
+                epsilon = 0.005f
+            )
+
+            // 3. Ricostruisci il Tratto Ink completo
+            val nativeStroke = androidx.ink.strokes.Stroke(targetBrush, batch)
+
+            // 4. Restituisci il modello di dominio
             Stroke(entity.zIndex).apply {
                 color = entity.color
                 size = entity.size
                 toolType = try { Stroke.ToolType.valueOf(entity.toolType) } catch (e: Exception) { Stroke.ToolType.UNKNOWN }
-                brush = try { Stroke.BrushFamily.valueOf(entity.brushFamily) } catch (e: Exception) { Stroke.BrushFamily.PRESSURE_PEN }
-
-                this.inputs.addAll(inputs)
+                brush = brushFamilyEnum
+                stroke = nativeStroke
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse stroke inputs from JSON", e)
+            Log.e(TAG, "Failed to decode stroke binary data", e)
             null
         }
     }

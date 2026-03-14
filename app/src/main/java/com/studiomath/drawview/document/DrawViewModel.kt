@@ -1,46 +1,96 @@
 package com.studiomath.drawview.document
 
+import android.app.Application
 import android.graphics.Color
 import android.graphics.Path
 import android.util.DisplayMetrics
 import android.view.MotionEvent
 import android.view.ViewConfiguration
-import androidx.annotation.ColorInt
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.brush.Brush
 import androidx.ink.brush.StockBrushes
-import androidx.lifecycle.ViewModel
-import com.studiomath.drawview.document.page.Dimension.Companion.Length
-import com.studiomath.drawview.document.page.DrawDocumentData
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
 import com.studiomath.drawview.document.page.PageMaker
-import com.studiomath.drawview.document.page.pt
-import com.studiomath.drawview.document.page.px
-import kotlinx.serialization.Serializable
-import java.io.File
+import com.studiomath.drawview.data.repository.DrawDocumentRepository
+import com.studiomath.drawview.document.page.Document
+import com.studiomath.drawview.document.page.Measure
+import com.studiomath.drawview.document.page.Stroke
+import kotlinx.coroutines.launch
 
+/**
+ * ViewModel principale per l'ambiente di disegno.
+ * Fa da collante tra la UI (Compose/Views), il motore di rendering (DrawManager)
+ * e i dati salvati (DrawDocumentRepository).
+ */
 class DrawViewModel(
-    val filesDir: File,
-    var filePath: String,
+    application: Application,
+    val documentId: Int, // Ricevuto tramite ViewModelFactory
     var displayMetrics: DisplayMetrics,
     var configuration: ViewConfiguration
-) : ViewModel() {
+) : AndroidViewModel(application) {
+
+    // Il Repository è l'unica via d'accesso al database
+    private val repository = DrawDocumentRepository(application)
 
     var drawManager = DrawManager(this, displayMetrics)
     val pageMaker = PageMaker(displayMetrics)
 
-    var data: DrawDocumentData = DrawDocumentData(filesDir, filePath, displayMetrics, this)
+    // --- STATO DELLA UI (Spostato qui dal vecchio DrawDocumentData) ---
+    var documentData by mutableStateOf<Document?>(null)
+    var isDocumentLoaded by mutableStateOf(false)
+    var isDocumentShowed by mutableStateOf(false)
 
+    init {
+        loadDocument()
+    }
 
-    @Serializable
+    /**
+     * Carica il documento dal database tramite il repository.
+     */
+    private fun loadDocument() {
+        viewModelScope.launch {
+            // Sospende la coroutine finché il database non restituisce l'albero completo
+            documentData = repository.loadDocument(documentId)
+            isDocumentLoaded = documentData != null
+
+            if (isDocumentLoaded) {
+                // Inizializza il rendering della prima pagina caricata
+                drawManager.requestDraw(
+                    DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                        update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                    }
+                )
+                drawManager.requestDraw(
+                    DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                        update = DrawManager.DrawAttachments.Update.CACHE_ALL
+                    }
+                )
+            }
+        }
+    }
+
+    /**
+     * Metodo di salvataggio istantaneo per i nuovi tratti.
+     * Verrà chiamato dal DrawManager alla fine di una pennellata.
+     */
+    fun saveNewStrokesToDatabase(pageDbId: Int, newStrokes: List<Stroke>) {
+        viewModelScope.launch {
+            newStrokes.forEach { stroke ->
+                repository.saveNewStroke(pageDbId, stroke)
+            }
+        }
+    }
+
+    // --- TOOL UTILITIES (Invariate) ---
     data class ToolUtilities(val toolType: Tool){
         enum class Tool {
             INK_PEN, INK_HIGHLIGHTER, ERASER, TEXT, LAZO, PAN
         }
-        @Serializable
+
         data class BrushSettings(
             val size: Float,
             val color: Int
@@ -58,7 +108,7 @@ class DrawViewModel(
                     else -> brushList.add(BrushSettings(4f, Color.BLACK))
                 }
             }
-            var family = when(toolType){
+            val family = when(toolType){
                 Tool.INK_PEN -> StockBrushes.pressurePen()
                 Tool.INK_HIGHLIGHTER -> StockBrushes.highlighter()
                 Tool.LAZO -> StockBrushes.dashedLine()
@@ -72,6 +122,7 @@ class DrawViewModel(
             )
         }
     }
+
     val penTool = ToolUtilities(ToolUtilities.Tool.INK_PEN)
     val highlighterTool = ToolUtilities(ToolUtilities.Tool.INK_HIGHLIGHTER)
     val eraserTool = ToolUtilities(ToolUtilities.Tool.ERASER)
@@ -79,22 +130,17 @@ class DrawViewModel(
 
     var selectedTool by mutableStateOf(ToolUtilities.Tool.INK_PEN)
     var activeBrush = penTool.getBrush(0)
+
     fun getActiveBrushScaled() = activeBrush.copy(
-        size = drawManager.dimToPx(activeBrush.size.pt),
-//        epsilon = data.document.pages[data.pageIndexNow].dimension!!.calcPxFromDim(
-//            activeBrush.epsilon.mm,
-//            redrawPageRect.width().px,
-//            Length.WIDTH
-//        )
+        size = drawManager.dimToPx(com.studiomath.drawview.document.page.Measure(activeBrush.size, Measure.Unit.DOT))
     )
 
+    // --- INK LIBRARY CALLBACKS ---
     var startStrokeInProgress: ((event: MotionEvent, pointerId: Int, brush: Brush) -> InProgressStrokeId)? = null
     var addToStrokeInProgress: ((event: MotionEvent, pointerId: Int, strokeId: InProgressStrokeId, predictedEvent: MotionEvent?) -> Unit)? = null
     var finishStrokeInProgress: ((event: MotionEvent, pointerId: Int, strokeId: InProgressStrokeId) -> Unit)? = null
     var cancelStrokeInProgress: ((strokeId: InProgressStrokeId, event: MotionEvent) -> Unit)? = null
     var removeFinishedStrokes: ((strokeKeys: Set<InProgressStrokeId>) -> Unit)? = null
-
     var maskPath: ((path: Path) -> Unit)? = null
-
     var finishActivity: (() -> Unit)? = null
 }

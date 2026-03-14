@@ -7,6 +7,7 @@ import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.RectF
 import android.util.DisplayMetrics
+import android.util.Log
 import android.widget.OverScroller
 import androidx.annotation.UiThread
 import androidx.core.graphics.createBitmap
@@ -15,15 +16,16 @@ import androidx.core.graphics.withMatrix
 import androidx.core.graphics.withSave
 import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.authoring.InProgressStrokesFinishedListener
-import androidx.ink.strokes.Stroke
-import com.studiomath.drawview.document.page.DrawDocumentData
+import androidx.ink.strokes.Stroke as InkStroke
+import com.studiomath.drawview.document.page.Stroke as DomainStroke
+import com.studiomath.drawview.document.page.Dimension.Companion.Length
 import com.studiomath.drawview.document.page.Measure
+import com.studiomath.drawview.document.page.pt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.withLock
 
 /**
  * The core rendering engine and state manager for the drawing canvas.
@@ -78,7 +80,10 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
      */
     fun dimToPx(dimension: Measure): Float {
         if (pagesRectOnWindow.isEmpty()) return 0f
-        return dimension.pt * (pagesRectOnWindow.first().rect.width() / drawViewModel.data.document.pages[pagesRectOnWindow.first().index].dimension!!.width.pt)
+        val document = drawViewModel.documentData ?: return 0f
+        val page = document.pages.getOrNull(pagesRectOnWindow.first().index) ?: return 0f
+
+        return dimension.pt * (pagesRectOnWindow.first().rect.width() / page.dimension!!.width.pt)
     }
 
     /**
@@ -105,10 +110,12 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
      * It handles the immediate rendering to prevent UI flickering, and the background serialization of the data.
      */
     @UiThread
-    override fun onStrokesFinished(strokes: Map<InProgressStrokeId, Stroke>) {
+    override fun onStrokesFinished(strokes: Map<InProgressStrokeId, InkStroke>) {
+        val document = drawViewModel.documentData ?: return
+
         // 1. Immediate visual rendering to the UI cache (Main Thread to prevent flickering)
         for (pageRectWithIndex in pagesRectOnWindow) {
-            val page = drawViewModel.data.document.pages[pageRectWithIndex.index]
+            val page = document.pages.getOrNull(pageRectWithIndex.index) ?: continue
             page.bitmapPage?.let { bitmapCache ->
                 val canvasCache = Canvas(bitmapCache)
                 val bitmapRect = RectF(0f, 0f, bitmapCache.width.toFloat(), bitmapCache.height.toFloat())
@@ -152,41 +159,50 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         // 2. Data serialization and persistence (Background Thread)
         scope.launch {
             for (pageRectWithIndex in pagesRectOnWindow){
+                val domainPage = document.pages.getOrNull(pageRectWithIndex.index) ?: continue
+
                 val matrix = Matrix().apply {
-                    setRectToRect(pageRectWithIndex.rect, drawViewModel.data.document.pages[pageRectWithIndex.index].rect(), Matrix.ScaleToFit.CENTER)
+                    setRectToRect(pageRectWithIndex.rect, domainPage.rect(), Matrix.ScaleToFit.CENTER)
                 }
 
-                drawViewModel.data.documentMutex.withLock {
-                    strokes.values.forEach { stroke ->
-                        // Convert the native Ink Stroke into a custom serializable domain object
-                        val serializedStroke = DrawDocumentData.Stroke(0).apply {
-                            this.stroke = stroke
-                            toSerializedStroke()
+                // Temporary list to hold only the strokes that were just created
+                val newStrokesToSave = mutableListOf<DomainStroke>()
 
-                            // Map physical input points to the page's coordinate space
-                            inputs.forEach { input ->
-                                val point = floatArrayOf(input.x, input.y)
-                                matrix.mapPoints(point)
-                                input.apply {
-                                    x = point[0]
-                                    y = point[1]
-                                }
-                            }
-                            size = matrix.mapRadius(size)
-                            toInkStroke()
+                strokes.values.forEach { inkStroke ->
+                    // Convert the native Ink Stroke into a custom serializable domain object
+                    val domainStroke = DomainStroke(domainPage.strokeData.size).apply {
+                        this.stroke = inkStroke
+                        toSerializedStroke() // Populates properties from Ink stroke
+
+                        // Map physical input points to the page's coordinate space
+                        inputs.forEach { input ->
+                            val point = floatArrayOf(input.x, input.y)
+                            matrix.mapPoints(point)
+                            input.x = point[0]
+                            input.y = point[1]
                         }
-                        drawViewModel.data.document.pages[pageRectWithIndex.index].strokeData.add(serializedStroke)
+                        size = matrix.mapRadius(size)
+
+                        toInkStroke() // Re-generate scaled ink stroke for memory
                     }
+
+                    // Update in-memory state
+                    domainPage.strokeData.add(domainStroke)
+                    // Add to the fast-save list
+                    newStrokesToSave.add(domainStroke)
                 }
-                // Save the updated document to disk/storage
-                drawViewModel.data.saveDocument()
+
+                // PHASE 5: Instant Database Save
+                // Send ONLY the newly drawn strokes to the Repository for a rapid SQL insertion.
+                // No more monolithic JSON file rewriting.
+                if (newStrokesToSave.isNotEmpty()) {
+                    drawViewModel.saveNewStrokesToDatabase(domainPage.dbId, newStrokesToSave)
+                }
             }
         }
     }
 
     // Safe, nullable state variables to prevent UninitializedPropertyAccessException crashes
-
-    /** The high-resolution bitmap cache representing the current viewport. */
     var onDrawBitmap: Bitmap? = null
     var jobOnDrawBitmap: Job? = null
     var jobCache: Job? = null
@@ -200,21 +216,13 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         val drawMode: DrawMode,
     ){
         /** Defines the type of rendering logic to execute. */
-        enum class DrawMode {
-            UPDATE, REFRESH, SCALE_TRANSLATE, PREVIEW, ANIMATE
-        }
+        enum class DrawMode { UPDATE, REFRESH, SCALE_TRANSLATE, PREVIEW, ANIMATE }
         /** Defines the type of cache update required. */
-        enum class Update {
-            DRAW_BITMAP, CACHE_ALL, CACHE_PAGE_ONLY
-        }
+        enum class Update { DRAW_BITMAP, CACHE_ALL, CACHE_PAGE_ONLY }
         /** Defines how the Android View should be invalidated. */
-        enum class Invalidate {
-            INVALIDATE, POST_INVALIDATE, POST_INVALIDATE_ON_ANIMATION
-        }
+        enum class Invalidate { INVALIDATE, POST_INVALIDATE, POST_INVALIDATE_ON_ANIMATION }
         /** Defines the type of ongoing animation. */
-        enum class AnimationType {
-            NONE, BOUNCE_BACK, FLING
-        }
+        enum class AnimationType { NONE, BOUNCE_BACK, FLING }
 
         var update: Update? = null
         var strokesIdToRemove: Set<InProgressStrokeId>? = null
@@ -238,7 +246,9 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             DrawAttachments.DrawMode.UPDATE -> {
                 when (drawAttachments.update) {
                     DrawAttachments.Update.DRAW_BITMAP -> {
+                        val document = drawViewModel.documentData ?: return
                         if (onDrawBitmap == null) return
+
                         jobOnDrawBitmap?.cancel()
 
                         // Spawns a background job to redraw the high-resolution viewport cache
@@ -247,14 +257,14 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                 val oldContentRect = RectF(calcPage.contentRect)
 
                                 calcPage.calcPagesRectOnWindow(
-                                    drawViewModel.data.document.pages, windowRect, CalcPage.PagePositionOnWindowOption()
+                                    document.pages, windowRect, CalcPage.PagePositionOnWindowOption()
                                 )
                                 contentConstraintsOnWindow = calcPage.getContentConstraintsOnWindow(windowRect)
 
                                 // Apply constraints to the camera matrix and recalculate layout
                                 calcPage.applyBounds(moveMatrix, calcPage.contentRect, windowRect)
                                 calcPage.calcPagesRectOnWindow(
-                                    drawViewModel.data.document.pages, windowRect, CalcPage.PagePositionOnWindowOption()
+                                    document.pages, windowRect, CalcPage.PagePositionOnWindowOption()
                                 )
                                 calcPage.needToBeUpdated = false
 
@@ -273,7 +283,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                 }
                             }
 
-                            // Actual matrix (without fixed elasticity) used for the cache
+                            // Determine the pure mathematical projection (without temporary elasticity)
                             pagesRectOnWindow = calcPage.getPagesRectOnWindowTransformation(windowRect, moveMatrix)
                             drawViewModel.maskPath?.invoke(getMaskPath())
 
@@ -282,7 +292,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                 val tempBitmap = drawViewModel.pageMaker.makePagesOnBitmap(
                                     Rect(0, 0, bitmap.width, bitmap.height),
                                     pagesRectOnWindow,
-                                    drawViewModel.data.document
+                                    document
                                 )
                                 onDrawBitmap = tempBitmap
 
@@ -294,7 +304,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     }
                     DrawAttachments.Update.CACHE_ALL -> {
                         scope.launch {
-                            for (page in drawViewModel.data.document.pages) {
+                            val document = drawViewModel.documentData ?: return@launch
+                            for (page in document.pages) {
                                 page.bitmapPage?.let {
                                     page.bitmapPage = drawViewModel.pageMaker.makePage(
                                         Rect(0, 0, it.width, it.height), null, page
@@ -417,6 +428,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
      */
     private fun executeRender(canvas: Canvas, drawAttachments: DrawAttachments) {
         var needsInvalidate = false
+        val document = drawViewModel.documentData
 
         when (drawAttachments.drawMode) {
             DrawAttachments.DrawMode.UPDATE -> {
@@ -425,7 +437,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     drawViewModel.pageMaker.makePageBackground(canvas, pageRectWithIndex.rect, windowRect)
                 }
                 onDrawBitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
-                drawViewModel.data.isDocumentShowed = true
+                drawViewModel.isDocumentShowed = true
             }
             DrawAttachments.DrawMode.REFRESH -> {
                 drawViewModel.pageMaker.makeWindowBackground(canvas, pagesRectOnWindow, moveMatrix)
@@ -463,18 +475,23 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     if (relativeTransform != null && !onDrawBitmapBounds.isEmpty) {
                         // "Clip out" (exclude) the area that will be covered by the onDrawBitmap.
                         // Individual pages will be drawn solely to fill the "borders" exposed by pan/zoom.
-                        clipOutRect(onDrawBitmapBounds)
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                            clipOutRect(onDrawBitmapBounds)
+                        } else {
+                            @Suppress("DEPRECATION")
+                            clipRect(onDrawBitmapBounds, android.graphics.Region.Op.DIFFERENCE)
+                        }
                     }
 
                     for (pageRectWithIndex in pagesRectOnWindow) {
-                        val page = drawViewModel.data.document.pages[pageRectWithIndex.index]
+                        val page = document?.pages?.getOrNull(pageRectWithIndex.index) ?: continue
                         if (!page.isPrepared) page.prepare()
 
                         page.bitmapPage?.let {
                             drawBitmap(it, null, pageRectWithIndex.rect, null)
                         }
                     }
-                } // Remove the clipping restriction (done automatically by withSave)
+                }
 
                 // 4. Draw the onDrawBitmap (High resolution) exactly in the "hole" left behind
                 if (relativeTransform != null && onDrawBitmap != null) {
@@ -513,8 +530,9 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
                 for (pageRectWithIndex in pagesRectOnWindow){
                     drawViewModel.pageMaker.makePageBackground(canvas, pageRectWithIndex.rect, windowRect)
-                    val page = drawViewModel.data.document.pages[pageRectWithIndex.index]
+                    val page = document?.pages?.getOrNull(pageRectWithIndex.index) ?: continue
                     if (!page.isPrepared) page.prepare()
+
                     page.bitmapPage?.let {
                         canvas.drawBitmap(it, null, pageRectWithIndex.rect, null)
                     }
@@ -546,7 +564,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         windowRect = RectF(0f, 0f, width.toFloat(), height.toFloat())
         calcPage.needToBeUpdated = true
 
-        if (drawViewModel.data.isDocumentLoaded){
+        if (drawViewModel.isDocumentLoaded){
             requestDraw(DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
                 update = DrawAttachments.Update.DRAW_BITMAP
             })

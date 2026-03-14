@@ -135,11 +135,11 @@ class Dimension(val width: Measure, val height: Measure) {
     }
 
     // TODO: 15/11/2021 Considerare la possibiltà di utilizzare i valori in px come Float
-    fun calcHeightFromResolutionPxInch(risoluzionePxInch: Int): Float {
+    fun calcHeightFromResolutionPxInch(risoluzionePxInch: Float): Float {
         return height.inch * risoluzionePxInch
     }
 
-    fun calcWidthFromResolutionPxInch(risoluzionePxInch: Int): Float {
+    fun calcWidthFromResolutionPxInch(risoluzionePxInch: Float): Float {
         return width.inch * risoluzionePxInch
     }
 

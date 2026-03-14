@@ -223,9 +223,9 @@ class DrawDocumentData(
             dimension = Dimension(width.mm, height.mm)
 
             bitmapPage = createBitmap(
-                dimension!!.calcWidthFromResolutionPxInch(resolutionPxInchPageDefault)
+                dimension!!.calcWidthFromResolutionPxInch(resolutionPxInchPageDefault.toFloat())
                     .toInt(),
-                dimension!!.calcHeightFromResolutionPxInch(resolutionPxInchPageDefault)
+                dimension!!.calcHeightFromResolutionPxInch(resolutionPxInchPageDefault.toFloat())
                     .toInt()
             )
             strokeData.forEach { stroke ->

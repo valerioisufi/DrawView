@@ -3,6 +3,7 @@ package com.studiomath.drawview.document
 import android.app.Application
 import android.graphics.Color
 import android.graphics.Path
+import android.net.Uri
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import android.util.DisplayMetrics
@@ -22,11 +23,10 @@ import com.studiomath.drawview.document.page.Document
 import com.studiomath.drawview.document.page.Measure
 import com.studiomath.drawview.document.page.Page
 import com.studiomath.drawview.document.page.Stroke
+import com.studiomath.drawview.document.page.mm
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import android.net.Uri
-import com.studiomath.drawview.document.page.mm
 import java.io.File
 
 /**
@@ -36,7 +36,7 @@ import java.io.File
  */
 class DrawViewModel(
     application: Application,
-    val documentId: Int, // Received via ViewModelFactory
+    val documentId: Int, // Received via ViewModelFactory (potrebbe essere -1 se è un nuovo doc)
     var displayMetrics: DisplayMetrics,
     var configuration: ViewConfiguration
 ) : AndroidViewModel(application) {
@@ -46,7 +46,7 @@ class DrawViewModel(
 
     var drawManager = DrawManager(this, displayMetrics)
 
-    // FIX: Using application.filesDir directly from the AndroidViewModel context
+    // Using application.filesDir directly from the AndroidViewModel context
     val pageMaker = PageMaker(displayMetrics, application.filesDir)
 
     // --- UI STATE ---
@@ -66,7 +66,7 @@ class DrawViewModel(
             // Suspends the coroutine until the database returns the complete tree
             var doc = repository.loadDocument(documentId)
 
-            // FIX: Se il documento non esiste (es. documentId passato dall'Activity è -1),
+            // Se il documento non esiste (es. documentId passato dall'Activity è -1),
             // creiamo un documento di default nel database per permettere all'utente di disegnare.
             if (doc == null) {
                 doc = repository.createNewDefaultDocument()
@@ -96,11 +96,15 @@ class DrawViewModel(
 
     /**
      * Aggiunge una nuova pagina di default (A4) alla fine del documento.
-     * Viene chiamata quando l'utente fa overscroll oltre l'ultima pagina.
+     * Viene chiamata dall'interfaccia (es. bottone Redo) o dall'overscroll.
      */
     fun addNewPageAtBottom() {
         val currentDoc = documentData ?: return
         val nextIndex = currentDoc.pages.size
+
+        // FIX: Usiamo l'ID reale del documento presente nel DB, non la variabile 'documentId'
+        // che potrebbe valere -1 se il documento è appena stato creato.
+        val actualDocId = currentDoc.dbId
 
         viewModelScope.launch {
             // 1. Crea il modello della nuova pagina
@@ -110,14 +114,14 @@ class DrawViewModel(
                 height = dimension!!.height.mm
             }
 
-            // 2. Salva la nuova pagina nel database tramite il repository
-            repository.addPage(documentId, newPage)
+            // 2. Salva la nuova pagina nel database
+            newPage.dbId = repository.addPage(actualDocId, newPage)
 
             // 3. Prepara la cache bitmap e aggiungila al modello in memoria
             newPage.prepare()
             currentDoc.pages.add(newPage)
 
-            // 4. Forza il ricalcolo del layout (affinché CalcPage veda la nuova pagina)
+            // 4. Forza il ricalcolo del layout
             drawManager.calcPage.needToBeUpdated = true
 
             // 5. Richiedi un aggiornamento completo della vista
@@ -135,6 +139,7 @@ class DrawViewModel(
      */
     fun importPdfFromUri(uri: Uri) {
         val currentDoc = documentData ?: return
+        val actualDocId = currentDoc.dbId // FIX: Usiamo l'ID reale per evitare errori Foreign Key
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -151,7 +156,7 @@ class DrawViewModel(
                 }
 
                 // 2. Register the Resource in the Database
-                val resourceIdStr = repository.addResource(documentId, "PDF", fileName).toString()
+                val resourceIdStr = repository.addResource(actualDocId, "PDF", fileName).toString()
                 val resource = com.studiomath.drawview.document.page.Resource(
                     id = resourceIdStr,
                     type = com.studiomath.drawview.document.page.Resource.ResourceType.PDF
@@ -169,7 +174,6 @@ class DrawViewModel(
                     val pdfPage = renderer.openPage(i)
 
                     // PdfRenderer dimensions are in Points (1/72 inch). Convert to mm.
-                    // 1 point = 1/72 inch. 1 inch = 25.4 mm.
                     val widthMm = (pdfPage.width / 72f) * 25.4f
                     val heightMm = (pdfPage.height / 72f) * 25.4f
                     pdfPage.close()
@@ -182,7 +186,7 @@ class DrawViewModel(
                     }
 
                     // 5. Save Page to DB
-                    newPage.dbId = repository.addPage(documentId, newPage)
+                    newPage.dbId = repository.addPage(actualDocId, newPage)
 
                     // 6. Link the PDF to this Page
                     val pdfObj = com.studiomath.drawview.document.page.Pdf(

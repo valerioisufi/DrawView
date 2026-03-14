@@ -1,6 +1,7 @@
 package com.studiomath.drawview.document.motion
 
 import android.annotation.SuppressLint
+import android.graphics.Matrix
 import android.graphics.RectF
 import android.view.MotionEvent
 import android.view.View
@@ -9,6 +10,7 @@ import androidx.input.motionprediction.MotionEventPredictor
 import com.studiomath.drawview.document.DrawManager
 import com.studiomath.drawview.document.DrawViewModel
 import com.studiomath.drawview.document.page.Image
+import kotlin.math.hypot
 
 /**
  * Orchestrates touch and hover events on the drawing canvas.
@@ -43,7 +45,16 @@ class OnTouchHover(
     private var currentStrokeId: InProgressStrokeId? = null
 
     // --- VARIABLES FOR OBJECT SELECTION AND DRAGGING ---
-    private var isGroupDragging = false
+    // --- VARIABLES FOR OBJECT SELECTION AND MANIPULATION ---
+    enum class DragState { NONE, PANNING, SCALING, ROTATING }
+    private var currentDragState = DragState.NONE
+
+    // Per calcolare l'angolo e la scala cumulativi
+    private var initialDistance = 0f
+    private var initialAngle = 0f
+    private var initialCenterX = 0f
+    private var initialCenterY = 0f
+
     private var draggedImage: Image? = null
     private var draggedImagePageDbId: Int? = null
     private var lastTouchX: Float = 0f
@@ -72,7 +83,7 @@ class OnTouchHover(
         val isSelectObjectMode = drawViewModel.selectedTool == DrawViewModel.ToolUtilities.Tool.SELECT_OBJECT
         val isLassoMode = drawViewModel.selectedTool == DrawViewModel.ToolUtilities.Tool.LAZO
 
-        // --- FASE 4: SPOSTAMENTO DEL GRUPPO SELEZIONATO ---
+        // --- FASE 4: SPOSTAMENTO E TRASFORMAZIONE DEL GRUPPO SELEZIONATO ---
         val selection = drawViewModel.currentSelection
         if (selection != null && !selection.isEmpty()) {
             val pageInfo = drawViewModel.drawManager.pagesRectOnWindow.find { it.index == selection.pageIndex }
@@ -81,41 +92,116 @@ class OnTouchHover(
                 val scaleX = page.width / pageInfo.rect.width()
                 val scaleY = page.height / pageInfo.rect.height()
 
-                // Convert screen pixels to physical mm for hit-testing
                 val xMm = (event.x - pageInfo.rect.left) * scaleX
                 val yMm = (event.y - pageInfo.rect.top) * scaleY
 
                 when (event.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
-                        // Allarghiamo leggermente l'area di presa per facilitare il tocco col dito
-                        val grabBox = RectF(selection.boundingBox)
-                        grabBox.inset(-5f, -5f)
+                        val baseBox = selection.boundingBox
 
-                        if (grabBox.contains(xMm, yMm)) {
-                            // L'utente ha afferrato il gruppo!
-                            isGroupDragging = true
+                        // Il raggio di cattura delle maniglie (in millimetri, scalato approssimativamente)
+                        val handleRadiusMm = 24f * scaleX * 1.5f
+
+                        // Calcoliamo i centri del Bounding Box (Punto di perno)
+                        initialCenterX = baseBox.centerX()
+                        initialCenterY = baseBox.centerY()
+
+                        // A. Controllo Tocchi sulle MANIGLIE DI RIDIMENSIONAMENTO (Angoli)
+                        val corners = arrayOf(
+                            Pair(baseBox.left, baseBox.top),
+                            Pair(baseBox.right, baseBox.top),
+                            Pair(baseBox.right, baseBox.bottom),
+                            Pair(baseBox.left, baseBox.bottom)
+                        )
+                        var hitScaleHandle = false
+                        for (corner in corners) {
+                            val dx = xMm - corner.first
+                            val dy = yMm - corner.second
+                            if (Math.hypot(dx.toDouble(), dy.toDouble()) <= handleRadiusMm) {
+                                hitScaleHandle = true
+                                break
+                            }
+                        }
+
+                        // B. Controllo Tocco sulla MANIGLIA DI ROTAZIONE (Centro-Alto)
+                        val rotHandleX = initialCenterX
+                        val rotHandleY = baseBox.top - 12f
+                        val hitRotHandle = hypot(
+                            (xMm - rotHandleX).toDouble(),
+                            (yMm - rotHandleY).toDouble()
+                        ) <= handleRadiusMm
+
+                        // C. Controllo Tocco per TRASCINAMENTO (Corpo centrale)
+                        val grabBox = RectF(baseBox).apply { inset(-5f, -5f) }
+                        val hitBody = grabBox.contains(xMm, yMm)
+
+                        // --- ASSEGNAZIONE DELLO STATO ---
+                        if (hitScaleHandle) {
+                            currentDragState = DragState.SCALING
+                            // Salviamo la distanza iniziale dal centro per calcolare il fattore di scala
+                            initialDistance = Math.hypot((xMm - initialCenterX).toDouble(), (yMm - initialCenterY).toDouble()).toFloat()
+                            drawViewModel.drawManager.scroller.forceFinished(true)
+                            return@OnTouchListener true
+                        } else if (hitRotHandle) {
+                            currentDragState = DragState.ROTATING
+                            // Salviamo l'angolo iniziale usando l'arcotangente
+                            initialAngle = Math.toDegrees(Math.atan2((yMm - initialCenterY).toDouble(), (xMm - initialCenterX).toDouble())).toFloat()
+                            drawViewModel.drawManager.scroller.forceFinished(true)
+                            return@OnTouchListener true
+                        } else if (hitBody) {
+                            currentDragState = DragState.PANNING
                             lastTouchX = event.x
                             lastTouchY = event.y
                             dragScaleMmPerPx = scaleX
                             drawViewModel.drawManager.scroller.forceFinished(true)
                             return@OnTouchListener true
                         } else if (isSelectObjectMode || isLassoMode) {
-                            // Ha toccato fuori dal rettangolo: Deseleziona tutto
                             drawViewModel.clearSelection()
                         }
                     }
                     MotionEvent.ACTION_MOVE -> {
-                        if (isGroupDragging) {
-                            val dxMm = (event.x - lastTouchX) * dragScaleMmPerPx
-                            val dyMm = (event.y - lastTouchY) * dragScaleMmPerPx
+                        when (currentDragState) {
+                            DragState.PANNING -> {
+                                val dxMm = (event.x - lastTouchX) * dragScaleMmPerPx
+                                val dyMm = (event.y - lastTouchY) * dragScaleMmPerPx
+                                selection.transformMatrix.postTranslate(dxMm, dyMm)
+                                selection.boundingBox.offset(dxMm, dyMm)
+                                lastTouchX = event.x
+                                lastTouchY = event.y
+                            }
+                            DragState.SCALING -> {
+                                // Calcoliamo la nuova distanza dal centro
+                                val currentDist = Math.hypot((xMm - initialCenterX).toDouble(), (yMm - initialCenterY).toDouble()).toFloat()
+                                if (initialDistance > 0.1f) {
+                                    val scaleFactor = currentDist / initialDistance
+                                    // Scaliamo rispetto al centro del gruppo
+                                    selection.transformMatrix.postScale(scaleFactor, scaleFactor, initialCenterX, initialCenterY)
 
-                            // Aggiorniamo la matrice di trasformazione e spostiamo visivamente il bounding box
-                            selection.transformMatrix.postTranslate(dxMm, dyMm)
-                            selection.boundingBox.offset(dxMm, dyMm)
+                                    // Aggiorniamo manualmente il bounding box per farlo ingrandire visivamente
+                                    val scaleMatrix = Matrix().apply { setScale(scaleFactor, scaleFactor, initialCenterX, initialCenterY) }
+                                    scaleMatrix.mapRect(selection.boundingBox)
 
-                            lastTouchX = event.x
-                            lastTouchY = event.y
+                                    initialDistance = currentDist
+                                }
+                            }
+                            DragState.ROTATING -> {
+                                // Calcoliamo il nuovo angolo
+                                val currentAngle = Math.toDegrees(Math.atan2((yMm - initialCenterY).toDouble(), (xMm - initialCenterX).toDouble())).toFloat()
+                                val deltaAngle = currentAngle - initialAngle
 
+                                // Ruotiamo rispetto al centro del gruppo
+                                selection.transformMatrix.postRotate(deltaAngle, initialCenterX, initialCenterY)
+
+                                // NOTA: Non aggiorniamo il BoundingBox con la rotazione in RAM,
+                                // perché Android non supporta RectF ruotati. Il BoundingBox grafico
+                                // è già disegnato correttamente da DrawManager.kt mappando i punti!
+
+                                initialAngle = currentAngle
+                            }
+                            DragState.NONE -> {}
+                        }
+
+                        if (currentDragState != DragState.NONE) {
                             drawViewModel.drawManager.requestDraw(
                                 DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.REFRESH)
                             )
@@ -123,9 +209,8 @@ class OnTouchHover(
                         }
                     }
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                        if (isGroupDragging) {
-                            isGroupDragging = false
-                            // Applica i cambiamenti ai dati veri e salva nel DB
+                        if (currentDragState != DragState.NONE) {
+                            currentDragState = DragState.NONE
                             drawViewModel.applySelectionTransformation()
                             return@OnTouchListener true
                         }
@@ -135,7 +220,7 @@ class OnTouchHover(
         }
 
         // --- LOGICA IMMAGINE SINGOLA (se non stiamo trascinando un gruppo) ---
-        if (isSelectObjectMode && !isGroupDragging) {
+        if (isSelectObjectMode && currentDragState == DragState.NONE) {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     draggedImage = null
@@ -233,7 +318,7 @@ class OnTouchHover(
                 drawViewModel.selectedTool != DrawViewModel.ToolUtilities.Tool.PAN &&
                 !isSelectObjectMode // Cannot draw if select mode is active
 
-        if (isStrokeInProgress && !isGroupDragging) {
+        if (isStrokeInProgress && currentDragState == DragState.NONE) {
             handleStrokeEvent(view, event)
             return@OnTouchListener true
         }
@@ -244,7 +329,7 @@ class OnTouchHover(
         val isScalePanInput = (event.pointerCount == 1 || event.pointerCount == 2) &&
                 event.getToolType(0) != MotionEvent.TOOL_TYPE_STYLUS ||
                 drawViewModel.selectedTool == DrawViewModel.ToolUtilities.Tool.PAN ||
-                (isSelectObjectMode && draggedImage == null && !isGroupDragging)
+                (isSelectObjectMode && draggedImage == null && currentDragState == DragState.NONE)
 
         if (isScalePanInput) {
             onScaleTranslate.onScaleTranslate(view.context, event)

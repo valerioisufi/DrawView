@@ -10,12 +10,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ContentCut
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
@@ -27,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.ink.authoring.InProgressStrokesView
@@ -127,6 +130,41 @@ fun DrawComponent(
                     }
                     IconButton(onClick = { drawViewModel.deleteSelection() }) {
                         Icon(Icons.Default.Delete, contentDescription = "Elimina", tint = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+        }
+
+        // --- MENU CONTESTUALE (Long Press) ---
+        if (drawViewModel.contextMenuPosition != null) {
+            val pos = drawViewModel.contextMenuPosition!!
+
+            // Usiamo una Box con un offset assoluto in pixel per posizionarla dove ha toccato l'utente
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(0.dp)
+            ) {
+                ElevatedCard(
+                    modifier = Modifier
+                        // Posizioniamo il menu partendo dalle coordinate (x,y)
+                        // Spostiamo un po' in alto a sinistra per non coprirlo col dito
+                        .offset { IntOffset(pos.x.toInt() - 100, pos.y.toInt() - 150) },
+                    shape = RoundedCornerShape(16.dp),
+                    elevation = CardDefaults.elevatedCardElevation(defaultElevation = 8.dp),
+                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Row(modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)) {
+
+                        // Tasto Incolla (Visibile solo se ci sono dati copiati)
+                        if (drawViewModel.clipboard != null) {
+                            IconButton(onClick = { drawViewModel.pasteSelection(pos.x, pos.y) }) {
+                                Icon(Icons.Default.ContentPaste, contentDescription = "Incolla", tint = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+
+                        // Qui potrai aggiungere altri tasti contestuali in futuro!
+                        // Es: "Aggiungi Immagine", "Aggiungi Testo", ecc.
                     }
                 }
             }

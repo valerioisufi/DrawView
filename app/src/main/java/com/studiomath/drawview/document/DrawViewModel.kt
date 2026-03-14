@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Path
+import android.graphics.PointF
 import android.net.Uri
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
@@ -73,6 +74,9 @@ class DrawViewModel(
 
     var currentSelection by mutableStateOf<SelectionGroup?>(null)
     var clipboard by mutableStateOf<SelectionGroup?>(null)
+
+    // Stato per il menu a comparsa (Long Press)
+    var contextMenuPosition by mutableStateOf<PointF?>(null)
 
     // --- UI STATE ---
     var documentData by mutableStateOf<Document?>(null)
@@ -463,17 +467,39 @@ class DrawViewModel(
         deleteSelection()
     }
 
-    fun pasteSelection() {
+    /**
+     * Incolla gli appunti. Se vengono fornite le coordinate (targetXPx, targetYPx) dallo schermo,
+     * il centro del gruppo copiato verrà incollato esattamente in quel punto.
+     */
+    fun pasteSelection(targetXPx: Float? = null, targetYPx: Float? = null) {
         val copiedGroup = clipboard ?: return
         val doc = documentData ?: return
 
         // Determiniamo dove incollare (usiamo la prima pagina visibile, o in fallback la pagina originale)
-        val targetPageIndex = drawManager.pagesRectOnWindow.firstOrNull()?.index ?: copiedGroup.pageIndex
+        val targetPageInfo = drawManager.pagesRectOnWindow.firstOrNull()
+        val targetPageIndex = targetPageInfo?.index ?: copiedGroup.pageIndex
         val targetPage = doc.pages.getOrNull(targetPageIndex) ?: return
 
         viewModelScope.launch(Dispatchers.Default) {
-            // Offset di "sfalsamento" per far capire all'utente che è una copia (10mm in diagonale)
-            val pasteOffsetMm = 10f
+            // Offset di default (10mm in diagonale) se usiamo il tasto nella toolbar
+            var offsetXMm = 10f
+            var offsetYMm = 10f
+
+            // Se l'utente ha fatto un long-press, calcoliamo l'offset esatto!
+            if (targetXPx != null && targetYPx != null && targetPageInfo != null) {
+                // 1. Convertiamo i pixel dello schermo nei millimetri fisici del foglio
+                val scaleX = targetPage.width / targetPageInfo.rect.width()
+                val scaleY = targetPage.height / targetPageInfo.rect.height()
+                val clickMmX = (targetXPx - targetPageInfo.rect.left) * scaleX
+                val clickMmY = (targetYPx - targetPageInfo.rect.top) * scaleY
+
+                // 2. Calcoliamo di quanto spostare il gruppo affinché il suo centro coincida col tocco
+                val groupCenterX = copiedGroup.boundingBox.centerX()
+                val groupCenterY = copiedGroup.boundingBox.centerY()
+
+                offsetXMm = clickMmX - groupCenterX
+                offsetYMm = clickMmY - groupCenterY
+            }
 
             val pastedStrokes = mutableListOf<Stroke>()
             val pastedImages = mutableListOf<Image>()
@@ -481,29 +507,26 @@ class DrawViewModel(
             // 1. Clona e sposta le Immagini
             copiedGroup.images.forEach { originalImg ->
                 val newImg = Image(zIndex = targetPage.imageData.size + pastedImages.size).apply {
-                    id = originalImg.id // Mantiene lo stesso file risorsa!
-                    dbId = 0 // FONDAMENTALE: 0 fa capire a Room che è un nuovo inserimento!
-                    x = originalImg.x + pasteOffsetMm
-                    y = originalImg.y + pasteOffsetMm
+                    id = originalImg.id // Mantiene lo stesso file risorsa
+                    dbId = 0 // Nuovo inserimento
+                    x = originalImg.x + offsetXMm
+                    y = originalImg.y + offsetYMm
                     width = originalImg.width
                     height = originalImg.height
                     rotation = originalImg.rotation
                 }
-
-                // Salva nel DB per ottenere il vero dbId
                 repository.addImageToPage(targetPage.dbId, newImg)
                 pastedImages.add(newImg)
             }
 
             // 2. Clona e sposta i Tratti
-            // Creiamo una matrice di traslazione semplice
-            val offsetMatrix = Matrix().apply { postTranslate(pasteOffsetMm, pasteOffsetMm) }
+            val offsetMatrix = Matrix().apply { postTranslate(offsetXMm, offsetYMm) }
 
             copiedGroup.strokes.forEach { originalStroke ->
                 // NOTA: Poiché i tratti hanno il nativo C++ stroke, clonarlo richiede un po' di cura.
                 // Per farlo velocemente, creiamo una "copia profonda" leggendo e riscrivendo le proprietà base
                 val newStroke = Stroke(zIndex = targetPage.strokeData.size + pastedStrokes.size).apply {
-                    dbId = 0 // FONDAMENTALE: Nuovo inserimento!
+                    dbId = 0 // Nuovo inserimento
                     color = originalStroke.color
                     size = originalStroke.size
                     toolType = originalStroke.toolType
@@ -538,9 +561,9 @@ class DrawViewModel(
                 }
             )
 
-            // OPZIONALE: Seleziona automaticamente gli elementi appena incollati per poterli spostare subito!
+            // 6. Seleziona automaticamente gli elementi incollati
             val newBoundingBox = RectF(copiedGroup.boundingBox)
-            newBoundingBox.offset(pasteOffsetMm, pasteOffsetMm)
+            newBoundingBox.offset(offsetXMm, offsetYMm)
 
             currentSelection = SelectionGroup(
                 images = pastedImages,
@@ -553,6 +576,9 @@ class DrawViewModel(
                 strokes.forEach { it.isDragging = true }
             }
         }
+
+        // Chiudiamo il menu contestuale
+        contextMenuPosition = null
     }
 
     // --- TOOL UTILITIES ---

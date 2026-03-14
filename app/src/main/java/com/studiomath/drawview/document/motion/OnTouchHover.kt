@@ -3,6 +3,8 @@ package com.studiomath.drawview.document.motion
 import android.annotation.SuppressLint
 import android.graphics.Matrix
 import android.graphics.RectF
+import android.util.Log
+import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
 import androidx.ink.authoring.InProgressStrokeId
@@ -23,6 +25,7 @@ import kotlin.math.hypot
 class OnTouchHover(
     private var drawViewModel: DrawViewModel,
 ) {
+    private var gestureDetector: GestureDetector? = null
 
     /** Handler for native scale and translate gestures. */
     var onScaleTranslate: OnScaleTranslate = OnScaleTranslate(drawViewModel)
@@ -69,6 +72,35 @@ class OnTouchHover(
     val onTouchListener = View.OnTouchListener { view, event ->
         // Ignore touches if the document is not fully loaded and displayed
         if (!drawViewModel.isDocumentLoaded || !drawViewModel.isDocumentShowed) return@OnTouchListener false
+
+        // Inizializza il detector la prima volta che tocchiamo lo schermo
+        if (gestureDetector == null) {
+            gestureDetector = GestureDetector(view.context, object : GestureDetector.SimpleOnGestureListener() {
+                override fun onLongPress(e: MotionEvent) {
+                    // Apri il menu se non stiamo spostando/ridimensionando un gruppo
+                    if (currentDragState == DragState.NONE) {
+
+                        // FONDAMENTALE FIX: L'evento ACTION_DOWN iniziale aveva già fatto
+                        // partire un tratto (pensando volessimo scrivere). Lo annulliamo!
+                        if (isStrokeInProgress) {
+                            cancelCurrentStroke(e)
+                            isStrokeInProgress = false
+                        }
+
+                        drawViewModel.contextMenuPosition = android.graphics.PointF(e.x, e.y)
+                        drawViewModel.drawManager.scroller.forceFinished(true)
+                    }
+                }
+            })
+        }
+
+        // Fai analizzare l'evento al GestureDetector (cattura il long press)
+        gestureDetector?.onTouchEvent(event)
+
+        // Nascondi il menu se l'utente tocca un altro punto dello schermo
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            drawViewModel.contextMenuPosition = null
+        }
 
         motionEventPredictor?.record(event)
 

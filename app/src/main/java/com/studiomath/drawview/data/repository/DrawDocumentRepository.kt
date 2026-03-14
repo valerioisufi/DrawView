@@ -134,7 +134,6 @@ class DrawDocumentRepository(context: Context) {
         try {
             val nativeStroke = domainStroke.stroke ?: return@withContext
 
-            // 1. Usa l'encoding binario compresso (ProtoBuf) di Ink
             val outputStream = ByteArrayOutputStream()
             nativeStroke.inputs.encode(outputStream)
             val byteArray = outputStream.toByteArray()
@@ -146,10 +145,13 @@ class DrawDocumentRepository(context: Context) {
                 size = domainStroke.size,
                 toolType = domainStroke.toolType.name,
                 brushFamily = domainStroke.brush.name,
-                inputs = byteArray // Salva i byte raw nel DB
+                inputs = byteArray
             )
 
-            strokeDao.insert(strokeEntity)
+            // FIX: Catturiamo l'ID generato dal database e lo assegniamo al tratto in memoria!
+            val newId = strokeDao.insert(strokeEntity).toInt()
+            domainStroke.dbId = newId
+
         } catch (e: Exception) {
             Log.e(TAG, "Error saving stroke to DB", e)
         }

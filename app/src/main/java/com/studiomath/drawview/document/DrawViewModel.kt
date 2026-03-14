@@ -35,6 +35,8 @@ import java.io.File
 import android.graphics.Rect
 import android.graphics.RectF
 import androidx.ink.strokes.MutableStrokeInputBatch
+import kotlin.math.atan2
+import kotlin.math.hypot
 
 /**
  * Main ViewModel for the drawing environment.
@@ -448,34 +450,61 @@ class DrawViewModel(
         val doc = documentData ?: return
         val page = doc.pages.getOrNull(selection.pageIndex) ?: return
 
-        // 1. Applica la matrice nativa ai tratti (C++ ink-strokes)
+        // 1. Applica la matrice nativa ai tratti (C++ ink-strokes gestisce scala, rotazione e traslazione sui punti vettoriali!)
         selection.strokes.forEach { stroke ->
             stroke.applyTransform(selection.transformMatrix)
         }
 
-        // 2. Calcola le nuove coordinate per le immagini
+        // 2. Estraiamo i valori matematici di Scala e Rotazione dalla matrice
+        val values = FloatArray(9)
+        selection.transformMatrix.getValues(values)
+
+        // La scala uniforme è l'ipotenusa tra la componente X della scala e lo skew Y
+        val scale = hypot(values[Matrix.MSCALE_X].toDouble(), values[Matrix.MSKEW_Y].toDouble()).toFloat()
+
+        // L'angolo si ricava con l'arcotangente (in gradi)
+        val angle = Math.toDegrees(
+            atan2(
+                values[Matrix.MSKEW_Y].toDouble(),
+                values[Matrix.MSCALE_X].toDouble()
+            )
+        ).toFloat()
+
+        // 3. Calcola le nuove coordinate, dimensioni e rotazione per le immagini
         val pts = FloatArray(2)
         selection.images.forEach { img ->
-            pts[0] = img.x
-            pts[1] = img.y
+            // FONDAMENTALE: Per evitare che l'immagine si "sposti" ruotandola,
+            // calcoliamo la nuova posizione mappando il suo CENTRO, non l'angolo in alto a sinistra.
+            val centerX = img.x + (img.width / 2f)
+            val centerY = img.y + (img.height / 2f)
+
+            pts[0] = centerX
+            pts[1] = centerY
             selection.transformMatrix.mapPoints(pts)
-            img.x = pts[0]
-            img.y = pts[1]
-            // (In futuro, qui estrarremo anche la scala e la rotazione dalla matrice)
+            val newCenterX = pts[0]
+            val newCenterY = pts[1]
+
+            // Aggiorniamo le dimensioni e la rotazione cumulativa
+            img.width *= scale
+            img.height *= scale
+            img.rotation = (img.rotation + angle) % 360f
+
+            // Ricalcoliamo il nuovo top-left (x, y) sottraendo metà delle NUOVE dimensioni
+            img.x = newCenterX - (img.width / 2f)
+            img.y = newCenterY - (img.height / 2f)
         }
 
-        // Resetta la matrice temporanea perché ora i dati base sono aggiornati
+        // 4. Resetta la matrice temporanea perché ora i dati base sono aggiornati!
         selection.transformMatrix.reset()
 
-        // 3. Spegni la flag isDragging così tornano sul livello statico
+        // 5. Spegni la flag isDragging così tornano sul livello statico
         selection.images.forEach { it.isDragging = false }
         selection.strokes.forEach { it.isDragging = false }
 
-        // --- IL FIX DELLA CACHE ---
-        // 4. Rigenera la bitmapPage e salva nel DB (tutto in background!)
+        // 6. Rigenera la bitmapPage e salva nel DB (tutto in background!)
         viewModelScope.launch(Dispatchers.Default) {
 
-            // "Scatta una nuova fotografia" della pagina con i dati aggiornati
+            // "Scatta una nuova fotografia" della pagina
             page.bitmapPage?.let { oldBitmap ->
                 page.bitmapPage = pageMaker.makePage(
                     android.graphics.Rect(0, 0, oldBitmap.width, oldBitmap.height),
@@ -485,21 +514,20 @@ class DrawViewModel(
                 )
             }
 
-            // ORA chiediamo al DrawManager di stampare a schermo la nuova cache
+            // Stampa la nuova fotografia sullo schermo
             drawManager.requestDraw(
                 DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
                     update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
                 }
             )
 
-            // Salva in Background nel Database
+            // Salva le modifiche definitive nel Database!
             selection.images.forEach { img ->
-                // Assicurati di avere questo metodo nel repository
-                // repository.updateImage(page.dbId, img)
+                repository.updateImage(page.dbId, img)
             }
             selection.strokes.forEach { stroke ->
-                // Assicurati di avere questo metodo nel repository
-                // repository.updateStroke(page.dbId, stroke)
+                // NOTA: Decommenta questa riga non appena hai creato la funzione updateStroke() nel tuo Repository!
+                repository.updateStroke(page.dbId, stroke)
             }
         }
     }

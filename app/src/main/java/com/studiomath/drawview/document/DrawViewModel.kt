@@ -56,7 +56,15 @@ class DrawViewModel(
     private fun loadDocument() {
         viewModelScope.launch {
             // Suspends the coroutine until the database returns the complete tree
-            documentData = repository.loadDocument(documentId)
+            var doc = repository.loadDocument(documentId)
+
+            // FIX: Se il documento non esiste (es. documentId passato dall'Activity è -1),
+            // creiamo un documento di default nel database per permettere all'utente di disegnare.
+            if (doc == null) {
+                doc = repository.createNewDefaultDocument()
+            }
+
+            documentData = doc
             isDocumentLoaded = documentData != null
 
             if (isDocumentLoaded) {
@@ -71,6 +79,9 @@ class DrawViewModel(
                         update = DrawManager.DrawAttachments.Update.CACHE_ALL
                     }
                 )
+            } else {
+                // Failsafe in caso di errori critici nel DB
+                finishActivity?.invoke()
             }
         }
     }

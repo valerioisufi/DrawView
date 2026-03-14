@@ -6,7 +6,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
@@ -40,24 +39,32 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun Greeting(modifier: Modifier = Modifier) {
     val mContext = LocalContext.current
-    Column {
+
+    Column(modifier = modifier) {
         Spacer(
             Modifier.height(100.dp)
         )
         TextButton(
             onClick = {
                 val intent = Intent(mContext, DrawActivity::class.java)
-                intent.putExtra(
-                    "filePath",
-                    "/document/prova.json"
-                )
+
+                // UPDATE: We no longer pass the JSON filePath.
+                // We pass a documentId. Passing -1 tells the DrawViewModel
+                // to create a brand new default document in the Room database.
+                intent.putExtra("documentId", 1)
+
                 mContext.startActivity(intent)
             }
-            ) {
-            Text(text = "Hello DrawView!")
-
+        ) {
+            Text(text = "Create New Document (DrawView)")
         }
     }
+}
 
-
+@Preview(showBackground = true)
+@Composable
+fun GreetingPreview() {
+    DrawViewTheme {
+        Greeting()
+    }
 }

@@ -190,4 +190,36 @@ class DrawDocumentRepository(context: Context) {
         )
         return@withContext resourceDao.insert(dbRes).toInt()
     }
+
+    /**
+     * Crea un nuovo documento di default (con una pagina A4 vuota) nel database
+     * e restituisce il modello di dominio pronto per essere disegnato.
+     */
+    suspend fun createNewDefaultDocument(): Document = withContext(Dispatchers.IO) {
+        // 1. Crea il documento nel DB
+        val dbDoc = DocumentEntity(name = "Nuovo Documento")
+        val newDocId = documentDao.insert(dbDoc).toInt()
+
+        // 2. Crea una pagina A4 di default nel DB
+        val dbPage = PageEntity(
+            documentId = newDocId,
+            pageNumber = 0,
+            width = 210f, // Larghezza A4 in mm
+            height = 297f // Altezza A4 in mm
+        )
+        val newPageId = pageDao.insert(dbPage).toInt()
+
+        // 3. Costruisce e restituisce il modello in memoria (Domain Model)
+        val domainDocument = Document(dbDoc.name).apply { this.dbId = newDocId }
+        val domainPage = Page(0).apply {
+            this.dbId = newPageId
+            this.width = dbPage.width
+            this.height = dbPage.height
+        }
+
+        domainPage.prepare()
+        domainDocument.pages.add(domainPage)
+
+        return@withContext domainDocument
+    }
 }

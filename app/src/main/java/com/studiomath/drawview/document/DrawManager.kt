@@ -7,7 +7,6 @@ import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.RectF
 import android.util.DisplayMetrics
-import android.util.Log
 import android.widget.OverScroller
 import androidx.annotation.UiThread
 import androidx.core.graphics.createBitmap
@@ -16,16 +15,14 @@ import androidx.core.graphics.withMatrix
 import androidx.core.graphics.withSave
 import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.authoring.InProgressStrokesFinishedListener
-import androidx.ink.strokes.Stroke as InkStroke
-import com.studiomath.drawview.document.page.Stroke as DomainStroke
-import com.studiomath.drawview.document.page.Dimension.Companion.Length
 import com.studiomath.drawview.document.page.Measure
-import com.studiomath.drawview.document.page.pt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import androidx.ink.strokes.Stroke as InkStroke
+import com.studiomath.drawview.document.page.Stroke as DomainStroke
 
 /**
  * The core rendering engine and state manager for the drawing canvas.
@@ -71,6 +68,9 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
     /** Set containing the currently visible pages and their mapped screen coordinates. */
     var pagesRectOnWindow = mutableSetOf<CalcPage.PageRectWithIndex>()
+
+    /** FASE 3: Oggetto attualmente "sollevato" dall'utente per essere disegnato in overlay fluido */
+    var activeDraggedImage: com.studiomath.drawview.document.page.Image? = null
 
     /**
      * Converts a physical dimension (Measure) into screen pixels relative to the current zoom level.
@@ -444,8 +444,46 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 for (pageRectWithIndex in pagesRectOnWindow){
                     drawViewModel.pageMaker.makePageBackground(canvas, pageRectWithIndex.rect, windowRect)
                 }
+
+                // 1. Disegna il livello statico "scongelato" (Senza l'immagine che stiamo trascinando)
                 onDrawBitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
-                // Notify the view model to remove ink library strokes that are now baked into the bitmap
+
+                // 2. FASE 3: DISEGNA L'IMMAGINE IN OVERLAY (120 FPS!)
+                activeDraggedImage?.let { img ->
+                    img.bitmapCache?.let { bmp ->
+                        if (document != null) {
+                            // Trova l'indice della pagina a cui appartiene l'immagine che stiamo muovendo
+                            val pageIndex = document.pages.indexOfFirst { page -> page.imageData.contains(img) }
+
+                            if (pageIndex != -1) {
+                                // Trova a quali coordinate dello schermo si trova quella pagina
+                                val pageInfo = pagesRectOnWindow.find { it.index == pageIndex }
+                                val page = document.pages[pageIndex]
+
+                                if (pageInfo != null) {
+                                    val overlayMatrix = Matrix()
+                                    // Adatta i pixel dell'immagine ai millimetri del foglio
+                                    val scaleX = img.width / bmp.width.toFloat()
+                                    val scaleY = img.height / bmp.height.toFloat()
+                                    overlayMatrix.postScale(scaleX, scaleY)
+
+                                    overlayMatrix.postRotate(img.rotation, img.width / 2f, img.height / 2f)
+                                    overlayMatrix.postTranslate(img.x, img.y)
+
+                                    // Converte i millimetri del foglio nei pixel esatti dello schermo (incluso zoom e pan)
+                                    val mmToScreenMatrix = Matrix().apply {
+                                        setRectToRect(page.rect(), pageInfo.rect, Matrix.ScaleToFit.CENTER)
+                                    }
+                                    overlayMatrix.postConcat(mmToScreenMatrix)
+
+                                    // Stampa l'immagine fluida e reattiva sopra tutto il resto!
+                                    canvas.drawBitmap(bmp, overlayMatrix, null)
+                                }
+                            }
+                        }
+                    }
+                }
+
                 drawViewModel.removeFinishedStrokes?.let { it(drawAttachments.strokesIdToRemove ?: emptySet()) }
             }
             DrawAttachments.DrawMode.SCALE_TRANSLATE -> {

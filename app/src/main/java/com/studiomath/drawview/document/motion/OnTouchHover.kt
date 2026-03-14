@@ -69,7 +69,6 @@ class OnTouchHover(
 
         val isSelectObjectMode = drawViewModel.selectedTool == DrawViewModel.ToolUtilities.Tool.SELECT_OBJECT
 
-        // --- PHASE 5: OBJECT DRAGGING LOGIC ---
         if (isSelectObjectMode) {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
@@ -96,14 +95,25 @@ class OnTouchHover(
                                     if (xMm >= img.x && xMm <= img.x + img.width &&
                                         yMm >= img.y && yMm <= img.y + img.height) {
 
-                                        // Image successfully grabbed!
+                                        // 1. Afferra l'immagine
                                         draggedImage = img
                                         draggedImagePageDbId = page.dbId
                                         lastTouchX = event.x
                                         lastTouchY = event.y
                                         dragScaleMmPerPx = scaleX
 
-                                        // Stop any ongoing viewport inertial scrolling
+                                        // 2. Imposta l'immagine come "In movimento"
+                                        img.isDragging = true
+                                        drawViewModel.drawManager.activeDraggedImage = img
+
+                                        // 3. Richiedi un DRAW_BITMAP iniziale per "cancellare"
+                                        // l'immagine dal livello statico sottostante
+                                        drawViewModel.drawManager.requestDraw(
+                                            DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                                                update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                                            }
+                                        )
+
                                         drawViewModel.drawManager.scroller.forceFinished(true)
                                         return@OnTouchListener true
                                     }
@@ -124,11 +134,11 @@ class OnTouchHover(
                         lastTouchX = event.x
                         lastTouchY = event.y
 
-                        // Instantly redraw the screen to reflect the movement
+                        // 4. OTTIMIZZAZIONE: Richiedi solo un REFRESH (velocissimo!)
+                        // Il DrawManager disegnerà il background statico e stamperà l'immagine
+                        // in overlay nella sua nuova posizione.
                         drawViewModel.drawManager.requestDraw(
-                            DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                                update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
-                            }
+                            DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.REFRESH)
                         )
                         return@OnTouchListener true
                     }
@@ -136,9 +146,16 @@ class OnTouchHover(
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     // Release the image and save its new position to the database
                     draggedImage?.let { img ->
+                        // 5. Rilascia l'immagine
+                        img.isDragging = false
+                        drawViewModel.drawManager.activeDraggedImage = null
+
                         draggedImagePageDbId?.let { pageDbId ->
                             drawViewModel.updateImageInDatabase(pageDbId, img)
                         }
+
+                        // 6. Il Database Update si occuperà di chiamare un DRAW_BITMAP
+                        // per rimettere l'immagine nel livello statico
                         draggedImage = null
                         draggedImagePageDbId = null
                         return@OnTouchListener true

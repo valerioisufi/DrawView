@@ -179,7 +179,9 @@ class PageMaker(
              */
             if (page.imageData.isNotEmpty()) {
                 for (image in page.imageData) {
-                    // Se la cache è vuota, carica il file immagine dal disco (solo la prima volta)
+                    // FASE 2: Ignora l'immagine se è in fase di trascinamento
+                    if (image.isDragging) continue
+
                     if (image.bitmapCache == null) {
                         val resource = document.resources.find { it.id == image.id }
                         if (resource != null && resource.type == Resource.ResourceType.IMAGE && resource.content.isNotEmpty()) {
@@ -221,6 +223,9 @@ class PageMaker(
              */
             withMatrix(strokePathMatrix) {
                 page.strokeData.forEach { stroke ->
+                    // FASE 2: Ignora il tratto se è in fase di trascinamento
+                    if (stroke.isDragging) return@forEach
+
                     // Draw only if the ink stroke has been generated
                     stroke.stroke?.let { inkStroke ->
                         canvasStrokeRenderer.draw(

@@ -36,6 +36,10 @@ data class Stroke(val zIndex: Int) {
     var color: Int = 0xFFFFFF
     var stroke: androidx.ink.strokes.Stroke? = null
 
+    // NUOVO: Flag temporaneo per nascondere il tratto dal livello statico durante lo spostamento
+    @Transient
+    var isDragging: Boolean = false
+
     enum class ToolType { STYLUS, TOUCH, MOUSE, UNKNOWN }
     enum class BrushFamily { PRESSURE_PEN, HIGHLIGHTER, MARKER }
 
@@ -139,6 +143,10 @@ data class Image(val zIndex: Int) {
     // Cache the loaded bitmap so we don't read from disk on every frame
     @Transient
     var bitmapCache: Bitmap? = null
+
+    // NUOVO: Flag temporaneo per nascondere l'immagine dal livello statico durante lo spostamento
+    @Transient
+    var isDragging: Boolean = false
 }
 
 data class Pdf(val zIndex: Int, var pdfPageIndex: Int = 0) { var id: String = "" }

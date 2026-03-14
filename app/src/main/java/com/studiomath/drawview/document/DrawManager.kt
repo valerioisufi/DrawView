@@ -743,20 +743,35 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                         }
                     }
 
-                    // 3. DISEGNA IL BOUNDING BOX DELLA SELEZIONE
-                    // Convertiamo il rettangolo globale (in mm) nei pixel dello schermo
-                    val screenBoundingBox = RectF()
+                    // 3. DISEGNA IL BOUNDING BOX DELLA SELEZIONE E LE MANIGLIE
 
-                    // NOTA BENE: Qui usiamo la mmToScreenMatrix BASE (senza transformMatrix),
-                    // perché il boundingBox (RectF) lo stiamo già spostando matematicamente
-                    // dentro OnTouchHover.kt (usando selection.boundingBox.offset)
-                    mmToScreenMatrix.mapRect(screenBoundingBox, selection.boundingBox)
+                    // Aggiungiamo un piccolo padding (in millimetri) attorno agli oggetti
+                    val paddingMm = 4f
+                    val boxMm = RectF(selection.boundingBox)
+                    boxMm.inset(-paddingMm, -paddingMm)
 
-                    // Aggiungiamo un po' di "respiro" (padding) attorno al rettangolo
-                    val padding = 16f
-                    screenBoundingBox.inset(-padding, -padding)
+                    // Definiamo i 4 angoli del rettangolo in millimetri
+                    // [x1, y1, x2, y2, x3, y3, x4, y4] -> [Alto-Sx, Alto-Dx, Basso-Dx, Basso-Sx]
+                    val cornersMm = floatArrayOf(
+                        boxMm.left, boxMm.top,
+                        boxMm.right, boxMm.top,
+                        boxMm.right, boxMm.bottom,
+                        boxMm.left, boxMm.bottom
+                    )
 
-                    // Prepariamo la Paint per il bordo tratteggiato (Stile standard per i Box di selezione)
+                    // Troviamo il punto per la maniglia di rotazione (Centro-Alto, un po' più in su)
+                    val midTopXMm = boxMm.centerX()
+                    val midTopYMm = boxMm.top - 12f // 12 mm sopra il bordo superiore
+                    val rotationHandleMm = floatArrayOf(midTopXMm, midTopYMm, midTopXMm, boxMm.top) // [X maniglia, Y maniglia, X ancoraggio, Y ancoraggio]
+
+                    // Mappiamo tutti i punti attraverso la matrice fusa (Spostamento/Rotazione Gruppo + Zoom/Pan Schermo)
+                    val cornersPx = FloatArray(8)
+                    mmToScreenMatrix.mapPoints(cornersPx, cornersMm)
+
+                    val rotationHandlePx = FloatArray(4)
+                    mmToScreenMatrix.mapPoints(rotationHandlePx, rotationHandleMm)
+
+                    // --- STILI GRAFICI ---
                     val boxPaint = Paint().apply {
                         color = "#1A73E8".toColorInt()
                         style = Paint.Style.STROKE
@@ -764,19 +779,52 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                         pathEffect = DashPathEffect(floatArrayOf(20f, 20f), 0f)
                         isAntiAlias = true
                     }
-
-                    // Prepariamo la Paint per il leggero riempimento azzurro semi-trasparente
                     val fillPaint = Paint().apply {
                         color = "#1A1A73E8".toColorInt()
                         style = Paint.Style.FILL
                     }
+                    val handlePaint = Paint().apply {
+                        color = android.graphics.Color.WHITE
+                        style = Paint.Style.FILL
+                        isAntiAlias = true
+                    }
+                    val handleStrokePaint = Paint().apply {
+                        color = "#1A73E8".toColorInt()
+                        style = Paint.Style.STROKE
+                        strokeWidth = 4f
+                        isAntiAlias = true
+                    }
+                    val rotStrokePaint = Paint(handleStrokePaint).apply { color = "#0F9D58".toColorInt() } // Verde per la rotazione
+                    val handleRadius = 24f // Dimensione fissa in pixel per le maniglie
 
-                    // Disegniamo il rettangolo
-                    canvas.drawRect(screenBoundingBox, fillPaint)
-                    canvas.drawRect(screenBoundingBox, boxPaint)
+                    // --- DISEGNO ---
 
-                    // (Fase Futura: Qui potremo aggiungere le "maniglie" per ridimensionare ruotare il box)
-                }
+                    // A. Costruiamo e disegniamo il poligono del Bounding Box (che ora supporta la rotazione!)
+                    val boxPath = Path().apply {
+                        moveTo(cornersPx[0], cornersPx[1])
+                        lineTo(cornersPx[2], cornersPx[3])
+                        lineTo(cornersPx[4], cornersPx[5])
+                        lineTo(cornersPx[6], cornersPx[7])
+                        close()
+                    }
+                    canvas.drawPath(boxPath, fillPaint)
+                    canvas.drawPath(boxPath, boxPaint)
+
+                    // B. Disegniamo la linea di ancoraggio per la maniglia di rotazione
+                    canvas.drawLine(rotationHandlePx[0], rotationHandlePx[1], rotationHandlePx[2], rotationHandlePx[3], boxPaint)
+
+                    // C. Disegniamo i 4 pallini di ridimensionamento agli angoli
+                    for (i in 0 until 4) {
+                        val cx = cornersPx[i * 2]
+                        val cy = cornersPx[i * 2 + 1]
+                        canvas.drawCircle(cx, cy, handleRadius, handlePaint)
+                        canvas.drawCircle(cx, cy, handleRadius, handleStrokePaint)
+                    }
+
+                    // D. Disegniamo il pallino verde di rotazione
+                    canvas.drawCircle(rotationHandlePx[0], rotationHandlePx[1], handleRadius, handlePaint)
+                    canvas.drawCircle(rotationHandlePx[0], rotationHandlePx[1], handleRadius, rotStrokePaint)
+                } // Fine del canvas.withSave
             }
         } else {
             // Se non stiamo usando il lazo, manteniamo il vecchio comportamento per l'immagine singola

@@ -32,6 +32,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import android.graphics.Rect
 
 /**
  * Main ViewModel for the drawing environment.
@@ -186,6 +187,13 @@ class DrawViewModel(
                     repository.addPdfToPage(newPage.dbId, pdfObj)
 
                     newPage.prepare()
+                    // Disegna immediatamente il PDF sulla cache della pagina
+                    newPage.bitmapPage?.let { bmp ->
+                        newPage.bitmapPage = pageMaker.makePage(
+                            Rect(0, 0, bmp.width, bmp.height), null, newPage, currentDoc
+                        )
+                    }
+
                     currentDoc.pages.add(newPage)
                 }
 
@@ -194,11 +202,6 @@ class DrawViewModel(
 
                 withContext(Dispatchers.Main) {
                     drawManager.calcPage.needToBeUpdated = true
-                    drawManager.requestDraw(
-                        DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                            update = DrawManager.DrawAttachments.Update.CACHE_ALL
-                        }
-                    )
                     drawManager.requestDraw(
                         DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
                             update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
@@ -290,13 +293,15 @@ class DrawViewModel(
                 repository.addImageToPage(targetPage.dbId, newImage)
                 targetPage.imageData.add(newImage)
 
+                // Rigenera la bitmap cache della pagina a bassa risoluzione per includere l'immagine
+                targetPage.bitmapPage?.let { bmp ->
+                    targetPage.bitmapPage = pageMaker.makePage(
+                        Rect(0, 0, bmp.width, bmp.height), null, targetPage, currentDoc
+                    )
+                }
+
                 // 6. Refresh the UI
                 withContext(Dispatchers.Main) {
-                    drawManager.requestDraw(
-                        DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                            update = DrawManager.DrawAttachments.Update.CACHE_ALL
-                        }
-                    )
                     drawManager.requestDraw(
                         DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
                             update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
@@ -322,11 +327,23 @@ class DrawViewModel(
     }
 
     /**
-     * Updates an existing image's position/properties in the database.
+     * Updates an existing image's position/properties in the database
+     * AND refreshes the page's low-resolution cache so the image doesn't disappear during scrolling.
      */
     fun updateImageInDatabase(pageDbId: Int, image: Image) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             repository.updateImage(pageDbId, image)
+
+            // Trova la pagina corrispondente per aggiornare la cache
+            val currentDoc = documentData ?: return@launch
+            val page = currentDoc.pages.find { it.dbId == pageDbId } ?: return@launch
+
+            // Rigenera la bitmap della singola pagina per riflettere la nuova posizione dell'immagine
+            page.bitmapPage?.let { bmp ->
+                page.bitmapPage = pageMaker.makePage(
+                    Rect(0, 0, bmp.width, bmp.height), null, page, currentDoc
+                )
+            }
         }
     }
 

@@ -463,6 +463,98 @@ class DrawViewModel(
         deleteSelection()
     }
 
+    fun pasteSelection() {
+        val copiedGroup = clipboard ?: return
+        val doc = documentData ?: return
+
+        // Determiniamo dove incollare (usiamo la prima pagina visibile, o in fallback la pagina originale)
+        val targetPageIndex = drawManager.pagesRectOnWindow.firstOrNull()?.index ?: copiedGroup.pageIndex
+        val targetPage = doc.pages.getOrNull(targetPageIndex) ?: return
+
+        viewModelScope.launch(Dispatchers.Default) {
+            // Offset di "sfalsamento" per far capire all'utente che è una copia (10mm in diagonale)
+            val pasteOffsetMm = 10f
+
+            val pastedStrokes = mutableListOf<Stroke>()
+            val pastedImages = mutableListOf<Image>()
+
+            // 1. Clona e sposta le Immagini
+            copiedGroup.images.forEach { originalImg ->
+                val newImg = Image(zIndex = targetPage.imageData.size + pastedImages.size).apply {
+                    id = originalImg.id // Mantiene lo stesso file risorsa!
+                    dbId = 0 // FONDAMENTALE: 0 fa capire a Room che è un nuovo inserimento!
+                    x = originalImg.x + pasteOffsetMm
+                    y = originalImg.y + pasteOffsetMm
+                    width = originalImg.width
+                    height = originalImg.height
+                    rotation = originalImg.rotation
+                }
+
+                // Salva nel DB per ottenere il vero dbId
+                repository.addImageToPage(targetPage.dbId, newImg)
+                pastedImages.add(newImg)
+            }
+
+            // 2. Clona e sposta i Tratti
+            // Creiamo una matrice di traslazione semplice
+            val offsetMatrix = Matrix().apply { postTranslate(pasteOffsetMm, pasteOffsetMm) }
+
+            copiedGroup.strokes.forEach { originalStroke ->
+                // NOTA: Poiché i tratti hanno il nativo C++ stroke, clonarlo richiede un po' di cura.
+                // Per farlo velocemente, creiamo una "copia profonda" leggendo e riscrivendo le proprietà base
+                val newStroke = Stroke(zIndex = targetPage.strokeData.size + pastedStrokes.size).apply {
+                    dbId = 0 // FONDAMENTALE: Nuovo inserimento!
+                    color = originalStroke.color
+                    size = originalStroke.size
+                    toolType = originalStroke.toolType
+                    brush = originalStroke.brush
+                    // Assegniamo il tratto nativo originale...
+                    stroke = originalStroke.stroke
+                }
+
+                // ...e poi gli diciamo di spostarsi (questo ricreerà un NUOVO tratto nativo C++ spostato!)
+                newStroke.applyTransform(offsetMatrix)
+
+                // Salva nel DB per ottenere il vero dbId
+                repository.saveNewStroke(targetPage.dbId, newStroke)
+                pastedStrokes.add(newStroke)
+            }
+
+            // 3. Aggiungi i cloni ai dati in RAM della pagina
+            targetPage.imageData.addAll(pastedImages)
+            targetPage.strokeData.addAll(pastedStrokes)
+
+            // 4. Rigenera la Bitmap Cache per mostrare gli elementi incollati
+            targetPage.bitmapPage?.let { oldBitmap ->
+                targetPage.bitmapPage = pageMaker.makePage(
+                    Rect(0, 0, oldBitmap.width, oldBitmap.height), null, targetPage, doc
+                )
+            }
+
+            // 5. Richiedi l'aggiornamento visivo
+            drawManager.requestDraw(
+                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                }
+            )
+
+            // OPZIONALE: Seleziona automaticamente gli elementi appena incollati per poterli spostare subito!
+            val newBoundingBox = RectF(copiedGroup.boundingBox)
+            newBoundingBox.offset(pasteOffsetMm, pasteOffsetMm)
+
+            currentSelection = SelectionGroup(
+                images = pastedImages,
+                strokes = pastedStrokes,
+                boundingBox = newBoundingBox,
+                pageIndex = targetPageIndex
+            ).apply {
+                // Impostiamo isDragging = true in modo che appaiano subito in overlay col rettangolo azzurro
+                images.forEach { it.isDragging = true }
+                strokes.forEach { it.isDragging = true }
+            }
+        }
+    }
+
     // --- TOOL UTILITIES ---
     data class ToolUtilities(val toolType: Tool){
         enum class Tool {

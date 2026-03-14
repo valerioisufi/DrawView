@@ -33,6 +33,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Redo
 import androidx.compose.material.icons.automirrored.outlined.Undo
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.outlined.Draw
@@ -44,6 +45,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -504,6 +506,12 @@ fun DrawActivity(
                             imageVector = Icons.Outlined.TouchApp,
                             contentDescription = "Select Object",
                         )
+                    }
+
+                    if (drawViewModel.clipboard != null) {
+                        IconButton(onClick = { drawViewModel.pasteSelection() }) {
+                            Icon(Icons.Default.ContentPaste, contentDescription = "Incolla")
+                        }
                     }
 
                     VerticalDivider(

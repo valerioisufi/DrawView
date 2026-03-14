@@ -22,12 +22,14 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.max
 import kotlin.math.min
+import androidx.core.graphics.withClip
 
 /**
  * Handles the generation and rendering of document pages onto Bitmaps.
- * * It takes care of drawing the page background, rendering embedded PDFs,
+ * It takes care of drawing the page background, rendering embedded PDFs,
  * and painting the vector strokes using the Android Ink library.
- * * @property displayMetrics Used for screen density conversions.
+ *
+ * @property displayMetrics Used for screen density conversions.
  * @property filesDir The root directory where document resources (like PDFs) are stored.
  */
 class PageMaker(
@@ -86,105 +88,111 @@ class PageMaker(
             bottom = bitmap.height.toFloat()
         }
 
-        canvas.save()
-        canvas.clipRect(actualClipRect)
+        canvas.withClip(actualClipRect) {
+            /**
+             * 1. Render PDF Background (if any)
+             */
+            if (page.pdfData.isNotEmpty()) {
+                for (pdf in page.pdfData) {
+                    // Look up the resource path using the PDF's resource ID
+                    val resource = document.resources.find { it.id == pdf.id }
 
-        /**
-         * 1. Render PDF Background (if any)
-         */
-        if (page.pdfData.isNotEmpty()) {
-            for (pdf in page.pdfData) {
-                // Look up the resource path using the PDF's resource ID
-                val resource = document.resources.find { it.id == pdf.id }
+                    if (resource != null && resource.type == Resource.ResourceType.PDF && resource.content.isNotEmpty()) {
+                        try {
+                            val fileTemp = File(filesDir, resource.content)
+                            if (fileTemp.exists()) {
+                                val fd = ParcelFileDescriptor.open(
+                                    fileTemp,
+                                    ParcelFileDescriptor.MODE_READ_ONLY
+                                )
+                                val renderer = PdfRenderer(fd)
 
-                if (resource != null && resource.type == Resource.ResourceType.PDF && resource.content.isNotEmpty()) {
-                    try {
-                        val fileTemp = File(filesDir, resource.content)
-                        if (fileTemp.exists()) {
-                            val fd = ParcelFileDescriptor.open(fileTemp, ParcelFileDescriptor.MODE_READ_ONLY)
-                            val renderer = PdfRenderer(fd)
+                                // UPDATE: Use the pdfPageIndex from the domain model instead of hardcoded 0
+                                if (pdf.pdfPageIndex < renderer.pageCount) {
+                                    val pagePdf: PdfRenderer.Page =
+                                        renderer.openPage(pdf.pdfPageIndex)
 
-                            // Note: Rendering the first page of the PDF (index 0).
-                            // If your PDF has multiple pages, you should store the specific page index in the Pdf domain model.
-                            val pagePdf: PdfRenderer.Page = renderer.openPage(0)
+                                    val renderRect = Rect().apply {
+                                        left = max(actualClipRect.left.toInt(), 0)
+                                        top = max(actualClipRect.top.toInt(), 0)
+                                        right = min(actualClipRect.right.toInt(), bitmap.width)
+                                        bottom = min(actualClipRect.bottom.toInt(), bitmap.height)
+                                    }
 
-                            val renderRect = Rect().apply {
-                                left = max(actualClipRect.left.toInt(), 0)
-                                top = max(actualClipRect.top.toInt(), 0)
-                                right = min(actualClipRect.right.toInt(), bitmap.width)
-                                bottom = min(actualClipRect.bottom.toInt(), bitmap.height)
+                                    // Calculate scale to fit the PDF inside the clipped page area
+                                    val renderMatrix = Matrix()
+                                    val clipWidth: Float = actualClipRect.width()
+                                    val clipHeight: Float = actualClipRect.height()
+
+                                    var scaleX = clipWidth / pagePdf.width
+                                    var scaleY = clipHeight / pagePdf.height
+
+                                    var translateX = actualClipRect.left
+                                    var translateY = actualClipRect.top
+
+                                    // Maintain aspect ratio while fitting the page
+                                    if (scaleX < scaleY) {
+                                        scaleY = scaleX
+                                        val heightPage = scaleX * pagePdf.height
+                                        translateY += (clipHeight - heightPage) / 2
+                                    } else {
+                                        scaleX = scaleY
+                                        val widthPage = scaleX * pagePdf.width
+                                        translateX += (clipWidth - widthPage) / 2
+                                    }
+
+                                    renderMatrix.postScale(scaleX, scaleY)
+                                    renderMatrix.postTranslate(translateX, translateY)
+
+                                    pagePdf.render(
+                                        bitmap,
+                                        renderRect,
+                                        renderMatrix,
+                                        PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY
+                                    )
+
+                                    pagePdf.close()
+                                }
+                                renderer.close()
+                                fd.close()
                             }
-
-                            // Calculate scale to fit the PDF inside the clipped page area
-                            val renderMatrix = Matrix()
-                            val clipWidth: Float = actualClipRect.width()
-                            val clipHeight: Float = actualClipRect.height()
-
-                            var scaleX = clipWidth / pagePdf.width
-                            var scaleY = clipHeight / pagePdf.height
-
-                            var translateX = actualClipRect.left
-                            var translateY = actualClipRect.top
-
-                            // Maintain aspect ratio while fitting the page
-                            if (scaleX < scaleY) {
-                                scaleY = scaleX
-                                val heightPage = scaleX * pagePdf.height
-                                translateY += (clipHeight - heightPage) / 2
-                            } else {
-                                scaleX = scaleY
-                                val widthPage = scaleX * pagePdf.width
-                                translateX += (clipWidth - widthPage) / 2
-                            }
-
-                            renderMatrix.postScale(scaleX, scaleY)
-                            renderMatrix.postTranslate(translateX, translateY)
-
-                            pagePdf.render(
-                                bitmap,
-                                renderRect,
-                                renderMatrix,
-                                PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY
+                        } catch (e: Exception) {
+                            Log.e(
+                                "PageMaker",
+                                "Error rendering PDF resource ${resource.id} at index ${pdf.pdfPageIndex}",
+                                e
                             )
-
-                            pagePdf.close()
-                            renderer.close()
-                            fd.close()
                         }
-                    } catch (e: Exception) {
-                        Log.e("PageMaker", "Error rendering PDF resource ${resource.id}", e)
                     }
                 }
             }
-        }
 
-        /**
-         * 2. Render Images
-         * Future implementation for image rendering goes here.
-         */
+            /**
+             * 2. Render Images
+             * Future implementation for image rendering goes here.
+             */
 
-        /**
-         * 3. Render Vector Strokes
-         */
-        val strokePathMatrix = Matrix().apply {
-            setRectToRect(page.rect(), actualClipRect, Matrix.ScaleToFit.CENTER)
-        }
+            /**
+             * 3. Render Vector Strokes
+             */
+            val strokePathMatrix = Matrix().apply {
+                setRectToRect(page.rect(), actualClipRect, Matrix.ScaleToFit.CENTER)
+            }
 
-        // Mutex has been removed because Domain Models are now isolated from database operations.
-        canvas.withMatrix(strokePathMatrix) {
-            page.strokeData.forEach { stroke ->
-                // Draw only if the ink stroke has been generated
-                stroke.stroke?.let { inkStroke ->
-                    canvasStrokeRenderer.draw(
-                        stroke = inkStroke,
-                        canvas = canvas,
-                        strokeToScreenTransform = strokePathMatrix
-                    )
+            withMatrix(strokePathMatrix) {
+                page.strokeData.forEach { stroke ->
+                    // Draw only if the ink stroke has been generated
+                    stroke.stroke?.let { inkStroke ->
+                        canvasStrokeRenderer.draw(
+                            stroke = inkStroke,
+                            canvas = this,
+                            strokeToScreenTransform = strokePathMatrix
+                        )
+                    }
                 }
             }
-        }
 
-        canvas.restore()
+        }
         return@withContext bitmap
     }
 
@@ -200,11 +208,9 @@ class PageMaker(
             color = "#FFFFFF".toColorInt()
         }
         canvas.drawPath(pageRectPath, paintViewBackground)
-
-        // Future implementation: drawing grid lines or ruled lines
     }
 
-    val windowBackgroundWithShadowPaint = Paint().apply {
+    private val windowBackgroundWithShadowPaint = Paint().apply {
         color = Color.WHITE
         style = Paint.Style.FILL
     }

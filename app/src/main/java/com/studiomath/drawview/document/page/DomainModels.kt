@@ -124,7 +124,8 @@ data class Stroke(val zIndex: Int) {
 
 data class Image(val zIndex: Int) { var id: String = "" }
 
-data class Pdf(val zIndex: Int) { var id: String = "" }
+// UPDATE: Aggiunto pdfPageIndex per identificare quale pagina del file PDF deve essere renderizzata
+data class Pdf(val zIndex: Int, var pdfPageIndex: Int = 0) { var id: String = "" }
 
 data class Page(val index: Int) {
     var dbId: Int = 0 // Room Database ID

@@ -6,19 +6,19 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
- * Tabella per le Cartelle
+ * Table for Folders
  */
 @Entity(tableName = "folders")
 data class FolderEntity(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val name: String,
-    val parentId: Int?, // Se null, è una cartella root
+    val parentId: Int?, // If null, it's a root folder
     val createdAt: Long = System.currentTimeMillis(),
     val modifiedAt: Long = System.currentTimeMillis()
 )
 
 /**
- * Tabella per i Documenti
+ * Table for Documents
  */
 @Entity(
     tableName = "documents",
@@ -27,7 +27,7 @@ data class FolderEntity(
             entity = FolderEntity::class,
             parentColumns = ["id"],
             childColumns = ["folderId"],
-            onDelete = ForeignKey.CASCADE // Se elimini la cartella, elimini i documenti
+            onDelete = ForeignKey.CASCADE // If you delete the folder, you delete the documents
         )
     ],
     indices = [Index("folderId")]
@@ -42,8 +42,8 @@ data class DocumentEntity(
 )
 
 /**
- * Tabella per le Pagine
- * Nota: Rimosso il campo 'content'. I dati ora sono nelle tabelle collegate (strokes, images, ecc.)
+ * Table for Pages
+ * Note: 'content' field removed. Data is now in linked tables (strokes, images, etc.)
  */
 @Entity(
     tableName = "pages",
@@ -52,7 +52,7 @@ data class DocumentEntity(
             entity = DocumentEntity::class,
             parentColumns = ["id"],
             childColumns = ["documentId"],
-            onDelete = ForeignKey.CASCADE // Eliminando il doc, elimini le pagine
+            onDelete = ForeignKey.CASCADE // Cascade delete pages when document is deleted
         )
     ],
     indices = [Index(value = ["documentId", "pageNumber"])]
@@ -66,8 +66,8 @@ data class PageEntity(
 )
 
 /**
- * Tabella ESCLUSIVA per i Tratti (Strokes).
- * Questo risolve il problema delle performance del JSON monolitico.
+ * EXCLUSIVE table for Strokes.
+ * This solves the monolithic JSON performance issues.
  */
 @Entity(
     tableName = "strokes",
@@ -76,7 +76,7 @@ data class PageEntity(
             entity = PageEntity::class,
             parentColumns = ["id"],
             childColumns = ["pageId"],
-            onDelete = ForeignKey.CASCADE // Eliminando la pagina, si eliminano i suoi tratti
+            onDelete = ForeignKey.CASCADE // Cascade delete strokes when page is deleted
         )
     ],
     indices = [Index("pageId")]
@@ -89,11 +89,11 @@ data class StrokeEntity(
     val size: Float,
     val toolType: String,
     val brushFamily: String,
-    val inputsJson: String // Stringa JSON contenente SOLO la lista dei punti di QUESTO tratto
+    val inputsJson: String // JSON string containing ONLY the list of points for THIS stroke
 )
 
 /**
- * Tabella per le Immagini all'interno di una pagina
+ * Table for Images inside a page
  */
 @Entity(
     tableName = "images",
@@ -115,7 +115,7 @@ data class ImageEntity(
 )
 
 /**
- * Tabella per i PDF all'interno di una pagina
+ * Table for PDFs inside a page
  */
 @Entity(
     tableName = "pdfs",
@@ -133,11 +133,12 @@ data class PdfEntity(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val pageId: Int,
     val zIndex: Int,
-    val resourceId: String
+    val resourceId: String,
+    val pdfPageIndex: Int // UPDATE: Added to identify which page of the PDF file should be rendered
 )
 
 /**
- * Tabella per i File e le Risorse Globali del Documento (es. file PDF effettivi, file Immagine)
+ * Table for Files and Global Resources (e.g., actual PDF files, Image files, Colors)
  */
 @Entity(
     tableName = "resources",
@@ -155,5 +156,5 @@ data class ResourceEntity(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val documentId: Int,
     val type: String, // "image", "pdf", "color"
-    val uri: String // Percorso reale del file o valore del colore
+    val uri: String // Real file path or color value
 )

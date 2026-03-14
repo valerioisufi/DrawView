@@ -91,9 +91,9 @@ class DrawDocumentRepository(context: Context) {
                     domainPage.imageData.add(Image(dbImage.zIndex).apply { id = dbImage.resourceId })
                 }
 
-                // 4c. Map PDFs
+                // 4c. Map PDFs (UPDATE: Added mapping for pdfPageIndex)
                 pageWithContent.pdfs.forEach { dbPdf ->
-                    domainPage.pdfData.add(Pdf(dbPdf.zIndex).apply { id = dbPdf.resourceId })
+                    domainPage.pdfData.add(Pdf(dbPdf.zIndex, dbPdf.pdfPageIndex).apply { id = dbPdf.resourceId })
                 }
 
                 // Prepare the page (generates Ink strokes and bitmap cache)
@@ -180,7 +180,7 @@ class DrawDocumentRepository(context: Context) {
     }
 
     /**
-     * Adds a generic resource (like a Color) to the document.
+     * Adds a generic resource (like a Color or PDF File) to the document.
      */
     suspend fun addResource(documentId: Int, type: String, uri: String): Int = withContext(Dispatchers.IO) {
         val dbRes = ResourceEntity(
@@ -192,24 +192,37 @@ class DrawDocumentRepository(context: Context) {
     }
 
     /**
-     * Crea un nuovo documento di default (con una pagina A4 vuota) nel database
-     * e restituisce il modello di dominio pronto per essere disegnato.
+     * Links a PDF page to a specific document page in the database.
+     */
+    suspend fun addPdfToPage(pageDbId: Int, pdf: Pdf) = withContext(Dispatchers.IO) {
+        val dbPdf = PdfEntity(
+            pageId = pageDbId,
+            zIndex = pdf.zIndex,
+            resourceId = pdf.id,
+            pdfPageIndex = pdf.pdfPageIndex
+        )
+        pdfDao.insert(dbPdf)
+    }
+
+    /**
+     * Creates a new default document (with an empty A4 page) in the database
+     * and returns the domain model ready to be drawn.
      */
     suspend fun createNewDefaultDocument(): Document = withContext(Dispatchers.IO) {
-        // 1. Crea il documento nel DB
+        // 1. Create the document in the DB
         val dbDoc = DocumentEntity(name = "Nuovo Documento")
         val newDocId = documentDao.insert(dbDoc).toInt()
 
-        // 2. Crea una pagina A4 di default nel DB
+        // 2. Create a default A4 page in the DB
         val dbPage = PageEntity(
             documentId = newDocId,
             pageNumber = 0,
-            width = 210f, // Larghezza A4 in mm
-            height = 297f // Altezza A4 in mm
+            width = 210f, // A4 Width in mm
+            height = 297f // A4 Height in mm
         )
         val newPageId = pageDao.insert(dbPage).toInt()
 
-        // 3. Costruisce e restituisce il modello in memoria (Domain Model)
+        // 3. Build and return the in-memory domain model
         val domainDocument = Document(dbDoc.name).apply { this.dbId = newDocId }
         val domainPage = Page(0).apply {
             this.dbId = newPageId

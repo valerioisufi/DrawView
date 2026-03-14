@@ -3,6 +3,8 @@ package com.studiomath.drawview.document
 import android.app.Application
 import android.graphics.Color
 import android.graphics.Path
+import android.graphics.pdf.PdfRenderer
+import android.os.ParcelFileDescriptor
 import android.util.DisplayMetrics
 import android.view.MotionEvent
 import android.view.ViewConfiguration
@@ -20,7 +22,12 @@ import com.studiomath.drawview.document.page.Document
 import com.studiomath.drawview.document.page.Measure
 import com.studiomath.drawview.document.page.Page
 import com.studiomath.drawview.document.page.Stroke
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import android.net.Uri
+import com.studiomath.drawview.document.page.mm
+import java.io.File
 
 /**
  * Main ViewModel for the drawing environment.
@@ -119,6 +126,99 @@ class DrawViewModel(
                     update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
                 }
             )
+        }
+    }
+
+    /**
+     * Imports a PDF from a given URI, creates a Resource, and generates
+     * a new app Page for every page in the PDF document.
+     */
+    fun importPdfFromUri(uri: Uri) {
+        val currentDoc = documentData ?: return
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val context = getApplication<Application>()
+
+                // 1. Copy the PDF to internal storage
+                val fileName = "pdf_${System.currentTimeMillis()}.pdf"
+                val destFile = File(context.filesDir, fileName)
+
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    destFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+
+                // 2. Register the Resource in the Database
+                val resourceIdStr = repository.addResource(documentId, "PDF", fileName).toString()
+                val resource = com.studiomath.drawview.document.page.Resource(
+                    id = resourceIdStr,
+                    type = com.studiomath.drawview.document.page.Resource.ResourceType.PDF
+                ).apply { content = fileName }
+
+                currentDoc.resources.add(resource)
+
+                // 3. Open the PDF to extract pages
+                val fd = ParcelFileDescriptor.open(destFile, ParcelFileDescriptor.MODE_READ_ONLY)
+                val renderer = PdfRenderer(fd)
+                val pageCount = renderer.pageCount
+                val startIndex = currentDoc.pages.size
+
+                for (i in 0 until pageCount) {
+                    val pdfPage = renderer.openPage(i)
+
+                    // PdfRenderer dimensions are in Points (1/72 inch). Convert to mm.
+                    // 1 point = 1/72 inch. 1 inch = 25.4 mm.
+                    val widthMm = (pdfPage.width / 72f) * 25.4f
+                    val heightMm = (pdfPage.height / 72f) * 25.4f
+                    pdfPage.close()
+
+                    // 4. Create the Domain Page with accurate dimensions
+                    val newPage = Page(startIndex + i).apply {
+                        dimension = com.studiomath.drawview.document.page.Dimension(widthMm.mm, heightMm.mm)
+                        width = widthMm
+                        height = heightMm
+                    }
+
+                    // 5. Save Page to DB
+                    newPage.dbId = repository.addPage(documentId, newPage)
+
+                    // 6. Link the PDF to this Page
+                    val pdfObj = com.studiomath.drawview.document.page.Pdf(
+                        zIndex = 0,
+                        pdfPageIndex = i
+                    ).apply { id = resourceIdStr }
+
+                    newPage.pdfData.add(pdfObj)
+                    repository.addPdfToPage(newPage.dbId, pdfObj)
+
+                    // 7. Prepare bitmap and add to memory
+                    newPage.prepare()
+                    currentDoc.pages.add(newPage)
+                }
+
+                renderer.close()
+                fd.close()
+
+                // 8. Refresh the UI
+                withContext(Dispatchers.Main) {
+                    drawManager.calcPage.needToBeUpdated = true
+                    drawManager.requestDraw(
+                        DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                            update = DrawManager.DrawAttachments.Update.CACHE_ALL
+                        }
+                    )
+                    drawManager.requestDraw(
+                        DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                            update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                        }
+                    )
+                }
+
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
     }
 

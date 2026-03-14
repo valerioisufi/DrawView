@@ -3,8 +3,10 @@ package com.studiomath.drawview
 import android.os.Bundle
 import android.view.ViewConfiguration
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -31,6 +33,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Redo
 import androidx.compose.material.icons.automirrored.outlined.Undo
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.outlined.Draw
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
@@ -144,6 +147,16 @@ fun DrawActivity(
     drawViewModel: DrawViewModel,
     inProgressStrokesView: InProgressStrokesView
 ) {
+
+    // Crea il launcher per selezionare il file PDF
+    val pdfPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            drawViewModel.importPdfFromUri(uri)
+        }
+    }
+
     Column(
         modifier = Modifier
             .background(MaterialTheme.colorScheme.background)
@@ -486,6 +499,18 @@ fun DrawActivity(
                         Icon(
                             painter = painterResource(id = R.drawable.icon_pan_tool),
                             contentDescription = "Pan Tool",
+                        )
+                    }
+
+                    ToolButton(
+                        onClick = {
+                            // Lancia l'intento per cercare solo file PDF
+                            pdfPickerLauncher.launch("application/pdf")
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PictureAsPdf, // Assicurati di importare l'icona
+                            contentDescription = "Importa PDF",
                         )
                     }
 

@@ -50,7 +50,8 @@ class OnTouchHover(
     @SuppressLint("ClickableViewAccessibility")
     val onTouchListener = View.OnTouchListener { view, event ->
         // Ignore touches if the document is not fully loaded and displayed
-        if (!drawViewModel.data.isDocumentLoaded || !drawViewModel.data.isDocumentShowed) return@OnTouchListener false
+        // UPDATE: Accessing state directly from the ViewModel
+        if (!drawViewModel.isDocumentLoaded || !drawViewModel.isDocumentShowed) return@OnTouchListener false
 
         // Record the event for motion prediction (improves ink latency)
         motionEventPredictor?.record(event)
@@ -193,7 +194,8 @@ class OnTouchHover(
      */
     private fun cancelCurrentStroke(event: MotionEvent) {
         currentStrokeId?.let { strokeId ->
-            drawViewModel.data.cancelStrokeData(strokeId, event)
+            // UPDATE: Calling the callback directly on the ViewModel
+            drawViewModel.cancelStrokeInProgress?.invoke(strokeId, event)
         }
         resetStrokeState()
     }

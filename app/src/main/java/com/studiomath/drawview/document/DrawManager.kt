@@ -308,7 +308,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                             for (page in document.pages) {
                                 page.bitmapPage?.let {
                                     page.bitmapPage = drawViewModel.pageMaker.makePage(
-                                        Rect(0, 0, it.width, it.height), null, page
+                                        Rect(0, 0, it.width, it.height), null, page, document
                                     )
                                 }
                             }

@@ -1,7 +1,5 @@
 package com.studiomath.drawview.document
 
-import android.view.GestureDetector
-import android.view.ScaleGestureDetector
 import android.widget.FrameLayout
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,9 +22,9 @@ fun DrawComponent(
 ){
     val backgroundColor = MaterialTheme.colorScheme.background.toArgb()
 
-
     Box {
-        if (!drawViewModel.data.isDocumentLoaded || !drawViewModel.data.isDocumentShowed) {
+        // UPDATE: Accessing state directly from the ViewModel instead of the old data object
+        if (!drawViewModel.isDocumentLoaded || !drawViewModel.isDocumentShowed) {
             LinearProgressIndicator(
                 modifier = Modifier
                     .fillMaxWidth(),
@@ -34,19 +32,19 @@ fun DrawComponent(
                 trackColor = MaterialTheme.colorScheme.surfaceVariant,
             )
         }
+
         AndroidView(
             modifier = Modifier
                 .systemGestureExclusion()
                 .fillMaxSize(),
-
             factory = { context ->
                 DrawView(context = context, drawViewModel = drawViewModel)
             }
         )
+
         AndroidView(
             modifier = Modifier
                 .fillMaxSize(),
-
             factory = { context ->
                 val rootView = FrameLayout(context)
                 inProgressStrokesView.apply {
@@ -57,6 +55,7 @@ fun DrawComponent(
                         )
                 }
 
+                // Wire up the Ink library callbacks to the ViewModel
                 drawViewModel.startStrokeInProgress = { event, pointerId, brush ->
                     inProgressStrokesView.startStroke(event, pointerId, brush)
                 }
@@ -72,14 +71,12 @@ fun DrawComponent(
                 drawViewModel.removeFinishedStrokes = { strokeKeys ->
                     inProgressStrokesView.removeFinishedStrokes(strokeKeys)
                 }
-
                 drawViewModel.maskPath = { path ->
                     inProgressStrokesView.maskPath = path
                 }
 
-
                 /**
-                 * Imposto gli onTouch e onHoverListener della view
+                 * Set up the touch and hover listeners for the view
                  */
                 val onTouchHover = OnTouchHover(drawViewModel)
                 onTouchHover.motionEventPredictor = MotionEventPredictor.newInstance(rootView)
@@ -88,11 +85,7 @@ fun DrawComponent(
 
                 rootView.addView(inProgressStrokesView)
                 rootView
-
             }
         )
-
     }
-
-
 }

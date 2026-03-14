@@ -2,30 +2,34 @@ package com.studiomath.drawview.document
 
 import android.animation.ValueAnimator
 import android.graphics.Matrix
-import android.graphics.PointF
 import android.graphics.RectF
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.animation.OvershootInterpolator
-import android.widget.OverScroller
-import androidx.core.animation.addListener
 import androidx.core.animation.doOnEnd
-import androidx.core.graphics.transform
 import androidx.core.util.TypedValueCompat
-import com.studiomath.drawview.document.page.DrawDocumentData
+import com.studiomath.drawview.document.page.Page
 import com.studiomath.drawview.document.page.px
 import kotlin.math.abs
-import kotlin.math.sqrt
 
+/**
+ * Handles the mathematical layout, positioning, and constraint calculations
+ * for the document pages within the viewing window.
+ *
+ * @property displayMetrics Used to convert density-independent pixels (dp) to screen pixels (px).
+ */
 class CalcPage(
     val displayMetrics: DisplayMetrics
 ) {
     var needToBeUpdated = true
     val pagesRectOnWindow = mutableListOf<RectF>()
 
+    /** The bounding box encompassing all pages and their margins. */
     var contentRect = RectF()
 
-
+    /**
+     * Configuration class defining the padding around and between pages.
+     */
     data class PagePositionOnWindowOption(
         var horizontalPadding: Float = 8f,
         var topPadding: Float = 8f,
@@ -34,29 +38,28 @@ class CalcPage(
     )
 
     /**
-     * le funzioni seguenti avranno il prefisso calc-
-     * e il loro scopo è quello di determinare alcune
-     * caratteristiche della pagina
+     * Calculates the exact screen rectangles for each page in a continuous vertical scroll layout.
+     * It scales the pages to fit the window width (minus horizontal padding) and stacks them vertically.
+     *
+     * @param pages The list of domain model Pages to be laid out.
+     * @param windowRect The physical bounds of the drawing view.
+     * @param options Padding configurations.
      */
     fun calcPagesRectOnWindow(
-        pages: MutableList<DrawDocumentData.Page>,
+        pages: List<Page>,
         windowRect: RectF,
-        pagePositionOnWindowOption: PagePositionOnWindowOption
+        options: PagePositionOnWindowOption
     ) {
-        pagesRectOnWindow.removeAll { true }
+        pagesRectOnWindow.clear()
         if (pages.isEmpty()) return
 
-        val horizontalPadding =
-            TypedValueCompat.dpToPx(pagePositionOnWindowOption.horizontalPadding, displayMetrics)
-        val topPadding =
-            TypedValueCompat.dpToPx(pagePositionOnWindowOption.topPadding, displayMetrics)
-        val betweenPadding =
-            TypedValueCompat.dpToPx(pagePositionOnWindowOption.betweenPadding, displayMetrics)
-        val bottomPadding =
-            TypedValueCompat.dpToPx(pagePositionOnWindowOption.bottomPadding, displayMetrics)
+        val horizontalPadding = TypedValueCompat.dpToPx(options.horizontalPadding, displayMetrics)
+        val topPadding = TypedValueCompat.dpToPx(options.topPadding, displayMetrics)
+        val betweenPadding = TypedValueCompat.dpToPx(options.betweenPadding, displayMetrics)
+        val bottomPadding = TypedValueCompat.dpToPx(options.bottomPadding, displayMetrics)
 
-        val scaleFactor =
-            (windowRect.width() - horizontalPadding * 2) / pages.first().dimension!!.width.mm
+        // Calculate the base scale factor to fit the first page's width into the window
+        val scaleFactor = (windowRect.width() - horizontalPadding * 2) / pages.first().dimension!!.width.mm
 
         var leftMostPosition = horizontalPadding
         var rightMostPosition = windowRect.width() - horizontalPadding
@@ -66,8 +69,7 @@ class CalcPage(
             val pageHeight = page.dimension!!.calcHeightFromWidthPx(pageWidth.px)
 
             val tempRect = RectF().apply {
-                top =
-                    if (pagesRectOnWindow.isEmpty()) topPadding else pagesRectOnWindow.last().bottom + betweenPadding
+                top = if (pagesRectOnWindow.isEmpty()) topPadding else pagesRectOnWindow.last().bottom + betweenPadding
                 left = windowRect.width() / 2 - pageWidth / 2
                 right = left + pageWidth
                 bottom = top + pageHeight
@@ -79,50 +81,62 @@ class CalcPage(
             pagesRectOnWindow.add(tempRect)
         }
 
-        // TODO: devo inserire l'aggiornamento di contentRect in una funzione a parte, svincolata da questa funzione
+        // Update the overall content boundaries including all pages and margins
         contentRect.apply {
             left = leftMostPosition - horizontalPadding
             top = 0f
             right = rightMostPosition + horizontalPadding
             bottom = pagesRectOnWindow.last().bottom + bottomPadding
-
         }
     }
 
+    /**
+     * Defines the hard scrolling limits based on the window and the lowest page's bottom edge.
+     */
     fun getContentConstraintsOnWindow(windowRect: RectF): RectF {
         val padding = TypedValueCompat.dpToPx(16f, displayMetrics)
-        var bottom =
-            if (!pagesRectOnWindow.isEmpty() && pagesRectOnWindow.last().bottom + padding < windowRect.bottom) pagesRectOnWindow.last().bottom + padding else windowRect.bottom
+        val bottom = if (pagesRectOnWindow.isNotEmpty() && pagesRectOnWindow.last().bottom + padding < windowRect.bottom) {
+            pagesRectOnWindow.last().bottom + padding
+        } else {
+            windowRect.bottom
+        }
+
         return RectF(
             windowRect.left,
             windowRect.top,
             windowRect.right,
             bottom
         )
-
     }
 
+    /** Wrapper coupling a transformed page rectangle with its document index. */
     data class PageRectWithIndex(
         val rect: RectF,
         val index: Int
     )
 
     /**
-     * determino le pagine che sono visibili nella view, e restituiso PagesRectWithIndex a cui ho applicato la trasformzione
+     * Determines which pages are currently visible on the screen using binary search.
+     * It transforms the mathematical page bounds through the current viewport matrix
+     * and checks for intersections with the visible window.
+     *
+     * @param windowRect The physical screen bounds.
+     * @param matrix The camera matrix representing current pan/zoom state.
+     * @return A set of visible pages with their screen-mapped rectangles.
      */
     fun getPagesRectOnWindowTransformation(
         windowRect: RectF,
         matrix: Matrix
     ): MutableSet<PageRectWithIndex> {
-        val set = mutableSetOf<PageRectWithIndex>()
+        val visiblePages = mutableSetOf<PageRectWithIndex>()
 
-        if (pagesRectOnWindow.isEmpty()) return set // Evita errori se l'elenco è vuoto
+        if (pagesRectOnWindow.isEmpty()) return visiblePages
 
         var startIndex = 0
         var endIndex = pagesRectOnWindow.size - 1
         var midIndex = 0
 
-        // Ricerca binaria per trovare una pagina visibile
+        // Binary search to find at least one visible page
         while (startIndex <= endIndex) {
             midIndex = (startIndex + endIndex) / 2
             val pageRectTransformed = RectF(pagesRectOnWindow[midIndex])
@@ -133,42 +147,55 @@ class CalcPage(
             } else if (pageRectTransformed.top > windowRect.bottom) {
                 endIndex = midIndex - 1
             } else {
-                set.add(PageRectWithIndex(pageRectTransformed, midIndex))
+                visiblePages.add(PageRectWithIndex(pageRectTransformed, midIndex))
                 break
             }
         }
 
-        if (set.isEmpty()) return set // Se non è stata trovata nessuna pagina visibile, interrompi
+        if (visiblePages.isEmpty()) return visiblePages
 
+        // Scan upwards from the found visible page
         var topIndex = midIndex - 1
         while (topIndex >= 0) {
             val pageRectTransformed = RectF(pagesRectOnWindow[topIndex])
             matrix.mapRect(pageRectTransformed)
 
             if (pageRectTransformed.bottom > windowRect.top) {
-                set.add(PageRectWithIndex(pageRectTransformed, topIndex))
+                visiblePages.add(PageRectWithIndex(pageRectTransformed, topIndex))
                 topIndex--
             } else {
                 break
             }
         }
 
+        // Scan downwards from the found visible page
         var bottomIndex = midIndex + 1
         while (bottomIndex < pagesRectOnWindow.size) {
             val pageRectTransformed = RectF(pagesRectOnWindow[bottomIndex])
             matrix.mapRect(pageRectTransformed)
 
             if (pageRectTransformed.top < windowRect.bottom) {
-                set.add(PageRectWithIndex(pageRectTransformed, bottomIndex))
+                visiblePages.add(PageRectWithIndex(pageRectTransformed, bottomIndex))
                 bottomIndex++
             } else {
                 break
             }
         }
 
-        return set
+        return visiblePages
     }
 
+    /**
+     * Enforces the viewport boundaries.
+     * If the user pans out of bounds, this function calculates the corrective translation (offset)
+     * needed to keep the content inside the window, and returns the "excess" drag amount
+     * to be used for the rubber-band (elastic) effect.
+     *
+     * @param matrix The current viewport matrix to be constrained.
+     * @param contentRect The bounding box of the entire document.
+     * @param windowRect The physical screen bounds.
+     * @return A Pair representing the out-of-bounds drag (excessX, excessY).
+     */
     fun applyBounds(matrix: Matrix, contentRect: RectF, windowRect: RectF): Pair<Float, Float> {
         val transformedContentRect = RectF(contentRect)
         matrix.mapRect(transformedContentRect)
@@ -183,84 +210,94 @@ class CalcPage(
         var excessX = 0f
         var excessY = 0f
 
-        // Se il contenuto è più piccolo della finestra, centrarlo
+        // X-Axis logic
         if (contentWidth < windowWidth) {
+            // Content is smaller than window -> Center it
             offsetX = (windowWidth - contentWidth) / 2 - transformedContentRect.left
-            // Eccedenza: distanza tra il limite (centrato) e la posizione senza vincolo
-            excessX = - offsetX
+            excessX = -offsetX
         } else {
-            // Altrimenti, mantenerlo nei limiti della finestra
+            // Keep content within window limits
             if (transformedContentRect.left > 0) {
-                excessX = transformedContentRect.left // Quanto eccede a sinistra
+                excessX = transformedContentRect.left
                 offsetX = -transformedContentRect.left
             } else if (transformedContentRect.right < windowWidth) {
-                excessX = transformedContentRect.right - windowWidth // Quanto eccede a destra
+                excessX = transformedContentRect.right - windowWidth
                 offsetX = windowWidth - transformedContentRect.right
             }
         }
 
-        // Stessa logica per l'asse Y
+        // Y-Axis logic
         if (contentHeight < windowHeight) {
             offsetY = -transformedContentRect.top
             excessY = transformedContentRect.top
         } else {
             if (transformedContentRect.top > 0) {
-                excessY = transformedContentRect.top // Quanto eccede in alto
+                excessY = transformedContentRect.top
                 offsetY = -transformedContentRect.top
             } else if (transformedContentRect.bottom < windowHeight) {
-                excessY = transformedContentRect.bottom - windowHeight // Quanto eccede in basso
+                excessY = transformedContentRect.bottom - windowHeight
                 offsetY = windowHeight - transformedContentRect.bottom
             }
         }
 
-        // Applica la correzione alla matrice
+        // Apply the constraint correction directly to the matrix
         matrix.postTranslate(offsetX, offsetY)
 
-        // Restituisce di quanto eccede oltre il bordo
         return Pair(excessX, excessY)
     }
 
+    /**
+     * Calculates the matrix required to render the rubber-band overscroll effect.
+     * It uses a damping formula to make the stretch increasingly resistant.
+     */
     fun applyElasticEffect(excessX: Float, excessY: Float): Matrix {
         val elasticMatrix = Matrix()
 
-        // Coefficiente di elasticità di base
         val elasticityFactor = 0.8f
-        val dampingFactor = 0.02f // Maggiore è questo valore, più rapidamente si smorza la crescita
+        val dampingFactor = 0.02f // Higher value = faster damping (harder to pull)
 
         fun calculateElasticEffect(excess: Float): Float {
             return (elasticityFactor * excess) / (1 + dampingFactor * abs(excess))
         }
 
-        // Se c'è un eccesso, applica la trasformazione elastica
         if (excessX != 0f || excessY != 0f) {
             val elasticX = calculateElasticEffect(excessX)
             val elasticY = calculateElasticEffect(excessY)
 
-            Log.d("ELASTIC_EFFECT", "applyElasticEffect: $elasticX, $elasticY")
-
+            Log.d("ELASTIC_EFFECT", "applyElasticEffect: X=$elasticX, Y=$elasticY")
             elasticMatrix.postTranslate(elasticX, elasticY)
         }
 
         return elasticMatrix
     }
 
-    fun startBounceBackAnimation(excessX: Float, excessY: Float, elasticMatrix: Matrix, updateCallback: () -> Unit, onEndCallback: () -> Unit) {
-        val animator =
-            ValueAnimator.ofFloat(1f, 0f) // Da 1 (massima deviazione) a 0 (rimbalzo completato)
-        animator.duration = 300 // Durata dell'animazione in ms
-        animator.interpolator = OvershootInterpolator() // Effetto rimbalzo fluido
+    /**
+     * Animates the elastic bounce-back effect when the user releases their finger after over-scrolling.
+     *
+     * @param excessX The horizontal out-of-bounds distance.
+     * @param excessY The vertical out-of-bounds distance.
+     * @param elasticMatrix The matrix that will be updated during the animation.
+     * @param updateCallback Lambda triggered on every animation frame to request a redraw.
+     * @param onEndCallback Lambda triggered when the animation completes.
+     */
+    fun startBounceBackAnimation(
+        excessX: Float,
+        excessY: Float,
+        elasticMatrix: Matrix,
+        updateCallback: () -> Unit,
+        onEndCallback: () -> Unit
+    ) {
+        // From 1 (max stretch) to 0 (rest position)
+        val animator = ValueAnimator.ofFloat(1f, 0f)
+        animator.duration = 300
+        animator.interpolator = OvershootInterpolator() // Provides a fluid, slight bounce past the resting point
 
         animator.addUpdateListener { animation ->
             val progress = animation.animatedValue as Float
-
-            // Calcoliamo l'effetto elastico ridotto progressivamente
             val bounceX = excessX * progress
             val bounceY = excessY * progress
 
-            // Creiamo una matrice per il rimbalzo
             elasticMatrix.set(applyElasticEffect(bounceX, bounceY))
-
-            // Chiamare updateCallback per ridisegnare la view
             updateCallback()
         }
 
@@ -270,5 +307,4 @@ class CalcPage(
 
         animator.start()
     }
-
 }

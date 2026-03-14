@@ -13,9 +13,9 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
- * Modelli di Dominio Puri.
- * Liberati dalle logiche di I/O (file, database, mutex).
- * Rappresentano esclusivamente lo stato dell'app in memoria per la UI e il rendering.
+ * Pure Domain Models.
+ * Freed from I/O logic (files, databases, mutexes).
+ * They exclusively represent the in-memory app state for UI and rendering.
  */
 
 data class Resource(val id: String, var type: ResourceType) {
@@ -38,8 +38,8 @@ data class Stroke(val zIndex: Int) {
     enum class ToolType { STYLUS, TOUCH, MOUSE, UNKNOWN }
     enum class BrushFamily { PRESSURE_PEN, HIGHLIGHTER, MARKER }
 
-    // NOTA: Solo StrokeInput rimane @Serializable per permettere al TypeConverter
-    // di Room di salvarlo come stringa JSON nella colonna inputsJson
+    // NOTE: Only StrokeInput remains @Serializable to allow Room's TypeConverter
+    // to save it as a JSON string in the inputsJson database column.
     @Serializable
     data class StrokeInput(
         @SerialName("x") var x: Float = 0f,
@@ -127,7 +127,7 @@ data class Image(val zIndex: Int) { var id: String = "" }
 data class Pdf(val zIndex: Int) { var id: String = "" }
 
 data class Page(val index: Int) {
-    var dbId: Int = 0 // L'ID di Room
+    var dbId: Int = 0 // Room Database ID
     var width = 0f // mm
     var height = 0f // mm
     var dimension: Dimension? = null
@@ -145,7 +145,7 @@ data class Page(val index: Int) {
     fun prepare() {
         dimension = Dimension(width.mm, height.mm)
 
-        // Nota: Assicurati di impostare resolutionPxInchPageDefault nel tuo file Dimension
+        // Note: Make sure resolutionPxInchPageDefault is accessible or pass it here
         val resolution = 300f
         bitmapPage = createBitmap(
             dimension!!.calcWidthFromResolutionPxInch(resolution).toInt(),

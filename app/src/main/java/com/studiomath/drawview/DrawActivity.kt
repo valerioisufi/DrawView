@@ -1,20 +1,13 @@
 package com.studiomath.drawview
 
-import android.app.Activity
 import android.os.Bundle
-import android.view.View
 import android.view.ViewConfiguration
-import android.widget.OverScroller
-import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.OnBackPressedCallback
-import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,19 +17,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
-import androidx.compose.foundation.layout.safeContent
-import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.safeGestures
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBars
-import androidx.compose.foundation.layout.waterfall
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
@@ -60,7 +47,6 @@ import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -68,46 +54,30 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.PopupProperties
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.ink.authoring.InProgressStrokesView
-import androidx.ink.brush.BrushFamily
-import androidx.ink.brush.StockBrushes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.studiomath.drawview.document.DrawComponent
-import com.studiomath.drawview.document.DrawManager
-import com.studiomath.drawview.document.DrawManager.DrawAttachments
 import com.studiomath.drawview.document.DrawViewModel
 import com.studiomath.drawview.document.DrawViewModel.ToolUtilities
 import com.studiomath.drawview.document.page.Dimension
-import com.studiomath.drawview.document.page.DrawDocumentData.Page
+import com.studiomath.drawview.document.page.Page
 import com.studiomath.drawview.document.page.pt
 import com.studiomath.drawview.ui.composeComponents.ColorWheel
 import com.studiomath.drawview.ui.composeComponents.SizeSlider
 import com.studiomath.drawview.ui.theme.DrawViewTheme
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 class DrawActivity : ComponentActivity() {
     private lateinit var inProgressStrokesView: InProgressStrokesView
@@ -117,15 +87,16 @@ class DrawActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
-        val intent = intent
-        val filePath = intent.getStringExtra("filePath")
+        // Retrieve documentId from Intent instead of filePath
+        val documentId = intent.getIntExtra("documentId", -1)
 
         drawViewModel = viewModels<DrawViewModel> {
             object : ViewModelProvider.Factory {
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                    // Pass the Application instance and the Document ID to the ViewModel
                     return DrawViewModel(
-                        filePath = "$filePath",
-                        filesDir = filesDir,
+                        application = application,
+                        documentId = documentId,
                         displayMetrics = resources.displayMetrics,
                         configuration = ViewConfiguration.get(this@DrawActivity)
                     ) as T
@@ -136,7 +107,6 @@ class DrawActivity : ComponentActivity() {
         inProgressStrokesView = InProgressStrokesView(this)
         inProgressStrokesView.addFinishedStrokesListener(drawViewModel.drawManager)
         inProgressStrokesView.eagerInit()
-
 
         setContent {
             DrawViewTheme {
@@ -149,21 +119,20 @@ class DrawActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
-
-        drawViewModel.data.saveDocument()
+        // NOTE: Monolithic saveDocument() was removed.
+        // Strokes are now saved instantly to the Room database via DrawDocumentRepository
+        // as soon as they are drawn.
     }
-
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
 
         // Get the WindowInsetsControllerCompat
-        var windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
+        val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
         // Configure behavior and visibility
         windowInsetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         windowInsetsController.hide(WindowInsetsCompat.Type.systemBars())
     }
-
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class,
@@ -233,7 +202,8 @@ fun DrawActivity(
                             Text(
                                 modifier = Modifier
                                     .padding(end = 8.dp),
-                                text = "documento di prova",
+                                // Display actual document name dynamically
+                                text = drawViewModel.documentData?.name ?: "Loading...",
                                 style = MaterialTheme.typography.titleMedium,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -243,7 +213,6 @@ fun DrawActivity(
                                 modifier = Modifier
                                     .requiredSize(20.dp)
                             )
-
                         }
                     }
 
@@ -276,9 +245,10 @@ fun DrawActivity(
                 ) {
                     ToolButton(
                         onClick = {
-                            drawViewModel.data.removePage()
+                            // Note: Make sure to implement removePage() inside DrawViewModel
+                            // to handle DB deletion via the Repository.
+                            // drawViewModel.removePage()
                         }
-
                     ){
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.Undo,
@@ -287,16 +257,18 @@ fun DrawActivity(
                     }
                     ToolButton(
                         onClick = {
-                            drawViewModel.data.addPage(
-                                Page(1).apply {
-                                    dimension = Dimension.A4()
-                                    width = dimension!!.width.mm
-                                    height = dimension!!.height.mm
-                                }
-                            )
+                            // Creating the page using the new Domain Model logic
+                            val newPageIndex = drawViewModel.documentData?.pages?.size ?: 0
+                            val newPage = Page(newPageIndex).apply {
+                                dimension = Dimension.A4()
+                                width = dimension!!.width.mm // Already returning float
+                                height = dimension!!.height.mm
+                            }
 
+                            // Note: Make sure to implement addPage() inside DrawViewModel
+                            // to handle DB insertion via the Repository.
+                            // drawViewModel.addPage(newPage)
                         }
-
                     ){
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.Redo,
@@ -333,7 +305,7 @@ fun DrawActivity(
                                 modifier = Modifier.padding(16.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Text(text = "Seleziona il colore", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Text(text = "Color", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                                 Spacer(modifier = Modifier.height(8.dp))
 
                                 ColorWheel(
@@ -347,7 +319,7 @@ fun DrawActivity(
 
                                 Spacer(modifier = Modifier.height(16.dp))
 
-                                Text(text = "Dimensione pennello", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Text(text = "Brush Size", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                                 Spacer(modifier = Modifier.height(8.dp))
 
                                 SizeSlider(
@@ -394,7 +366,7 @@ fun DrawActivity(
                                 modifier = Modifier.padding(16.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Text(text = "Seleziona il colore evidenziatore", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Text(text = "Highlighter Color", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                                 Spacer(modifier = Modifier.height(8.dp))
 
                                 ColorWheel(
@@ -408,7 +380,7 @@ fun DrawActivity(
 
                                 Spacer(modifier = Modifier.height(16.dp))
 
-                                Text(text = "Dimensione evidenziatore", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Text(text = "Highlighter Size", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                                 Spacer(modifier = Modifier.height(8.dp))
 
                                 SizeSlider(
@@ -455,7 +427,7 @@ fun DrawActivity(
                                 modifier = Modifier.padding(16.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Text(text = "Dimensione gomma", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Text(text = "Eraser Size", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                                 Spacer(modifier = Modifier.height(8.dp))
 
                                 SizeSlider(
@@ -521,25 +493,18 @@ fun DrawActivity(
                             .padding(8.dp),
                         thickness = 2.dp
                     )
-
-
                 }
 
                 HorizontalDivider()
             }
-
-
         }
-
 
         DrawComponent(
             drawViewModel = drawViewModel,
             inProgressStrokesView = inProgressStrokesView
         )
     }
-
 }
-
 
 @OptIn(ExperimentalFoundationApi::class)
 @Preview
@@ -584,7 +549,5 @@ fun ToolButton(
         ) {
             dropDownMenu()
         }
-
     }
-
 }

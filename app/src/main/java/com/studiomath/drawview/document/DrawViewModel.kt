@@ -22,24 +22,26 @@ import com.studiomath.drawview.document.page.Stroke
 import kotlinx.coroutines.launch
 
 /**
- * ViewModel principale per l'ambiente di disegno.
- * Fa da collante tra la UI (Compose/Views), il motore di rendering (DrawManager)
- * e i dati salvati (DrawDocumentRepository).
+ * Main ViewModel for the drawing environment.
+ * It acts as the glue between the UI (Compose/Views), the rendering engine (DrawManager),
+ * and the saved data (DrawDocumentRepository).
  */
 class DrawViewModel(
     application: Application,
-    val documentId: Int, // Ricevuto tramite ViewModelFactory
+    val documentId: Int, // Received via ViewModelFactory
     var displayMetrics: DisplayMetrics,
     var configuration: ViewConfiguration
 ) : AndroidViewModel(application) {
 
-    // Il Repository è l'unica via d'accesso al database
+    // The Repository is the only access point to the database
     private val repository = DrawDocumentRepository(application)
 
     var drawManager = DrawManager(this, displayMetrics)
-    val pageMaker = PageMaker(displayMetrics)
 
-    // --- STATO DELLA UI (Spostato qui dal vecchio DrawDocumentData) ---
+    // FIX: Using application.filesDir directly from the AndroidViewModel context
+    val pageMaker = PageMaker(displayMetrics, application.filesDir)
+
+    // --- UI STATE ---
     var documentData by mutableStateOf<Document?>(null)
     var isDocumentLoaded by mutableStateOf(false)
     var isDocumentShowed by mutableStateOf(false)
@@ -49,16 +51,16 @@ class DrawViewModel(
     }
 
     /**
-     * Carica il documento dal database tramite il repository.
+     * Loads the document from the database via the repository.
      */
     private fun loadDocument() {
         viewModelScope.launch {
-            // Sospende la coroutine finché il database non restituisce l'albero completo
+            // Suspends the coroutine until the database returns the complete tree
             documentData = repository.loadDocument(documentId)
             isDocumentLoaded = documentData != null
 
             if (isDocumentLoaded) {
-                // Inizializza il rendering della prima pagina caricata
+                // Initialize the rendering of the first loaded page
                 drawManager.requestDraw(
                     DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
                         update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
@@ -74,8 +76,8 @@ class DrawViewModel(
     }
 
     /**
-     * Metodo di salvataggio istantaneo per i nuovi tratti.
-     * Verrà chiamato dal DrawManager alla fine di una pennellata.
+     * Instant save method for new strokes.
+     * It will be called by DrawManager at the end of a brush stroke.
      */
     fun saveNewStrokesToDatabase(pageDbId: Int, newStrokes: List<Stroke>) {
         viewModelScope.launch {
@@ -85,7 +87,7 @@ class DrawViewModel(
         }
     }
 
-    // --- TOOL UTILITIES (Invariate) ---
+    // --- TOOL UTILITIES ---
     data class ToolUtilities(val toolType: Tool){
         enum class Tool {
             INK_PEN, INK_HIGHLIGHTER, ERASER, TEXT, LAZO, PAN
@@ -132,7 +134,7 @@ class DrawViewModel(
     var activeBrush = penTool.getBrush(0)
 
     fun getActiveBrushScaled() = activeBrush.copy(
-        size = drawManager.dimToPx(com.studiomath.drawview.document.page.Measure(activeBrush.size, Measure.Unit.DOT))
+        size = drawManager.dimToPx(Measure(activeBrush.size, Measure.Unit.DOT))
     )
 
     // --- INK LIBRARY CALLBACKS ---

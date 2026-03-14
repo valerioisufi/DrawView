@@ -177,8 +177,11 @@ class PageMaker(
             /**
              * 2. Render Images
              */
-            if (page.imageData.isNotEmpty()) {
-                for (image in page.imageData) {
+            // FIX CONCURRENCY: Creiamo una copia "fotografia" della lista per iterarla in sicurezza
+            val imagesSnapshot = page.imageData.toList()
+
+            if (imagesSnapshot.isNotEmpty()) {
+                for (image in imagesSnapshot) {
                     // FASE 2: Ignora l'immagine se è in fase di trascinamento
                     if (image.isDragging) continue
 
@@ -221,10 +224,13 @@ class PageMaker(
             /**
              * 3. Render Vector Strokes
              */
+            // FIX CONCURRENCY: Creiamo una copia "fotografia" della lista per iterarla in sicurezza
+            val strokesSnapshot = page.strokeData.toList()
+
             withMatrix(strokePathMatrix) {
-                page.strokeData.forEach { stroke ->
+                for (stroke in strokesSnapshot) {
                     // FASE 2: Ignora il tratto se è in fase di trascinamento
-                    if (stroke.isDragging) return@forEach
+                    if (stroke.isDragging) continue
 
                     // Draw only if the ink stroke has been generated
                     stroke.stroke?.let { inkStroke ->

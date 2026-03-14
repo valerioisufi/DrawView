@@ -93,7 +93,8 @@ data class StrokeEntity(
 )
 
 /**
- * Table for Images inside a page
+ * Table for Images inside a page.
+ * Stores physical coordinates (x, y, width, height) and rotation.
  */
 @Entity(
     tableName = "images",
@@ -111,7 +112,12 @@ data class ImageEntity(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val pageId: Int,
     val zIndex: Int,
-    val resourceId: String
+    val resourceId: String,
+    val x: Float, // mm
+    val y: Float, // mm
+    val width: Float, // mm
+    val height: Float, // mm
+    val rotation: Float // degrees
 )
 
 /**
@@ -134,7 +140,7 @@ data class PdfEntity(
     val pageId: Int,
     val zIndex: Int,
     val resourceId: String,
-    val pdfPageIndex: Int // UPDATE: Added to identify which page of the PDF file should be rendered
+    val pdfPageIndex: Int
 )
 
 /**

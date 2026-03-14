@@ -33,11 +33,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Redo
 import androidx.compose.material.icons.automirrored.outlined.Undo
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.outlined.Draw
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.MoreHoriz
+import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -122,17 +124,12 @@ class DrawActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
-        // NOTE: Monolithic saveDocument() was removed.
-        // Strokes are now saved instantly to the Room database via DrawDocumentRepository
-        // as soon as they are drawn.
     }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
 
-        // Get the WindowInsetsControllerCompat
         val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
-        // Configure behavior and visibility
         windowInsetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         windowInsetsController.hide(WindowInsetsCompat.Type.systemBars())
     }
@@ -148,12 +145,21 @@ fun DrawActivity(
     inProgressStrokesView: InProgressStrokesView
 ) {
 
-    // Crea il launcher per selezionare il file PDF
+    // Launcher per selezionare il file PDF
     val pdfPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
         if (uri != null) {
             drawViewModel.importPdfFromUri(uri)
+        }
+    }
+
+    // NUOVO: Launcher per selezionare un file immagine dalla galleria
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            drawViewModel.importImageFromUri(uri)
         }
     }
 
@@ -215,7 +221,6 @@ fun DrawActivity(
                             Text(
                                 modifier = Modifier
                                     .padding(end = 8.dp),
-                                // Display actual document name dynamically
                                 text = drawViewModel.documentData?.name ?: "Loading...",
                                 style = MaterialTheme.typography.titleMedium,
                                 overflow = TextOverflow.Ellipsis,
@@ -258,9 +263,6 @@ fun DrawActivity(
                 ) {
                     ToolButton(
                         onClick = {
-                            // Note: Make sure to implement removePage() inside DrawViewModel
-                            // to handle DB deletion via the Repository.
-                            // drawViewModel.removePage()
                         }
                     ){
                         Icon(
@@ -270,17 +272,6 @@ fun DrawActivity(
                     }
                     ToolButton(
                         onClick = {
-                            // Creating the page using the new Domain Model logic
-                            val newPageIndex = drawViewModel.documentData?.pages?.size ?: 0
-                            val newPage = Page(newPageIndex).apply {
-                                dimension = Dimension.A4()
-                                width = dimension!!.width.mm // Already returning float
-                                height = dimension!!.height.mm
-                            }
-
-                            // Note: Make sure to implement addPage() inside DrawViewModel
-                            // to handle DB insertion via the Repository.
-                            // drawViewModel.addPage(newPage)
                             drawViewModel.addNewPageAtBottom()
                         }
                     ){
@@ -502,15 +493,16 @@ fun DrawActivity(
                         )
                     }
 
+                    // NUOVO: Strumento Seleziona Oggetto
                     ToolButton(
                         onClick = {
-                            // Lancia l'intento per cercare solo file PDF
-                            pdfPickerLauncher.launch("application/pdf")
-                        }
+                            drawViewModel.selectedTool = ToolUtilities.Tool.SELECT_OBJECT
+                        },
+                        selected = drawViewModel.selectedTool == ToolUtilities.Tool.SELECT_OBJECT
                     ) {
                         Icon(
-                            imageVector = Icons.Default.PictureAsPdf, // Assicurati di importare l'icona
-                            contentDescription = "Importa PDF",
+                            imageVector = Icons.Outlined.TouchApp,
+                            contentDescription = "Select Object",
                         )
                     }
 
@@ -519,6 +511,31 @@ fun DrawActivity(
                             .padding(8.dp),
                         thickness = 2.dp
                     )
+
+                    // Pulsante Importa PDF
+                    ToolButton(
+                        onClick = {
+                            pdfPickerLauncher.launch("application/pdf")
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PictureAsPdf,
+                            contentDescription = "Importa PDF",
+                        )
+                    }
+
+                    // NUOVO: Pulsante Importa Immagine
+                    ToolButton(
+                        onClick = {
+                            imagePickerLauncher.launch("image/*")
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Image,
+                            contentDescription = "Importa Immagine",
+                        )
+                    }
+
                 }
 
                 HorizontalDivider()

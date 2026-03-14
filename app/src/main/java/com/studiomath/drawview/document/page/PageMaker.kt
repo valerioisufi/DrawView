@@ -8,6 +8,7 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.RectF
+import android.graphics.BitmapFactory
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import android.util.DisplayMetrics
@@ -167,18 +168,57 @@ class PageMaker(
                 }
             }
 
-            /**
-             * 2. Render Images
-             * Future implementation for image rendering goes here.
-             */
-
-            /**
-             * 3. Render Vector Strokes
-             */
+            // Spostiamo la creazione della Matrix principale in alto,
+            // così possiamo usarla sia per le immagini sia per i tratti!
             val strokePathMatrix = Matrix().apply {
                 setRectToRect(page.rect(), actualClipRect, Matrix.ScaleToFit.CENTER)
             }
 
+            /**
+             * 2. Render Images
+             */
+            if (page.imageData.isNotEmpty()) {
+                for (image in page.imageData) {
+                    // Se la cache è vuota, carica il file immagine dal disco (solo la prima volta)
+                    if (image.bitmapCache == null) {
+                        val resource = document.resources.find { it.id == image.id }
+                        if (resource != null && resource.type == Resource.ResourceType.IMAGE && resource.content.isNotEmpty()) {
+                            val fileTemp = File(filesDir, resource.content)
+                            if (fileTemp.exists()) {
+                                image.bitmapCache = BitmapFactory.decodeFile(fileTemp.absolutePath)
+                            }
+                        }
+                    }
+
+                    // Se l'immagine è in memoria, disegnala con la giusta trasformazione
+                    image.bitmapCache?.let { bmp ->
+                        val imageMatrix = Matrix()
+
+                        // 1. Scala l'immagine dai pixel originali (es. 2000px) ai millimetri del foglio (es. 100mm)
+                        val scaleX = image.width / bmp.width.toFloat()
+                        val scaleY = image.height / bmp.height.toFloat()
+                        imageMatrix.postScale(scaleX, scaleY)
+
+                        // 2. Ruota l'immagine attorno al proprio centro (in coordinate millimetriche)
+                        val centerX = image.width / 2f
+                        val centerY = image.height / 2f
+                        imageMatrix.postRotate(image.rotation, centerX, centerY)
+
+                        // 3. Trasla l'immagine nella sua posizione X, Y sulla pagina
+                        imageMatrix.postTranslate(image.x, image.y)
+
+                        // 4. Infine, trasforma le coordinate millimetriche del foglio nei pixel dello schermo
+                        imageMatrix.postConcat(strokePathMatrix)
+
+                        // Disegna la Bitmap sul Canvas
+                        drawBitmap(bmp, imageMatrix, null)
+                    }
+                }
+            }
+
+            /**
+             * 3. Render Vector Strokes
+             */
             withMatrix(strokePathMatrix) {
                 page.strokeData.forEach { stroke ->
                     // Draw only if the ink stroke has been generated

@@ -17,7 +17,7 @@ import kotlinx.serialization.json.Json
 /**
  * Repository responsible for handling document data operations.
  * It acts as a bridge between the Room Database (Data Layer) and the Domain Models.
- * * IMPORTANT: This class contains NO UI logic, NO Compose states, and NO references to ViewModels.
+ * IMPORTANT: This class contains NO UI logic, NO Compose states, and NO references to ViewModels.
  * It strictly returns and accepts standard Kotlin objects.
  */
 class DrawDocumentRepository(context: Context) {
@@ -34,9 +34,10 @@ class DrawDocumentRepository(context: Context) {
     }
 
     /**
-     * Loads a full document tree (Document -> Pages -> Strokes) from the database
+     * Loads a full document tree (Document -> Pages -> Strokes/Images/PDFs) from the database
      * and maps it to the domain models in memory.
-     * * @param documentId The ID of the document to load.
+     *
+     * @param documentId The ID of the document to load.
      * @return The fully populated [Document] domain model, or null if not found.
      */
     suspend fun loadDocument(documentId: Int): Document? = withContext(Dispatchers.IO) {
@@ -88,10 +89,20 @@ class DrawDocumentRepository(context: Context) {
 
                 // 4b. Map Images
                 pageWithContent.images.forEach { dbImage ->
-                    domainPage.imageData.add(Image(dbImage.zIndex).apply { id = dbImage.resourceId })
+                    domainPage.imageData.add(
+                        Image(dbImage.zIndex).apply {
+                            id = dbImage.resourceId
+                            dbId = dbImage.id
+                            x = dbImage.x
+                            y = dbImage.y
+                            width = dbImage.width
+                            height = dbImage.height
+                            rotation = dbImage.rotation
+                        }
+                    )
                 }
 
-                // 4c. Map PDFs (UPDATE: Added mapping for pdfPageIndex)
+                // 4c. Map PDFs
                 pageWithContent.pdfs.forEach { dbPdf ->
                     domainPage.pdfData.add(Pdf(dbPdf.zIndex, dbPdf.pdfPageIndex).apply { id = dbPdf.resourceId })
                 }
@@ -111,13 +122,9 @@ class DrawDocumentRepository(context: Context) {
 
     /**
      * Saves a single stroke to the database extremely fast.
-     * This avoids serializing the entire document or page when the user just drew one line.
-     * * @param pageId The DB ID of the page receiving the stroke.
-     * @param domainStroke The Stroke domain model.
      */
     suspend fun saveNewStroke(pageId: Int, domainStroke: Stroke) = withContext(Dispatchers.IO) {
         try {
-            // Encode ONLY the points of this specific stroke into JSON
             val inputsJsonString = Json.encodeToString(domainStroke.inputs)
 
             val strokeEntity = StrokeEntity(
@@ -180,7 +187,7 @@ class DrawDocumentRepository(context: Context) {
     }
 
     /**
-     * Adds a generic resource (like a Color or PDF File) to the document.
+     * Adds a generic resource (like a Color, PDF File, or Image File) to the document.
      */
     suspend fun addResource(documentId: Int, type: String, uri: String): Int = withContext(Dispatchers.IO) {
         val dbRes = ResourceEntity(
@@ -205,15 +212,50 @@ class DrawDocumentRepository(context: Context) {
     }
 
     /**
+     * Links a newly imported Image to a specific document page in the database.
+     */
+    suspend fun addImageToPage(pageDbId: Int, image: Image) = withContext(Dispatchers.IO) {
+        val dbImage = ImageEntity(
+            pageId = pageDbId,
+            zIndex = image.zIndex,
+            resourceId = image.id,
+            x = image.x,
+            y = image.y,
+            width = image.width,
+            height = image.height,
+            rotation = image.rotation
+        )
+        image.dbId = imageDao.insert(dbImage).toInt()
+    }
+
+    /**
+     * Updates an existing Image (e.g., after the user drags or resizes it).
+     */
+    suspend fun updateImage(pageDbId: Int, image: Image) = withContext(Dispatchers.IO) {
+        // Since we use OnConflictStrategy.REPLACE in our Dao, insert() functions as an update
+        // if the primary key (id) already exists.
+        val dbImage = ImageEntity(
+            id = image.dbId,
+            pageId = pageDbId,
+            zIndex = image.zIndex,
+            resourceId = image.id,
+            x = image.x,
+            y = image.y,
+            width = image.width,
+            height = image.height,
+            rotation = image.rotation
+        )
+        imageDao.insert(dbImage)
+    }
+
+    /**
      * Creates a new default document (with an empty A4 page) in the database
      * and returns the domain model ready to be drawn.
      */
     suspend fun createNewDefaultDocument(): Document = withContext(Dispatchers.IO) {
-        // 1. Create the document in the DB
         val dbDoc = DocumentEntity(name = "Nuovo Documento")
         val newDocId = documentDao.insert(dbDoc).toInt()
 
-        // 2. Create a default A4 page in the DB
         val dbPage = PageEntity(
             documentId = newDocId,
             pageNumber = 0,
@@ -222,7 +264,6 @@ class DrawDocumentRepository(context: Context) {
         )
         val newPageId = pageDao.insert(dbPage).toInt()
 
-        // 3. Build and return the in-memory domain model
         val domainDocument = Document(dbDoc.name).apply { this.dbId = newDocId }
         val domainPage = Page(0).apply {
             this.dbId = newPageId

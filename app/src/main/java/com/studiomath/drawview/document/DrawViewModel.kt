@@ -1,12 +1,15 @@
 package com.studiomath.drawview.document
 
 import android.app.Application
+import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.Path
 import android.net.Uri
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import android.util.DisplayMetrics
+import android.util.Log
 import android.view.MotionEvent
 import android.view.ViewConfiguration
 import androidx.compose.runtime.getValue
@@ -20,6 +23,7 @@ import androidx.lifecycle.viewModelScope
 import com.studiomath.drawview.document.page.PageMaker
 import com.studiomath.drawview.data.repository.DrawDocumentRepository
 import com.studiomath.drawview.document.page.Document
+import com.studiomath.drawview.document.page.Image
 import com.studiomath.drawview.document.page.Measure
 import com.studiomath.drawview.document.page.Page
 import com.studiomath.drawview.document.page.Stroke
@@ -66,8 +70,7 @@ class DrawViewModel(
             // Suspends the coroutine until the database returns the complete tree
             var doc = repository.loadDocument(documentId)
 
-            // Se il documento non esiste (es. documentId passato dall'Activity è -1),
-            // creiamo un documento di default nel database per permettere all'utente di disegnare.
+            // Se il documento non esiste, creiamo un documento di default
             if (doc == null) {
                 doc = repository.createNewDefaultDocument()
             }
@@ -96,35 +99,24 @@ class DrawViewModel(
 
     /**
      * Aggiunge una nuova pagina di default (A4) alla fine del documento.
-     * Viene chiamata dall'interfaccia (es. bottone Redo) o dall'overscroll.
      */
     fun addNewPageAtBottom() {
         val currentDoc = documentData ?: return
         val nextIndex = currentDoc.pages.size
-
-        // FIX: Usiamo l'ID reale del documento presente nel DB, non la variabile 'documentId'
-        // che potrebbe valere -1 se il documento è appena stato creato.
         val actualDocId = currentDoc.dbId
 
         viewModelScope.launch {
-            // 1. Crea il modello della nuova pagina
             val newPage = Page(nextIndex).apply {
                 dimension = com.studiomath.drawview.document.page.Dimension.A4()
                 width = dimension!!.width.mm
                 height = dimension!!.height.mm
             }
 
-            // 2. Salva la nuova pagina nel database
             newPage.dbId = repository.addPage(actualDocId, newPage)
-
-            // 3. Prepara la cache bitmap e aggiungila al modello in memoria
             newPage.prepare()
             currentDoc.pages.add(newPage)
 
-            // 4. Forza il ricalcolo del layout
             drawManager.calcPage.needToBeUpdated = true
-
-            // 5. Richiedi un aggiornamento completo della vista
             drawManager.requestDraw(
                 DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
                     update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
@@ -139,7 +131,7 @@ class DrawViewModel(
      */
     fun importPdfFromUri(uri: Uri) {
         val currentDoc = documentData ?: return
-        val actualDocId = currentDoc.dbId // FIX: Usiamo l'ID reale per evitare errori Foreign Key
+        val actualDocId = currentDoc.dbId
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -173,22 +165,18 @@ class DrawViewModel(
                 for (i in 0 until pageCount) {
                     val pdfPage = renderer.openPage(i)
 
-                    // PdfRenderer dimensions are in Points (1/72 inch). Convert to mm.
                     val widthMm = (pdfPage.width / 72f) * 25.4f
                     val heightMm = (pdfPage.height / 72f) * 25.4f
                     pdfPage.close()
 
-                    // 4. Create the Domain Page with accurate dimensions
                     val newPage = Page(startIndex + i).apply {
                         dimension = com.studiomath.drawview.document.page.Dimension(widthMm.mm, heightMm.mm)
                         width = widthMm
                         height = heightMm
                     }
 
-                    // 5. Save Page to DB
                     newPage.dbId = repository.addPage(actualDocId, newPage)
 
-                    // 6. Link the PDF to this Page
                     val pdfObj = com.studiomath.drawview.document.page.Pdf(
                         zIndex = 0,
                         pdfPageIndex = i
@@ -197,7 +185,6 @@ class DrawViewModel(
                     newPage.pdfData.add(pdfObj)
                     repository.addPdfToPage(newPage.dbId, pdfObj)
 
-                    // 7. Prepare bitmap and add to memory
                     newPage.prepare()
                     currentDoc.pages.add(newPage)
                 }
@@ -205,7 +192,6 @@ class DrawViewModel(
                 renderer.close()
                 fd.close()
 
-                // 8. Refresh the UI
                 withContext(Dispatchers.Main) {
                     drawManager.calcPage.needToBeUpdated = true
                     drawManager.requestDraw(
@@ -227,8 +213,105 @@ class DrawViewModel(
     }
 
     /**
+     * Imports an image from a given URI and places it perfectly centered
+     * on the currently visible page on the screen.
+     */
+    fun importImageFromUri(uri: Uri) {
+        val currentDoc = documentData ?: return
+        val actualDocId = currentDoc.dbId
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val context = getApplication<Application>()
+
+                // 1. Copy Image to internal storage
+                val fileName = "img_${System.currentTimeMillis()}.png"
+                val destFile = File(context.filesDir, fileName)
+
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    destFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+
+                // 2. Determine original aspect ratio without loading full bitmap into memory
+                val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(destFile.absolutePath, options)
+
+                val pxWidth = options.outWidth.toFloat()
+                val pxHeight = options.outHeight.toFloat()
+
+                // Calculate physical dimensions. Max width: 100mm.
+                val defaultPhysicalWidthMm = 100f
+                val ratio = if (pxWidth > 0) pxHeight / pxWidth else 1f
+                val imgWidthMm = defaultPhysicalWidthMm
+                val imgHeightMm = defaultPhysicalWidthMm * ratio
+
+                // 3. Register the Resource in the Database
+                val resourceIdStr = repository.addResource(actualDocId, "IMAGE", fileName).toString()
+                val resource = com.studiomath.drawview.document.page.Resource(
+                    id = resourceIdStr,
+                    type = com.studiomath.drawview.document.page.Resource.ResourceType.IMAGE
+                ).apply { content = fileName }
+
+                currentDoc.resources.add(resource)
+
+                // 4. Find the currently visible page to place the image
+                val visiblePageInfo = drawManager.pagesRectOnWindow.firstOrNull()
+                val targetPageIndex = visiblePageInfo?.index ?: 0
+                val targetPage = currentDoc.pages.getOrNull(targetPageIndex) ?: return@launch
+
+                // Calculate the exact millimeter coordinates matching the center of the user's screen
+                var imgX = (targetPage.width / 2f) - (imgWidthMm / 2f)
+                var imgY = (targetPage.height / 2f) - (imgHeightMm / 2f)
+
+                if (visiblePageInfo != null) {
+                    val screenToPageMatrix = Matrix()
+                    // Create an inverse mapping from the screen bounds to the physical page bounds
+                    screenToPageMatrix.setRectToRect(visiblePageInfo.rect, targetPage.rect(), Matrix.ScaleToFit.FILL)
+
+                    val centerPoint = floatArrayOf(drawManager.windowRect.centerX(), drawManager.windowRect.centerY())
+                    screenToPageMatrix.mapPoints(centerPoint)
+
+                    imgX = centerPoint[0] - (imgWidthMm / 2f)
+                    imgY = centerPoint[1] - (imgHeightMm / 2f)
+                }
+
+                // 5. Create Domain Object and save to Database
+                val newImage = Image(zIndex = targetPage.imageData.size).apply {
+                    id = resourceIdStr
+                    x = imgX
+                    y = imgY
+                    width = imgWidthMm
+                    height = imgHeightMm
+                    rotation = 0f
+                }
+
+                repository.addImageToPage(targetPage.dbId, newImage)
+                targetPage.imageData.add(newImage)
+
+                // 6. Refresh the UI
+                withContext(Dispatchers.Main) {
+                    drawManager.requestDraw(
+                        DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                            update = DrawManager.DrawAttachments.Update.CACHE_ALL
+                        }
+                    )
+                    drawManager.requestDraw(
+                        DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                            update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                        }
+                    )
+                }
+
+            } catch (e: Exception) {
+                Log.e("DrawViewModel", "Error importing image", e)
+            }
+        }
+    }
+
+    /**
      * Instant save method for new strokes.
-     * It will be called by DrawManager at the end of a brush stroke.
      */
     fun saveNewStrokesToDatabase(pageDbId: Int, newStrokes: List<Stroke>) {
         viewModelScope.launch {
@@ -238,10 +321,19 @@ class DrawViewModel(
         }
     }
 
+    /**
+     * Updates an existing image's position/properties in the database.
+     */
+    fun updateImageInDatabase(pageDbId: Int, image: Image) {
+        viewModelScope.launch {
+            repository.updateImage(pageDbId, image)
+        }
+    }
+
     // --- TOOL UTILITIES ---
     data class ToolUtilities(val toolType: Tool){
         enum class Tool {
-            INK_PEN, INK_HIGHLIGHTER, ERASER, TEXT, LAZO, PAN
+            INK_PEN, INK_HIGHLIGHTER, ERASER, TEXT, LAZO, PAN, SELECT_OBJECT // Added SELECT_OBJECT
         }
 
         data class BrushSettings(

@@ -11,6 +11,7 @@ import com.studiomath.drawview.document.page.Dimension
 import com.studiomath.drawview.document.page.mm
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 
 /**
  * Pure Domain Models.
@@ -122,9 +123,24 @@ data class Stroke(val zIndex: Int) {
     }
 }
 
-data class Image(val zIndex: Int) { var id: String = "" }
+/**
+ * Represents an image placed on a document page.
+ * Stores physical coordinates (in millimeters) to remain resolution-independent.
+ */
+data class Image(val zIndex: Int) {
+    var id: String = ""
+    var dbId: Int = 0 // Room database ID for easy updates
+    var x: Float = 0f // X coordinate in mm
+    var y: Float = 0f // Y coordinate in mm
+    var width: Float = 0f // Width in mm
+    var height: Float = 0f // Height in mm
+    var rotation: Float = 0f // Rotation angle in degrees
 
-// UPDATE: Aggiunto pdfPageIndex per identificare quale pagina del file PDF deve essere renderizzata
+    // Cache the loaded bitmap so we don't read from disk on every frame
+    @Transient
+    var bitmapCache: Bitmap? = null
+}
+
 data class Pdf(val zIndex: Int, var pdfPageIndex: Int = 0) { var id: String = "" }
 
 data class Page(val index: Int) {
@@ -146,7 +162,7 @@ data class Page(val index: Int) {
     fun prepare() {
         dimension = Dimension(width.mm, height.mm)
 
-        // Note: Make sure resolutionPxInchPageDefault is accessible or pass it here
+        // Lower resolution for caching empty pages to save massive amounts of RAM
         val resolution = 72f
         bitmapPage = createBitmap(
             dimension!!.calcWidthFromResolutionPxInch(resolution).toInt(),

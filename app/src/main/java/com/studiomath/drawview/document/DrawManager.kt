@@ -131,7 +131,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             // FIX: Pulisci sempre le flag della vecchia selezione prima di calcolarne una nuova!
             drawViewModel.clearSelection()
 
-            // 1. Troviamo la pagina su cui l'utente ha disegnato
+            // Troviamo la pagina su cui l'utente ha disegnato. (Se il tratto è a cavallo,
+            // per ora consideriamo il centro del bounding box del lasso o la prima visibile)
             val pageInfo = pagesRectOnWindow.firstOrNull()
             if (pageInfo != null) {
                 val page = document.pages.getOrNull(pageInfo.index)
@@ -141,7 +142,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                         setRectToRect(pageInfo.rect, page.rect(), Matrix.ScaleToFit.CENTER)
                     }
 
-                    // 2. Convertiamo i punti del lazo in millimetri creando un Batch matematico
+                    // Convertiamo i punti del lazo in millimetri creando un Batch matematico
                     val mmLassoBatch = MutableStrokeInputBatch()
                     val scratch = StrokeInput()
                     val point = FloatArray(2)
@@ -159,12 +160,15 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                         )
                     }
 
-                    // 3. Creiamo la Mesh chiusa nativa (C++) per l'hit testing
+                    // Creiamo la Mesh chiusa nativa (C++) per l'hit testing
                     val selectionRegion = mmLassoBatch.createClosedShape()
                     val lassoBox = selectionRegion.computeBoundingBox()
 
                     if (lassoBox != null) {
                         val newSelection = DrawViewModel.SelectionGroup()
+
+                        newSelection.pageIndex = pageInfo.index
+
                         var globalLeft = Float.MAX_VALUE
                         var globalTop = Float.MAX_VALUE
                         var globalRight = -Float.MAX_VALUE
@@ -217,12 +221,13 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 }
             }
 
-            // Puliamo il lazo dallo schermo invalidando e ricreando la vista
-            // (gli elementi selezionati verranno ignorati perché hanno isDragging = true)
+            // FIX PROBLEMA 1: Rimuoviamo il tratto tratteggiato dalla libreria Ink
+            drawViewModel.removeFinishedStrokes?.invoke(strokes.keys)
+
+            // Puliamo il lazo dallo schermo invalidando la vista
             requestDraw(
                 DrawAttachments(drawMode = DrawAttachments.DrawMode.UPDATE).apply {
                     update = DrawAttachments.Update.DRAW_BITMAP
-                    strokesIdToRemove = strokes.keys
                 }
             )
             return // ESCI: Non procedere con il salvataggio o il disegno normale!
@@ -305,8 +310,6 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             }
         }
     }
-
-    // Safe, nullable state variables to prevent UninitializedPropertyAccessException crashes
 
     /** The high-resolution bitmap cache representing the current viewport. */
     var onDrawBitmap: Bitmap? = null
@@ -551,6 +554,9 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     drawViewModel.pageMaker.makePageBackground(canvas, pageRectWithIndex.rect, windowRect)
                 }
                 onDrawBitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
+
+                // Assicuriamoci che i tratti temporanei non persistano
+                drawViewModel.removeFinishedStrokes?.let { it(drawAttachments.strokesIdToRemove ?: emptySet()) }
                 drawViewModel.isDocumentShowed = true
             }
             DrawAttachments.DrawMode.REFRESH -> {
@@ -654,9 +660,11 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         val selection = drawViewModel.currentSelection
         if (selection != null && !selection.isEmpty() && document != null) {
 
-            // Per semplicità, assumiamo che tutti gli elementi selezionati appartengano alla pagina attualmente visibile.
-            // In futuro, potresti salvare l'indice della pagina all'interno del SelectionGroup.
-            val pageInfo = pagesRectOnWindow.firstOrNull()
+            // FIX PROBLEMA 2 DEFINITIVO: Leggiamo direttamente l'indice salvato nello stato!
+            val targetPageIndex = selection.pageIndex
+
+            // Disegniamo la selezione SOLO se la pagina in cui si trova è attualmente visibile
+            val pageInfo = pagesRectOnWindow.find { it.index == targetPageIndex }
 
             if (pageInfo != null) {
                 val page = document.pages[pageInfo.index]
@@ -714,11 +722,10 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
                     // Prepariamo la Paint per il bordo tratteggiato (Stile standard per i Box di selezione)
                     val boxPaint = Paint().apply {
-                        color = "#1A73E8".toColorInt() // Blu Google
+                        color = "#1A73E8".toColorInt()
                         style = Paint.Style.STROKE
                         strokeWidth = 4f
-                        pathEffect =
-                            DashPathEffect(floatArrayOf(20f, 20f), 0f) // Linea tratteggiata
+                        pathEffect = DashPathEffect(floatArrayOf(20f, 20f), 0f)
                         isAntiAlias = true
                     }
 

@@ -59,10 +59,12 @@ class DrawViewModel(
     data class SelectionGroup(
         val images: MutableList<Image> = mutableListOf(),
         val strokes: MutableList<Stroke> = mutableListOf(),
-        var boundingBox: RectF = RectF()
+        var boundingBox: RectF = RectF(),
+        var pageIndex: Int = -1 // NUOVO: Memorizza a quale pagina appartiene la selezione
     ) {
         fun isEmpty() = images.isEmpty() && strokes.isEmpty()
     }
+
     var currentSelection: SelectionGroup? = null
 
     // --- UI STATE ---

@@ -27,6 +27,7 @@ enum class DataType(val value: Int) {
 }
 
 data class Stroke(val zIndex: Int) {
+    var dbId: Int = 0
     var toolType = ToolType.UNKNOWN
     var brush: BrushFamily = BrushFamily.PRESSURE_PEN
     var size: Float = 8f

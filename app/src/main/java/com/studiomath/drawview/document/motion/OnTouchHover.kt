@@ -1,6 +1,7 @@
 package com.studiomath.drawview.document.motion
 
 import android.annotation.SuppressLint
+import android.graphics.RectF
 import android.view.MotionEvent
 import android.view.View
 import androidx.ink.authoring.InProgressStrokeId
@@ -42,6 +43,7 @@ class OnTouchHover(
     private var currentStrokeId: InProgressStrokeId? = null
 
     // --- VARIABLES FOR OBJECT SELECTION AND DRAGGING ---
+    private var isGroupDragging = false
     private var draggedImage: Image? = null
     private var draggedImagePageDbId: Int? = null
     private var lastTouchX: Float = 0f
@@ -68,46 +70,102 @@ class OnTouchHover(
         }
 
         val isSelectObjectMode = drawViewModel.selectedTool == DrawViewModel.ToolUtilities.Tool.SELECT_OBJECT
+        val isLassoMode = drawViewModel.selectedTool == DrawViewModel.ToolUtilities.Tool.LAZO
 
-        if (isSelectObjectMode) {
+        // --- FASE 4: SPOSTAMENTO DEL GRUPPO SELEZIONATO ---
+        val selection = drawViewModel.currentSelection
+        if (selection != null && !selection.isEmpty()) {
+            val pageInfo = drawViewModel.drawManager.pagesRectOnWindow.find { it.index == selection.pageIndex }
+            if (pageInfo != null) {
+                val page = drawViewModel.documentData!!.pages[pageInfo.index]
+                val scaleX = page.width / pageInfo.rect.width()
+                val scaleY = page.height / pageInfo.rect.height()
+
+                // Convert screen pixels to physical mm for hit-testing
+                val xMm = (event.x - pageInfo.rect.left) * scaleX
+                val yMm = (event.y - pageInfo.rect.top) * scaleY
+
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        // Allarghiamo leggermente l'area di presa per facilitare il tocco col dito
+                        val grabBox = RectF(selection.boundingBox)
+                        grabBox.inset(-5f, -5f)
+
+                        if (grabBox.contains(xMm, yMm)) {
+                            // L'utente ha afferrato il gruppo!
+                            isGroupDragging = true
+                            lastTouchX = event.x
+                            lastTouchY = event.y
+                            dragScaleMmPerPx = scaleX
+                            drawViewModel.drawManager.scroller.forceFinished(true)
+                            return@OnTouchListener true
+                        } else if (isSelectObjectMode || isLassoMode) {
+                            // Ha toccato fuori dal rettangolo: Deseleziona tutto
+                            drawViewModel.clearSelection()
+                        }
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        if (isGroupDragging) {
+                            val dxMm = (event.x - lastTouchX) * dragScaleMmPerPx
+                            val dyMm = (event.y - lastTouchY) * dragScaleMmPerPx
+
+                            // Aggiorniamo la matrice di trasformazione e spostiamo visivamente il bounding box
+                            selection.transformMatrix.postTranslate(dxMm, dyMm)
+                            selection.boundingBox.offset(dxMm, dyMm)
+
+                            lastTouchX = event.x
+                            lastTouchY = event.y
+
+                            drawViewModel.drawManager.requestDraw(
+                                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.REFRESH)
+                            )
+                            return@OnTouchListener true
+                        }
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        if (isGroupDragging) {
+                            isGroupDragging = false
+                            // Applica i cambiamenti ai dati veri e salva nel DB
+                            drawViewModel.applySelectionTransformation()
+                            return@OnTouchListener true
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- LOGICA IMMAGINE SINGOLA (se non stiamo trascinando un gruppo) ---
+        if (isSelectObjectMode && !isGroupDragging) {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     draggedImage = null
                     val doc = drawViewModel.documentData
                     if (doc != null) {
-                        // 1. Find which page the user touched
                         for (pageRectWithIndex in drawViewModel.drawManager.pagesRectOnWindow) {
                             val rect = pageRectWithIndex.rect
                             if (rect.contains(event.x, event.y)) {
                                 val page = doc.pages.getOrNull(pageRectWithIndex.index) ?: continue
 
-                                // 2. Calculate the mapping scale from screen pixels to physical mm
                                 val scaleX = page.width / rect.width()
                                 val scaleY = page.height / rect.height()
 
-                                // 3. Translate screen coordinates to physical paper coordinates (mm)
                                 val xMm = (event.x - rect.left) * scaleX
                                 val yMm = (event.y - rect.top) * scaleY
 
-                                // 4. Hit Test: Check if we touched an image (iterating reversed for z-index)
                                 for (i in page.imageData.indices.reversed()) {
                                     val img = page.imageData[i]
                                     if (xMm >= img.x && xMm <= img.x + img.width &&
                                         yMm >= img.y && yMm <= img.y + img.height) {
 
-                                        // 1. Afferra l'immagine
                                         draggedImage = img
                                         draggedImagePageDbId = page.dbId
                                         lastTouchX = event.x
                                         lastTouchY = event.y
                                         dragScaleMmPerPx = scaleX
 
-                                        // 2. Imposta l'immagine come "In movimento"
                                         img.isDragging = true
                                         drawViewModel.drawManager.activeDraggedImage = img
 
-                                        // 3. Richiedi un DRAW_BITMAP iniziale per "cancellare"
-                                        // l'immagine dal livello statico sottostante
                                         drawViewModel.drawManager.requestDraw(
                                             DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
                                                 update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
@@ -123,7 +181,6 @@ class OnTouchHover(
                     }
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    // If an image is being dragged, update its physical coordinates
                     draggedImage?.let { img ->
                         val dxPx = event.x - lastTouchX
                         val dyPx = event.y - lastTouchY
@@ -134,7 +191,6 @@ class OnTouchHover(
                         lastTouchX = event.x
                         lastTouchY = event.y
 
-                        // Disegna fluidamente in overlay sopra lo sfondo
                         drawViewModel.drawManager.requestDraw(
                             DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.REFRESH)
                         )
@@ -142,20 +198,14 @@ class OnTouchHover(
                     }
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    // Release the image and save its new position to the database
                     draggedImage?.let { img ->
-                        // 1. Rilascia l'immagine e spegni la modalità overlay
                         img.isDragging = false
                         drawViewModel.drawManager.activeDraggedImage = null
 
-                        // 2. Salva la nuova posizione nel Database
                         draggedImagePageDbId?.let { pageDbId ->
                             drawViewModel.updateImageInDatabase(pageDbId, img)
                         }
 
-                        // 3. FONDAMENTALE: Richiedi IMMEDIATAMENTE di ricalcolare il livello statico.
-                        // Poiché isDragging ora è false, l'immagine verrà "stampata" correttamente
-                        // nella sua nuova posizione sul documento.
                         drawViewModel.drawManager.requestDraw(
                             DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
                                 update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
@@ -183,7 +233,7 @@ class OnTouchHover(
                 drawViewModel.selectedTool != DrawViewModel.ToolUtilities.Tool.PAN &&
                 !isSelectObjectMode // Cannot draw if select mode is active
 
-        if (isStrokeInProgress) {
+        if (isStrokeInProgress && !isGroupDragging) {
             handleStrokeEvent(view, event)
             return@OnTouchListener true
         }
@@ -191,11 +241,10 @@ class OnTouchHover(
         /**
          * Handle viewport manipulation (Scaling and Panning)
          */
-        // We allow panning even in SELECT_OBJECT mode if the user missed all images (draggedImage == null)
         val isScalePanInput = (event.pointerCount == 1 || event.pointerCount == 2) &&
                 event.getToolType(0) != MotionEvent.TOOL_TYPE_STYLUS ||
                 drawViewModel.selectedTool == DrawViewModel.ToolUtilities.Tool.PAN ||
-                (isSelectObjectMode && draggedImage == null)
+                (isSelectObjectMode && draggedImage == null && !isGroupDragging)
 
         if (isScalePanInput) {
             onScaleTranslate.onScaleTranslate(view.context, event)

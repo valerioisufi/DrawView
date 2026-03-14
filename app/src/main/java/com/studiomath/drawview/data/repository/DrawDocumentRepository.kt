@@ -183,6 +183,7 @@ class DrawDocumentRepository(context: Context) {
 
             // 4. Restituisci il modello di dominio
             Stroke(entity.zIndex).apply {
+                dbId = entity.id
                 color = entity.color
                 size = entity.size
                 toolType = try { Stroke.ToolType.valueOf(entity.toolType) } catch (e: Exception) { Stroke.ToolType.UNKNOWN }
@@ -192,6 +193,30 @@ class DrawDocumentRepository(context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to decode stroke binary data", e)
             null
+        }
+    }
+
+    suspend fun updateStroke(pageId: Int, domainStroke: Stroke) = withContext(Dispatchers.IO) {
+        try {
+            val nativeStroke = domainStroke.stroke ?: return@withContext
+            val outputStream = ByteArrayOutputStream()
+            nativeStroke.inputs.encode(outputStream)
+
+            val strokeEntity = StrokeEntity(
+                id = domainStroke.dbId, // Usa l'ID esistente per sovrascrivere
+                pageId = pageId,
+                zIndex = domainStroke.zIndex,
+                color = domainStroke.color,
+                size = domainStroke.size,
+                toolType = domainStroke.toolType.name,
+                brushFamily = domainStroke.brush.name,
+                inputs = outputStream.toByteArray()
+            )
+            // Se in StrokeDao hai @Insert(onConflict = OnConflictStrategy.REPLACE),
+            // usare insert() aggiornerà la riga esistente.
+            strokeDao.insert(strokeEntity)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating stroke in DB", e)
         }
     }
 

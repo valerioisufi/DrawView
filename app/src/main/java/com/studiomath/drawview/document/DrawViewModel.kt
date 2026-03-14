@@ -56,13 +56,17 @@ class DrawViewModel(
     // Using application.filesDir directly from the AndroidViewModel context
     val pageMaker = PageMaker(displayMetrics, application.filesDir)
 
+    // --- SELECTION & LASSO STATE ---
     data class SelectionGroup(
         val images: MutableList<Image> = mutableListOf(),
         val strokes: MutableList<Stroke> = mutableListOf(),
         var boundingBox: RectF = RectF(),
-        var pageIndex: Int = -1 // NUOVO: Memorizza a quale pagina appartiene la selezione
+        var pageIndex: Int = -1
     ) {
         fun isEmpty() = images.isEmpty() && strokes.isEmpty()
+
+        // La matrice temporanea per lo spostamento (e futuro ridimensionamento)
+        val transformMatrix = Matrix()
     }
 
     var currentSelection: SelectionGroup? = null
@@ -417,6 +421,44 @@ class DrawViewModel(
                 size = brushList[index].size,
                 epsilon = 0.1F
             )
+        }
+    }
+
+    /**
+     * Fissa la trasformazione temporanea applicandola definitivamente alle
+     * coordinate fisiche di immagini e tratti, per poi salvarli nel DB.
+     */
+    fun applySelectionTransformation() {
+        val selection = currentSelection ?: return
+        val page = documentData?.pages?.getOrNull(selection.pageIndex) ?: return
+
+        // 1. Applica la matrice nativa ai tratti (C++ ink-strokes)
+        selection.strokes.forEach { stroke ->
+            stroke.applyTransform(selection.transformMatrix)
+        }
+
+        // 2. Calcola le nuove coordinate per le immagini
+        val pts = FloatArray(2)
+        selection.images.forEach { img ->
+            pts[0] = img.x
+            pts[1] = img.y
+            selection.transformMatrix.mapPoints(pts)
+            img.x = pts[0]
+            img.y = pts[1]
+            // (In futuro, qui estrarremo anche la scala e la rotazione dalla matrice)
+        }
+
+        // 3. Resetta la matrice temporanea perché ora i dati base sono aggiornati
+        selection.transformMatrix.reset()
+
+        // 4. Salva in Background nel Database
+        viewModelScope.launch(Dispatchers.IO) {
+            selection.images.forEach { img ->
+                repository.updateImage(page.dbId, img)
+            }
+            selection.strokes.forEach { stroke ->
+                 repository.updateStroke(page.dbId, stroke) // Decomentare quando crei il metodo nel repo
+            }
         }
     }
 

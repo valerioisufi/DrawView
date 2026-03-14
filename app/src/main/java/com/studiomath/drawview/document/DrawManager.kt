@@ -674,6 +674,11 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     setRectToRect(page.rect(), pageInfo.rect, Matrix.ScaleToFit.CENTER)
                 }
 
+                // FIX FASE 4: Fonde la matrice di trascinamento temporanea del gruppo con quella dello schermo
+                val finalOverlayMatrix = Matrix(selection.transformMatrix).apply {
+                    postConcat(mmToScreenMatrix)
+                }
+
                 canvas.withSave {
                     canvas.clipRect(windowRect)
 
@@ -687,7 +692,9 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                             overlayMatrix.postScale(scaleX, scaleY)
                             overlayMatrix.postRotate(img.rotation, img.width / 2f, img.height / 2f)
                             overlayMatrix.postTranslate(img.x, img.y)
-                            overlayMatrix.postConcat(mmToScreenMatrix)
+
+                            // MODIFICA: Usiamo la nuova matrice fusa
+                            overlayMatrix.postConcat(finalOverlayMatrix)
 
                             canvas.drawBitmap(bmp, overlayMatrix, null)
                         }
@@ -695,17 +702,15 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
                     // 2. DISEGNA I TRATTI SELEZIONATI
                     canvas.withSave {
-                        // CRUCIALE: Applichiamo la matrice di conversione (da mm a pixel schermo)
-                        // direttamente al Canvas. In questo modo i Path generati da Ink
-                        // verranno scalati e posizionati al posto giusto.
-                        canvas.concat(mmToScreenMatrix)
+                        // MODIFICA: Applichiamo la matrice fusa (che include lo spostamento) al Canvas
+                        canvas.concat(finalOverlayMatrix)
 
                         for (domainStroke in selection.strokes) {
                             domainStroke.stroke?.let { nativeStroke ->
                                 drawViewModel.pageMaker.canvasStrokeRenderer.draw(
                                     stroke = nativeStroke,
                                     canvas = canvas,
-                                    strokeToScreenTransform = mmToScreenMatrix
+                                    strokeToScreenTransform = finalOverlayMatrix // Suggeriamo il nuovo zoom/spostamento a Ink
                                 )
                             }
                         }
@@ -714,6 +719,10 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     // 3. DISEGNA IL BOUNDING BOX DELLA SELEZIONE
                     // Convertiamo il rettangolo globale (in mm) nei pixel dello schermo
                     val screenBoundingBox = RectF()
+
+                    // NOTA BENE: Qui usiamo la mmToScreenMatrix BASE (senza transformMatrix),
+                    // perché il boundingBox (RectF) lo stiamo già spostando matematicamente
+                    // dentro OnTouchHover.kt (usando selection.boundingBox.offset)
                     mmToScreenMatrix.mapRect(screenBoundingBox, selection.boundingBox)
 
                     // Aggiungiamo un po' di "respiro" (padding) attorno al rettangolo
@@ -731,7 +740,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
                     // Prepariamo la Paint per il leggero riempimento azzurro semi-trasparente
                     val fillPaint = Paint().apply {
-                        color = "#1A1A73E8".toColorInt() // Blu con 10% di opacità
+                        color = "#1A1A73E8".toColorInt()
                         style = Paint.Style.FILL
                     }
 

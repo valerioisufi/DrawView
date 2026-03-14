@@ -205,12 +205,38 @@ class OnScaleTranslate(
      * - If it is out of bounds, it triggers an elastic bounce-back animation.
      * - If it is within bounds, it triggers a high-quality bitmap update to finalize the gesture.
      */
+    /**
+     * Controlla se siamo oltre i bordi consentiti. Se sì, innesca l'animazione di rimbalzo.
+     * Se l'utente ha tirato sufficientemente verso l'alto l'ultima pagina, crea una nuova pagina.
+     */
     private fun checkBoundsAndBounceBack() {
         drawViewModel.drawManager.apply {
             calcPage.applyBounds(moveMatrix, calcPage.contentRect, windowRect)
 
+            // Calcoliamo una soglia in pixel (circa 120dp) basata sullo schermo del dispositivo
+            val overscrollThresholdDp = 20f
+            val addPageThresholdPx = -(overscrollThresholdDp * drawViewModel.displayMetrics.density)
+
+            // LOGICA OVERSCROLL:
+            // Se excessY è minore della soglia negativa (tirato verso l'alto)
+            // e non stiamo zoomando con due dita...
+            if (excessY < addPageThresholdPx && !isScaling) {
+                Log.d(TAG, "Overscroll threshold reached! Adding new page.")
+
+                // 1. Diciamo al ViewModel di creare la pagina
+                drawViewModel.addNewPageAtBottom()
+
+                // 2. Azzeriamo l'excessY per evitare che l'animazione di rimbalzo
+                // scatti in modo anomalo mentre la pagina viene generata
+                excessY = 0f
+
+                // 3. Usciamo dalla funzione: il ViewModel si occuperà di fare il DRAW_BITMAP
+                return
+            }
+
+            // LOGICA NORMALE DI RIMBALZO (Se non ha tirato abbastanza, o se ha tirato ai lati/in cima)
             if (excessX != 0f || excessY != 0f) {
-                Log.d(TAG, "Starting Bounce Back animation")
+                Log.d(TAG, "Avvio animazione di rimbalzo (Bounce Back)")
                 startAnimateMatrix.set(moveMatrix)
 
                 calcPage.startBounceBackAnimation(
@@ -232,9 +258,7 @@ class OnScaleTranslate(
                     }
                 )
             } else {
-                // No excess bounds reached. The gesture ended in a valid position.
-                // Request a high-quality Bitmap update to "commit" the visual result.
-                Log.d(TAG, "Gesture ended within limits, requesting UPDATE DRAW_BITMAP")
+                Log.d(TAG, "Gesto terminato nei limiti, richiedo UPDATE DRAW_BITMAP")
                 requestDraw(
                     DrawAttachments(drawMode = DrawMode.UPDATE).apply {
                         update = DrawAttachments.Update.DRAW_BITMAP

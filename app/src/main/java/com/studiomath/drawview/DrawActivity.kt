@@ -268,6 +268,7 @@ fun DrawActivity(
                             // Note: Make sure to implement addPage() inside DrawViewModel
                             // to handle DB insertion via the Repository.
                             // drawViewModel.addPage(newPage)
+                            drawViewModel.addNewPageAtBottom()
                         }
                     ){
                         Icon(

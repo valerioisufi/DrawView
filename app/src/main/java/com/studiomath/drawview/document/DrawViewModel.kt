@@ -18,6 +18,7 @@ import com.studiomath.drawview.document.page.PageMaker
 import com.studiomath.drawview.data.repository.DrawDocumentRepository
 import com.studiomath.drawview.document.page.Document
 import com.studiomath.drawview.document.page.Measure
+import com.studiomath.drawview.document.page.Page
 import com.studiomath.drawview.document.page.Stroke
 import kotlinx.coroutines.launch
 
@@ -83,6 +84,41 @@ class DrawViewModel(
                 // Failsafe in caso di errori critici nel DB
                 finishActivity?.invoke()
             }
+        }
+    }
+
+    /**
+     * Aggiunge una nuova pagina di default (A4) alla fine del documento.
+     * Viene chiamata quando l'utente fa overscroll oltre l'ultima pagina.
+     */
+    fun addNewPageAtBottom() {
+        val currentDoc = documentData ?: return
+        val nextIndex = currentDoc.pages.size
+
+        viewModelScope.launch {
+            // 1. Crea il modello della nuova pagina
+            val newPage = Page(nextIndex).apply {
+                dimension = com.studiomath.drawview.document.page.Dimension.A4()
+                width = dimension!!.width.mm
+                height = dimension!!.height.mm
+            }
+
+            // 2. Salva la nuova pagina nel database tramite il repository
+            repository.addPage(documentId, newPage)
+
+            // 3. Prepara la cache bitmap e aggiungila al modello in memoria
+            newPage.prepare()
+            currentDoc.pages.add(newPage)
+
+            // 4. Forza il ricalcolo del layout (affinché CalcPage veda la nuova pagina)
+            drawManager.calcPage.needToBeUpdated = true
+
+            // 5. Richiedi un aggiornamento completo della vista
+            drawManager.requestDraw(
+                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                }
+            )
         }
     }
 

@@ -146,7 +146,7 @@ data class Page(val index: Int) {
         dimension = Dimension(width.mm, height.mm)
 
         // Note: Make sure resolutionPxInchPageDefault is accessible or pass it here
-        val resolution = 300f
+        val resolution = 72f
         bitmapPage = createBitmap(
             dimension!!.calcWidthFromResolutionPxInch(resolution).toInt(),
             dimension!!.calcHeightFromResolutionPxInch(resolution).toInt()

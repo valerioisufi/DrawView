@@ -475,12 +475,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     if (relativeTransform != null && !onDrawBitmapBounds.isEmpty) {
                         // "Clip out" (exclude) the area that will be covered by the onDrawBitmap.
                         // Individual pages will be drawn solely to fill the "borders" exposed by pan/zoom.
-                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                            clipOutRect(onDrawBitmapBounds)
-                        } else {
-                            @Suppress("DEPRECATION")
-                            clipRect(onDrawBitmapBounds, android.graphics.Region.Op.DIFFERENCE)
-                        }
+                        clipOutRect(onDrawBitmapBounds)
                     }
 
                     for (pageRectWithIndex in pagesRectOnWindow) {

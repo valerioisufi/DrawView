@@ -138,6 +138,9 @@ interface ImageDao {
 
     @Query("SELECT * FROM images WHERE pageId = :pageId ORDER BY zIndex ASC")
     suspend fun getImagesForPage(pageId: Int): List<ImageEntity>
+
+    @Query("DELETE FROM images WHERE id = :imageId")
+    suspend fun deleteById(imageId: Int)
 }
 
 @Dao

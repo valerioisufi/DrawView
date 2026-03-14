@@ -71,7 +71,8 @@ class DrawViewModel(
         val transformMatrix = Matrix()
     }
 
-    var currentSelection: SelectionGroup? = null
+    var currentSelection by mutableStateOf<SelectionGroup?>(null)
+    var clipboard by mutableStateOf<SelectionGroup?>(null)
 
     // --- UI STATE ---
     var documentData by mutableStateOf<Document?>(null)
@@ -401,6 +402,65 @@ class DrawViewModel(
                 }
             )
         }
+    }
+
+    // --- AZIONI DEL MENU FLUTTUANTE ---
+
+    fun deleteSelection() {
+        val selection = currentSelection ?: return
+        val doc = documentData ?: return
+        val page = doc.pages.getOrNull(selection.pageIndex) ?: return
+
+        viewModelScope.launch(Dispatchers.Default) {
+            // 1. Rimuovi dai dati in RAM
+            page.imageData.removeAll(selection.images)
+            page.strokeData.removeAll(selection.strokes)
+
+            // 2. Rimuovi dal Database (Nota: Assicurati di creare queste funzioni nel Repository!)
+            selection.images.forEach { repository.deleteImage(it.dbId) }
+            selection.strokes.forEach { repository.deleteStroke(it.dbId) }
+
+            // 3. Rigenera la Bitmap Cache "pulita" senza questi elementi
+            page.bitmapPage?.let { oldBitmap ->
+                page.bitmapPage = pageMaker.makePage(
+                    Rect(0, 0, oldBitmap.width, oldBitmap.height), null, page, doc
+                )
+            }
+
+            // 4. Aggiorna lo schermo e chiudi la selezione
+            drawManager.requestDraw(
+                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                }
+            )
+            currentSelection = null
+        }
+    }
+
+    fun copySelection() {
+        val selection = currentSelection ?: return
+
+        // Salviamo i riferimenti nella clipboard e chiudiamo la selezione
+        clipboard = SelectionGroup(
+            images = selection.images.toMutableList(),
+            strokes = selection.strokes.toMutableList(),
+            boundingBox = RectF(selection.boundingBox),
+            pageIndex = selection.pageIndex
+        )
+        clearSelection() // Deseleziona dopo aver copiato
+    }
+
+    fun cutSelection() {
+        val selection = currentSelection ?: return
+        // Prima salviamo nella clipboard...
+        clipboard = SelectionGroup(
+            images = selection.images.toMutableList(),
+            strokes = selection.strokes.toMutableList(),
+            boundingBox = RectF(selection.boundingBox),
+            pageIndex = selection.pageIndex
+        )
+        // ...e poi eliminiamo gli originali!
+        deleteSelection()
     }
 
     // --- TOOL UTILITIES ---

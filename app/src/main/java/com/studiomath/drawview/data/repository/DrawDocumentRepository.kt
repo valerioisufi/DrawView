@@ -307,6 +307,20 @@ class DrawDocumentRepository(context: Context) {
     }
 
     /**
+     * Deletes a specific image from the database.
+     */
+    suspend fun deleteImage(imageId: Int) = withContext(Dispatchers.IO) {
+        imageDao.deleteById(imageId)
+    }
+
+    /**
+     * Deletes a specific stroke from the database.
+     */
+    suspend fun deleteStroke(strokeId: Int) = withContext(Dispatchers.IO) {
+        strokeDao.deleteById(strokeId)
+    }
+
+    /**
      * Creates a new default document (with an empty A4 page) in the database
      * and returns the domain model ready to be drawn.
      */

@@ -1,15 +1,33 @@
 package com.studiomath.drawview.document
 
 import android.widget.FrameLayout
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.systemGestureExclusion
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ContentCut
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.ink.authoring.InProgressStrokesView
 import androidx.input.motionprediction.MotionEventPredictor
@@ -22,12 +40,11 @@ fun DrawComponent(
 ){
     val backgroundColor = MaterialTheme.colorScheme.background.toArgb()
 
-    Box {
-        // UPDATE: Accessing state directly from the ViewModel instead of the old data object
+    Box(modifier = Modifier.fillMaxSize()) {
+
         if (!drawViewModel.isDocumentLoaded || !drawViewModel.isDocumentShowed) {
             LinearProgressIndicator(
-                modifier = Modifier
-                    .fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth(),
                 color = MaterialTheme.colorScheme.secondary,
                 trackColor = MaterialTheme.colorScheme.surfaceVariant,
             )
@@ -43,16 +60,14 @@ fun DrawComponent(
         )
 
         AndroidView(
-            modifier = Modifier
-                .fillMaxSize(),
+            modifier = Modifier.fillMaxSize(),
             factory = { context ->
                 val rootView = FrameLayout(context)
                 inProgressStrokesView.apply {
-                    layoutParams =
-                        FrameLayout.LayoutParams(
-                            FrameLayout.LayoutParams.MATCH_PARENT,
-                            FrameLayout.LayoutParams.MATCH_PARENT,
-                        )
+                    layoutParams = FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                    )
                 }
 
                 // Wire up the Ink library callbacks to the ViewModel
@@ -87,5 +102,34 @@ fun DrawComponent(
                 rootView
             }
         )
+
+        // --- FLOATING MENU (Contextual Action Bar) ---
+        AnimatedVisibility(
+            visible = drawViewModel.currentSelection != null,
+            enter = fadeIn() + slideInVertically(initialOffsetY = { -40 }),
+            exit = fadeOut() + slideOutVertically(targetOffsetY = { -40 }),
+            modifier = Modifier.align(Alignment.TopCenter)
+        ) {
+            ElevatedCard(
+                modifier = Modifier.padding(top = 24.dp),
+                shape = RoundedCornerShape(50),
+                elevation = CardDefaults.elevatedCardElevation(defaultElevation = 6.dp),
+                colors = CardDefaults.elevatedCardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
+            ) {
+                Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+                    IconButton(onClick = { drawViewModel.cutSelection() }) {
+                        Icon(Icons.Default.ContentCut, contentDescription = "Taglia", tint = MaterialTheme.colorScheme.onSurface)
+                    }
+                    IconButton(onClick = { drawViewModel.copySelection() }) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = "Copia", tint = MaterialTheme.colorScheme.onSurface)
+                    }
+                    IconButton(onClick = { drawViewModel.deleteSelection() }) {
+                        Icon(Icons.Default.Delete, contentDescription = "Elimina", tint = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+        }
     }
 }

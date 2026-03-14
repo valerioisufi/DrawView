@@ -33,6 +33,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import android.graphics.Rect
+import android.graphics.RectF
+import androidx.ink.strokes.MutableStrokeInputBatch
 
 /**
  * Main ViewModel for the drawing environment.
@@ -53,6 +55,15 @@ class DrawViewModel(
 
     // Using application.filesDir directly from the AndroidViewModel context
     val pageMaker = PageMaker(displayMetrics, application.filesDir)
+
+    data class SelectionGroup(
+        val images: MutableList<Image> = mutableListOf(),
+        val strokes: MutableList<Stroke> = mutableListOf(),
+        var boundingBox: RectF = RectF()
+    ) {
+        fun isEmpty() = images.isEmpty() && strokes.isEmpty()
+    }
+    var currentSelection: SelectionGroup? = null
 
     // --- UI STATE ---
     var documentData by mutableStateOf<Document?>(null)
@@ -344,6 +355,28 @@ class DrawViewModel(
                     Rect(0, 0, bmp.width, bmp.height), null, page, currentDoc
                 )
             }
+        }
+    }
+
+    /**
+     * Pulisce la selezione attuale, reimpostando la flag isDragging a false per tutti
+     * gli elementi e richiedendo un aggiornamento del Canvas di sfondo.
+     */
+    fun clearSelection() {
+        currentSelection?.let { oldSelection ->
+            // 1. Spegni la flag di trascinamento
+            oldSelection.images.forEach { it.isDragging = false }
+            oldSelection.strokes.forEach { it.isDragging = false }
+
+            // 2. Svuota il gruppo
+            currentSelection = null
+
+            // 3. Richiedi al DrawManager di "stampare" gli elementi rilasciati sullo sfondo
+            drawManager.requestDraw(
+                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                }
+            )
         }
     }
 

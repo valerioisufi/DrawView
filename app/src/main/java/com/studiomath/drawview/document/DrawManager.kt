@@ -2,7 +2,9 @@ package com.studiomath.drawview.document
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.DashPathEffect
 import android.graphics.Matrix
+import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.RectF
@@ -15,14 +17,22 @@ import androidx.core.graphics.withMatrix
 import androidx.core.graphics.withSave
 import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.authoring.InProgressStrokesFinishedListener
+import androidx.ink.geometry.AffineTransform
+import androidx.ink.geometry.Intersection.intersects
+import androidx.ink.strokes.MutableStrokeInputBatch
+import androidx.ink.strokes.StrokeInput
+import androidx.ink.strokes.createClosedShape
 import com.studiomath.drawview.document.page.Measure
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlin.math.max
+import kotlin.math.min
 import androidx.ink.strokes.Stroke as InkStroke
 import com.studiomath.drawview.document.page.Stroke as DomainStroke
+import androidx.core.graphics.toColorInt
 
 /**
  * The core rendering engine and state manager for the drawing canvas.
@@ -112,6 +122,111 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     @UiThread
     override fun onStrokesFinished(strokes: Map<InProgressStrokeId, InkStroke>) {
         val document = drawViewModel.documentData ?: return
+        val isLasso = drawViewModel.selectedTool == DrawViewModel.ToolUtilities.Tool.LAZO
+
+        // --- FASE 2: HIT TESTING DEL LAZO ---
+        if (isLasso) {
+            val lassoInkStroke = strokes.values.firstOrNull() ?: return
+
+            // FIX: Pulisci sempre le flag della vecchia selezione prima di calcolarne una nuova!
+            drawViewModel.clearSelection()
+
+            // 1. Troviamo la pagina su cui l'utente ha disegnato
+            val pageInfo = pagesRectOnWindow.firstOrNull()
+            if (pageInfo != null) {
+                val page = document.pages.getOrNull(pageInfo.index)
+                if (page != null) {
+                    // Creiamo la matrice per convertire i punti del lazo (pixel schermo) in millimetri
+                    val screenToMmMatrix = Matrix().apply {
+                        setRectToRect(pageInfo.rect, page.rect(), Matrix.ScaleToFit.CENTER)
+                    }
+
+                    // 2. Convertiamo i punti del lazo in millimetri creando un Batch matematico
+                    val mmLassoBatch = MutableStrokeInputBatch()
+                    val scratch = StrokeInput()
+                    val point = FloatArray(2)
+
+                    for (i in 0 until lassoInkStroke.inputs.size) {
+                        lassoInkStroke.inputs.populate(i, scratch)
+                        point[0] = scratch.x
+                        point[1] = scratch.y
+                        screenToMmMatrix.mapPoints(point)
+                        mmLassoBatch.add(
+                            type = scratch.toolType,
+                            x = point[0],
+                            y = point[1],
+                            elapsedTimeMillis = scratch.elapsedTimeMillis
+                        )
+                    }
+
+                    // 3. Creiamo la Mesh chiusa nativa (C++) per l'hit testing
+                    val selectionRegion = mmLassoBatch.createClosedShape()
+                    val lassoBox = selectionRegion.computeBoundingBox()
+
+                    if (lassoBox != null) {
+                        val newSelection = DrawViewModel.SelectionGroup()
+                        var globalLeft = Float.MAX_VALUE
+                        var globalTop = Float.MAX_VALUE
+                        var globalRight = -Float.MAX_VALUE
+                        var globalBottom = -Float.MAX_VALUE
+
+                        // Creiamo una trasformazione Identità (nessuna modifica)
+                        // dato che Tratti e Lazo sono già nello stesso spazio (mm)
+                        val identityTransform = AffineTransform.IDENTITY
+
+                        // Intersezione Tratti
+                        for (stroke in page.strokeData) {
+                            val nativeStroke = stroke.stroke ?: continue
+                            // Se il tratto tocca la forma chiusa del lazo...
+                            if (nativeStroke.shape.intersects(selectionRegion, identityTransform, identityTransform)) {
+                                newSelection.strokes.add(stroke)
+                                stroke.isDragging = true // Metti in overlay!
+
+                                val sBox = nativeStroke.shape.computeBoundingBox()
+                                if (sBox != null) {
+                                    globalLeft = min(globalLeft, sBox.xMin)
+                                    globalTop = min(globalTop, sBox.yMin)
+                                    globalRight = max(globalRight, sBox.xMax)
+                                    globalBottom = max(globalBottom, sBox.yMax)
+                                }
+                            }
+                        }
+
+                        // Intersezione Immagini
+                        for (img in page.imageData) {
+                            val centerX = img.x + (img.width / 2f)
+                            val centerY = img.y + (img.height / 2f)
+                            if (centerX >= lassoBox.xMin && centerX <= lassoBox.xMax &&
+                                centerY >= lassoBox.yMin && centerY <= lassoBox.yMax) {
+
+                                newSelection.images.add(img)
+                                img.isDragging = true // Metti in overlay!
+
+                                globalLeft = min(globalLeft, img.x)
+                                globalTop = min(globalTop, img.y)
+                                globalRight = max(globalRight, img.x + img.width)
+                                globalBottom = max(globalBottom, img.y + img.height)
+                            }
+                        }
+
+                        if (!newSelection.isEmpty()) {
+                            newSelection.boundingBox = RectF(globalLeft, globalTop, globalRight, globalBottom)
+                            drawViewModel.currentSelection = newSelection
+                        }
+                    }
+                }
+            }
+
+            // Puliamo il lazo dallo schermo invalidando e ricreando la vista
+            // (gli elementi selezionati verranno ignorati perché hanno isDragging = true)
+            requestDraw(
+                DrawAttachments(drawMode = DrawAttachments.DrawMode.UPDATE).apply {
+                    update = DrawAttachments.Update.DRAW_BITMAP
+                    strokesIdToRemove = strokes.keys
+                }
+            )
+            return // ESCI: Non procedere con il salvataggio o il disegno normale!
+        }
 
         // 1. Immediate visual rendering to the UI cache (Main Thread to prevent flickering)
         for (pageRectWithIndex in pagesRectOnWindow) {
@@ -535,36 +650,119 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             else -> {}
         }
 
-        // FASE 3 FIX: DISEGNA L'IMMAGINE IN OVERLAY (Sempre in cima a tutto)
-        activeDraggedImage?.let { img ->
-            img.bitmapCache?.let { bmp ->
-                if (document != null) {
-                    // Trova l'indice della pagina a cui appartiene l'immagine che stiamo muovendo
-                    val pageIndex = document.pages.indexOfFirst { page -> page.imageData.contains(img) }
+        // --- FASE 3: DISEGNO IN OVERLAY DEL GRUPPO SELEZIONATO E DEL BOUNDING BOX ---
+        val selection = drawViewModel.currentSelection
+        if (selection != null && !selection.isEmpty() && document != null) {
 
-                    if (pageIndex != -1) {
-                        // Trova a quali coordinate dello schermo si trova quella pagina
-                        val pageInfo = pagesRectOnWindow.find { it.index == pageIndex }
-                        val page = document.pages[pageIndex]
+            // Per semplicità, assumiamo che tutti gli elementi selezionati appartengano alla pagina attualmente visibile.
+            // In futuro, potresti salvare l'indice della pagina all'interno del SelectionGroup.
+            val pageInfo = pagesRectOnWindow.firstOrNull()
 
-                        if (pageInfo != null) {
+            if (pageInfo != null) {
+                val page = document.pages[pageInfo.index]
+
+                // Matrice base per convertire i millimetri del foglio nei pixel dello schermo
+                val mmToScreenMatrix = Matrix().apply {
+                    setRectToRect(page.rect(), pageInfo.rect, Matrix.ScaleToFit.CENTER)
+                }
+
+                canvas.withSave {
+                    canvas.clipRect(windowRect)
+
+                    // 1. DISEGNA LE IMMAGINI SELEZIONATE
+                    for (img in selection.images) {
+                        img.bitmapCache?.let { bmp ->
                             val overlayMatrix = Matrix()
-                            // Adatta i pixel dell'immagine ai millimetri del foglio
                             val scaleX = img.width / bmp.width.toFloat()
                             val scaleY = img.height / bmp.height.toFloat()
-                            overlayMatrix.postScale(scaleX, scaleY)
 
+                            overlayMatrix.postScale(scaleX, scaleY)
                             overlayMatrix.postRotate(img.rotation, img.width / 2f, img.height / 2f)
                             overlayMatrix.postTranslate(img.x, img.y)
-
-                            // Converte i millimetri del foglio nei pixel esatti dello schermo (incluso zoom e pan)
-                            val mmToScreenMatrix = Matrix().apply {
-                                setRectToRect(page.rect(), pageInfo.rect, Matrix.ScaleToFit.CENTER)
-                            }
                             overlayMatrix.postConcat(mmToScreenMatrix)
 
-                            // Stampa l'immagine fluida e reattiva sopra tutto il resto!
                             canvas.drawBitmap(bmp, overlayMatrix, null)
+                        }
+                    }
+
+                    // 2. DISEGNA I TRATTI SELEZIONATI
+                    canvas.withSave {
+                        // CRUCIALE: Applichiamo la matrice di conversione (da mm a pixel schermo)
+                        // direttamente al Canvas. In questo modo i Path generati da Ink
+                        // verranno scalati e posizionati al posto giusto.
+                        canvas.concat(mmToScreenMatrix)
+
+                        for (domainStroke in selection.strokes) {
+                            domainStroke.stroke?.let { nativeStroke ->
+                                drawViewModel.pageMaker.canvasStrokeRenderer.draw(
+                                    stroke = nativeStroke,
+                                    canvas = canvas,
+                                    strokeToScreenTransform = mmToScreenMatrix
+                                )
+                            }
+                        }
+                    }
+
+                    // 3. DISEGNA IL BOUNDING BOX DELLA SELEZIONE
+                    // Convertiamo il rettangolo globale (in mm) nei pixel dello schermo
+                    val screenBoundingBox = RectF()
+                    mmToScreenMatrix.mapRect(screenBoundingBox, selection.boundingBox)
+
+                    // Aggiungiamo un po' di "respiro" (padding) attorno al rettangolo
+                    val padding = 16f
+                    screenBoundingBox.inset(-padding, -padding)
+
+                    // Prepariamo la Paint per il bordo tratteggiato (Stile standard per i Box di selezione)
+                    val boxPaint = Paint().apply {
+                        color = "#1A73E8".toColorInt() // Blu Google
+                        style = Paint.Style.STROKE
+                        strokeWidth = 4f
+                        pathEffect =
+                            DashPathEffect(floatArrayOf(20f, 20f), 0f) // Linea tratteggiata
+                        isAntiAlias = true
+                    }
+
+                    // Prepariamo la Paint per il leggero riempimento azzurro semi-trasparente
+                    val fillPaint = Paint().apply {
+                        color = "#1A1A73E8".toColorInt() // Blu con 10% di opacità
+                        style = Paint.Style.FILL
+                    }
+
+                    // Disegniamo il rettangolo
+                    canvas.drawRect(screenBoundingBox, fillPaint)
+                    canvas.drawRect(screenBoundingBox, boxPaint)
+
+                    // (Fase Futura: Qui potremo aggiungere le "maniglie" per ridimensionare ruotare il box)
+                }
+            }
+        } else {
+            // Se non stiamo usando il lazo, manteniamo il vecchio comportamento per l'immagine singola
+            activeDraggedImage?.let { img ->
+                img.bitmapCache?.let { bmp ->
+                    if (document != null) {
+                        val pageIndex = document.pages.indexOfFirst { p -> p.imageData.contains(img) }
+                        if (pageIndex != -1) {
+                            val pageInfo = pagesRectOnWindow.find { it.index == pageIndex }
+                            val page = document.pages[pageIndex]
+
+                            if (pageInfo != null) {
+                                canvas.withSave {
+                                    val overlayMatrix = Matrix()
+                                    val scaleX = img.width / bmp.width.toFloat()
+                                    val scaleY = img.height / bmp.height.toFloat()
+                                    overlayMatrix.postScale(scaleX, scaleY)
+                                    overlayMatrix.postRotate(img.rotation, img.width / 2f, img.height / 2f)
+                                    overlayMatrix.postTranslate(img.x, img.y)
+
+                                    val mmToScreenMatrix = Matrix().apply {
+                                        setRectToRect(page.rect(), pageInfo.rect, Matrix.ScaleToFit.CENTER)
+                                    }
+                                    overlayMatrix.postConcat(mmToScreenMatrix)
+
+                                    canvas.clipRect(windowRect)
+                                    canvas.drawBitmap(bmp, overlayMatrix, null)
+                                }
+                            }
                         }
                     }
                 }

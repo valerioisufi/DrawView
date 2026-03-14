@@ -223,6 +223,11 @@ class OnTouchHover(
                 drawViewModel.drawManager.scroller.forceFinished(true)
                 view.requestUnbufferedDispatch(event)
 
+                // CLEAR SELECTION:
+                // Se inizio a tracciare un nuovo lazo o a scrivere con la penna,
+                // devo svuotare l'eventuale selezione precedente e riancorare gli elementi allo sfondo.
+                drawViewModel.clearSelection()
+
                 val pointerIndex = event.actionIndex
                 val pointerId = event.getPointerId(pointerIndex)
 
@@ -246,6 +251,8 @@ class OnTouchHover(
 
                 if (pointerId == currentPointerId) {
                     currentStrokeId?.let { strokeId ->
+                        // Questo finalizza il tratto (incluso il Lazo)
+                        // e lo passa a onStrokesFinished in DrawManager.kt
                         drawViewModel.finishStrokeInProgress?.invoke(event, pointerId, strokeId)
                     }
                 }

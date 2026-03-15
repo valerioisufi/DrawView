@@ -38,9 +38,15 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import android.graphics.Rect
 import android.graphics.RectF
+import androidx.ink.brush.InputToolType
+import androidx.ink.geometry.AffineTransform
+import androidx.ink.geometry.Intersection.intersects
 import androidx.ink.strokes.MutableStrokeInputBatch
+import androidx.ink.strokes.StrokeInput
 import kotlin.math.atan2
 import kotlin.math.hypot
+import kotlin.math.max
+import kotlin.math.min
 
 /**
  * Main ViewModel for the drawing environment.
@@ -789,6 +795,94 @@ class DrawViewModel(
             }
             selection.strokes.forEach { stroke ->
                 repository.updateStroke(targetPage.dbId, stroke)
+            }
+        }
+    }
+
+    /**
+     * Motore "Live Eraser": Crea un segmento fisico per la gomma e distrugge
+     * i tratti della pagina che intersecano la sua Mesh partizionata.
+     */
+    fun eraseStrokesAtLine(x1Px: Float, y1Px: Float, x2Px: Float, y2Px: Float) {
+        val doc = documentData ?: return
+
+        // Lo spessore della gomma calcolato in base alle impostazioni e allo zoom
+        val eraserThicknessPx = getActiveBrushScaled().size
+
+        for (pageInfo in drawManager.pagesRectOnWindow) {
+            val page = doc.pages.getOrNull(pageInfo.index) ?: continue
+
+            // 1. FAST PASS SCHERMO: Controlliamo se il segmento tocca almeno la pagina visibile
+            val lineBox = RectF(
+                min(x1Px, x2Px) - eraserThicknessPx, min(y1Px, y2Px) - eraserThicknessPx,
+                max(x1Px, x2Px) + eraserThicknessPx, max(y1Px, y2Px) + eraserThicknessPx
+            )
+            if (!RectF.intersects(lineBox, pageInfo.rect)) continue
+
+            // 2. Convertiamo i punti dello schermo nei millimetri della pagina
+            val screenToMmMatrix = Matrix().apply {
+                setRectToRect(pageInfo.rect, page.rect(), Matrix.ScaleToFit.CENTER)
+            }
+            val pts = floatArrayOf(x1Px, y1Px, x2Px, y2Px)
+            screenToMmMatrix.mapPoints(pts)
+            val mmEraserThickness = screenToMmMatrix.mapRadius(eraserThicknessPx)
+
+            // 3. Creiamo la Mesh del segmento della gomma usando la libreria nativa C++
+            val eraserBatch = MutableStrokeInputBatch().apply {
+                add(type = InputToolType.UNKNOWN, x = pts[0], y = pts[1], elapsedTimeMillis = 0)
+                add(type = InputToolType.UNKNOWN, x = pts[2], y = pts[3], elapsedTimeMillis = 10)
+            }
+            val eraserBrush = Brush.createWithColorIntArgb(StockBrushes.marker(), 0, mmEraserThickness, 0.1f)
+            val eraserNativeStroke = androidx.ink.strokes.Stroke(eraserBrush, eraserBatch)
+
+            // Estraiamo la PartitionedMesh per la collisione
+            val eraserShape = eraserNativeStroke.shape
+            val eraserBox = eraserShape.computeBoundingBox() ?: continue
+            val eraserRectF = RectF(eraserBox.xMin, eraserBox.yMin, eraserBox.xMax, eraserBox.yMax)
+
+            val strokesToRemove = mutableListOf<Stroke>()
+            val identityTransform = AffineTransform.IDENTITY
+
+            // 4. HIT-TESTING
+            for (stroke in page.strokeData) {
+                val nativeStroke = stroke.stroke ?: continue
+                val strokeBox = nativeStroke.shape.computeBoundingBox() ?: continue
+                val strokeRectF = RectF(strokeBox.xMin, strokeBox.yMin, strokeBox.xMax, strokeBox.yMax)
+
+                // Fast-Pass Bounding Box: Evitiamo calcoli complessi se i due oggetti sono lontani
+                if (RectF.intersects(eraserRectF, strokeRectF)) {
+                    // Exact-Pass Mesh: Intersezione al millimetro tramite C++
+                    if (nativeStroke.shape.intersects(eraserShape, identityTransform, identityTransform)) {
+                        strokesToRemove.add(stroke)
+                    }
+                }
+            }
+
+            // 5. ELIMINAZIONE E AGGIORNAMENTO UI
+            if (strokesToRemove.isNotEmpty()) {
+                // Rimuoviamo istantaneamente i dati dalla RAM
+                page.strokeData.removeAll(strokesToRemove)
+
+                // Rimuoviamo dal Database in background
+                viewModelScope.launch(Dispatchers.IO) {
+                    strokesToRemove.forEach { repository.deleteStroke(it.dbId) }
+                }
+
+                // "Scattiamo una nuova fotografia" della pagina senza i tratti eliminati
+                viewModelScope.launch(Dispatchers.Default) {
+                    page.bitmapPage?.let { oldBitmap ->
+                        page.bitmapPage = pageMaker.makePage(
+                            Rect(0, 0, oldBitmap.width, oldBitmap.height), null, page, doc
+                        )
+                    }
+
+                    // Stampiamo a schermo!
+                    drawManager.requestDraw(
+                        DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                            update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                        }
+                    )
+                }
             }
         }
     }

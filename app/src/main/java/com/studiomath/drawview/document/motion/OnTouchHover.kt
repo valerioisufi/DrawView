@@ -41,6 +41,11 @@ class OnTouchHover(
     /** Flag indicating if a drawing stroke is currently being actively traced. */
     var isStrokeInProgress = false
 
+    // --- VARIABLES FOR LIVE ERASER ---
+    private var isErasing = false
+    private var lastEraserX = 0f
+    private var lastEraserY = 0f
+
     /** The ID of the pointer (finger/stylus) currently driving the active stroke. */
     private var currentPointerId: Int? = null
 
@@ -264,12 +269,23 @@ class OnTouchHover(
         /**
          * Handle drawing inputs (Stylus or Single Finger)
          */
-        isStrokeInProgress = (event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS ||
+        val isDrawingInput = (event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS ||
                 (event.pointerCount == 1 && !isStylusActive && !onScaleTranslate.continueScaleTranslate)) &&
                 drawViewModel.selectedTool != DrawViewModel.ToolUtilities.Tool.PAN
 
+        val isEraserTool = drawViewModel.selectedTool == DrawViewModel.ToolUtilities.Tool.ERASER
+
+        // Disegniamo con Ink Library solo se NON è selezionata la gomma
+        isStrokeInProgress = isDrawingInput && !isEraserTool
+
         if (isStrokeInProgress && currentDragState == DragState.NONE) {
             handleStrokeEvent(view, event)
+            return@OnTouchListener true
+        }
+
+        // Se è la gomma, dirottiamo l'evento verso il nostro motore di Hit-Testing
+        if (isDrawingInput && isEraserTool && currentDragState == DragState.NONE) {
+            handleEraserEvent(view, event)
             return@OnTouchListener true
         }
 
@@ -349,6 +365,29 @@ class OnTouchHover(
                 if (pointerId == currentPointerId) {
                     cancelCurrentStroke(event)
                 }
+            }
+        }
+    }
+
+    private fun handleEraserEvent(view: View, event: MotionEvent) {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                drawViewModel.drawManager.scroller.forceFinished(true)
+                drawViewModel.clearSelection()
+                lastEraserX = event.x
+                lastEraserY = event.y
+                isErasing = true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (isErasing) {
+                    // Passiamo il micro-segmento al ViewModel per l'intersezione matematica
+                    drawViewModel.eraseStrokesAtLine(lastEraserX, lastEraserY, event.x, event.y)
+                    lastEraserX = event.x
+                    lastEraserY = event.y
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                isErasing = false
             }
         }
     }

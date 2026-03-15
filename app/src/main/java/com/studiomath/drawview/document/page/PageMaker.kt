@@ -285,8 +285,10 @@ class PageMaker(
                                 )
                             }
 
-                            // 2. Calcoliamo la larghezza consentita (anche lei scalata in pixel)
-                            val screenSafeWidthPx = (textItem.width * scaleX).toInt().coerceAtLeast(1)
+                            // 2. Calcoliamo la larghezza consentita (scalata in pixel)
+                            // Aggiungiamo un 5% di "Safety Buffer" per evitare che gli arrotondamenti float
+                            // dello zoom mandino il testo a capo accidentalmente.
+                            val screenSafeWidthPx = (textItem.width * scaleX * 1.05f).toInt().coerceAtLeast(1)
 
                             // 3. Creiamo il Layout
                             val staticLayout = StaticLayout.Builder.obtain(

@@ -773,16 +773,17 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                             canvas.drawBitmap(txt.bitmapCache!!, overlayMatrix, null)
                         } else if (!txt.isLatex) {
                             canvas.withSave {
-                                val overlayMatrix = Matrix()
-                                overlayMatrix.postRotate(txt.rotation, txt.width / 2f, txt.height / 2f)
-                                overlayMatrix.postTranslate(txt.x, txt.y)
-                                overlayMatrix.postConcat(finalOverlayMatrix)
+                                // 1. Estraiamo la scala e lo spostamento dalla matrice fusa dell'overlay
+                                val matrixValues = FloatArray(9)
+                                finalOverlayMatrix.getValues(matrixValues)
+                                val scaleX = matrixValues[Matrix.MSCALE_X]
+                                val scaleY = matrixValues[Matrix.MSCALE_Y]
 
-                                canvas.concat(overlayMatrix)
-
-                                val textPaint = android.text.TextPaint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                                // 2. Font scalato nativamente in base allo zoom, con i flag vettoriali!
+                                val screenFontSizePx = txt.fontSize * 0.3527f * scaleX
+                                val textPaint = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG or Paint.LINEAR_TEXT_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
                                     color = txt.color
-                                    textSize = txt.fontSize * 0.3527f
+                                    textSize = screenFontSizePx
                                     typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT,
                                         if (txt.isBold && txt.isItalic) android.graphics.Typeface.BOLD_ITALIC
                                         else if (txt.isBold) android.graphics.Typeface.BOLD
@@ -791,10 +792,24 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                     )
                                 }
 
-                                val safeWidth = txt.width.toInt().coerceAtLeast(1)
+                                // 3. Calcoliamo la larghezza con il Safety Buffer del 5%
+                                val screenSafeWidthPx = (txt.width * scaleX * 1.05f).toInt().coerceAtLeast(1)
+
                                 val staticLayout = android.text.StaticLayout.Builder.obtain(
-                                    txt.text, 0, txt.text.length, textPaint, safeWidth
+                                    txt.text, 0, txt.text.length, textPaint, screenSafeWidthPx
                                 ).setAlignment(android.text.Layout.Alignment.ALIGN_NORMAL).build()
+
+                                // 4. Applichiamo la posizione (ignorando la scala, perché l'abbiamo già messa nel font)
+                                val translationMatrix = Matrix()
+                                translationMatrix.postTranslate(matrixValues[Matrix.MTRANS_X], matrixValues[Matrix.MTRANS_Y])
+
+                                val localTransform = Matrix()
+                                localTransform.postRotate(txt.rotation, (txt.width / 2f) * scaleX, (txt.height / 2f) * scaleY)
+                                localTransform.postTranslate(txt.x * scaleX, txt.y * scaleY)
+
+                                translationMatrix.preConcat(localTransform)
+
+                                canvas.concat(translationMatrix)
 
                                 staticLayout.draw(canvas)
                             }

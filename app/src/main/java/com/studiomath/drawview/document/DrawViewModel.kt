@@ -605,6 +605,7 @@ class DrawViewModel(
         clipboard = SelectionGroup(
             images = selection.images.toMutableList(),
             strokes = selection.strokes.toMutableList(),
+            texts = selection.texts.toMutableList(),
             boundingBox = RectF(selection.boundingBox),
             pageIndex = selection.pageIndex
         )
@@ -622,6 +623,7 @@ class DrawViewModel(
         clipboard = SelectionGroup(
             images = selection.images.toMutableList(),
             strokes = selection.strokes.toMutableList(),
+            texts = selection.texts.toMutableList(),
             boundingBox = RectF(selection.boundingBox),
             pageIndex = selection.pageIndex
         )

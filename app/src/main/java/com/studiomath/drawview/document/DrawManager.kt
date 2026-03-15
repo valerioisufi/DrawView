@@ -220,6 +220,23 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                     }
                                 }
                             }
+
+                            // Intersezione Testi
+                            for (txt in page.textData) {
+                                val centerX = txt.x + (txt.width / 2f)
+                                val centerY = txt.y + (txt.height / 2f)
+                                if (centerX >= lassoBox.xMin && centerX <= lassoBox.xMax &&
+                                    centerY >= lassoBox.yMin && centerY <= lassoBox.yMax) {
+
+                                    newSelection.texts.add(txt)
+                                    txt.isDragging = true // Metti in overlay!
+
+                                    globalLeft = min(globalLeft, txt.x)
+                                    globalTop = min(globalTop, txt.y)
+                                    globalRight = max(globalRight, txt.x + txt.width)
+                                    globalBottom = max(globalBottom, txt.y + txt.height)
+                                }
+                            }
                         }
 
                         // Intersezione Immagini
@@ -737,6 +754,49 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                             overlayMatrix.postConcat(finalOverlayMatrix)
 
                             canvas.drawBitmap(bmp, overlayMatrix, null)
+                        }
+                    }
+
+                    // 1.5 DISEGNA I TESTI SELEZIONATI
+                    for (txt in selection.texts) {
+                        if (txt.isLatex && txt.bitmapCache != null) {
+                            val overlayMatrix = Matrix()
+                            val scaleX = txt.width / txt.bitmapCache!!.width.toFloat()
+                            val scaleY = txt.height / txt.bitmapCache!!.height.toFloat()
+
+                            overlayMatrix.postScale(scaleX, scaleY)
+                            overlayMatrix.postRotate(txt.rotation, txt.width / 2f, txt.height / 2f)
+                            overlayMatrix.postTranslate(txt.x, txt.y)
+                            overlayMatrix.postConcat(finalOverlayMatrix)
+
+                            canvas.drawBitmap(txt.bitmapCache!!, overlayMatrix, null)
+                        } else if (!txt.isLatex) {
+                            canvas.withSave {
+                                val overlayMatrix = Matrix()
+                                overlayMatrix.postRotate(txt.rotation, txt.width / 2f, txt.height / 2f)
+                                overlayMatrix.postTranslate(txt.x, txt.y)
+                                overlayMatrix.postConcat(finalOverlayMatrix)
+
+                                canvas.concat(overlayMatrix)
+
+                                val textPaint = android.text.TextPaint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                                    color = txt.color
+                                    textSize = txt.fontSize * 0.3527f
+                                    typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT,
+                                        if (txt.isBold && txt.isItalic) android.graphics.Typeface.BOLD_ITALIC
+                                        else if (txt.isBold) android.graphics.Typeface.BOLD
+                                        else if (txt.isItalic) android.graphics.Typeface.ITALIC
+                                        else android.graphics.Typeface.NORMAL
+                                    )
+                                }
+
+                                val safeWidth = txt.width.toInt().coerceAtLeast(1)
+                                val staticLayout = android.text.StaticLayout.Builder.obtain(
+                                    txt.text, 0, txt.text.length, textPaint, safeWidth
+                                ).setAlignment(android.text.Layout.Alignment.ALIGN_NORMAL).build()
+
+                                staticLayout.draw(canvas)
+                            }
                         }
                     }
 

@@ -73,6 +73,7 @@ class DrawViewModel(
     data class SelectionGroup(
         val images: MutableList<Image> = mutableListOf(),
         val strokes: MutableList<Stroke> = mutableListOf(),
+        val texts: MutableList<Text> = mutableListOf(),
         var boundingBox: RectF = RectF(),
         var pageIndex: Int = -1
     ) {
@@ -512,6 +513,7 @@ class DrawViewModel(
         // 1. Spegni la flag di trascinamento
         selection.images.forEach { it.isDragging = false }
         selection.strokes.forEach { it.isDragging = false }
+        selection.texts.forEach { it.isDragging = false }
 
         // 2. Svuota il gruppo
         currentSelection = null
@@ -548,10 +550,12 @@ class DrawViewModel(
             // 1. Rimuovi dai dati in RAM
             page.imageData.removeAll(selection.images)
             page.strokeData.removeAll(selection.strokes)
+            page.textData.removeAll(selection.texts)
 
             // 2. Rimuovi dal Database (Nota: Assicurati di creare queste funzioni nel Repository!)
             selection.images.forEach { repository.deleteImage(it.dbId) }
             selection.strokes.forEach { repository.deleteStroke(it.dbId) }
+            selection.texts.forEach { repository.deleteText(it.dbId) }
 
             // 3. Rigenera la Bitmap Cache "pulita" senza questi elementi
             page.bitmapPage?.let { oldBitmap ->
@@ -697,8 +701,31 @@ class DrawViewModel(
                     pastedStrokes.add(newStroke)
                 }
 
+                val pastedTexts = mutableListOf<Text>()
+                copiedGroup.texts.forEach { originalText ->
+                    val newText = Text(zIndex = targetPage.textData.size + pastedTexts.size).apply {
+                        dbId = 0
+                        text = originalText.text
+                        isLatex = originalText.isLatex
+                        x = originalText.x + offsetXMm
+                        y = originalText.y + offsetYMm
+                        width = originalText.width
+                        height = originalText.height
+                        rotation = originalText.rotation
+                        color = originalText.color
+                        fontSize = originalText.fontSize
+                        isBold = originalText.isBold
+                        isItalic = originalText.isItalic
+                        isDragging = true
+                        bitmapCache = originalText.bitmapCache // Manteniamo la cache del LaTeX se c'è
+                    }
+                    repository.saveNewText(targetPage.dbId, newText)
+                    pastedTexts.add(newText)
+                }
+
                 targetPage.imageData.addAll(pastedImages)
                 targetPage.strokeData.addAll(pastedStrokes)
+                targetPage.textData.addAll(pastedTexts)
 
                 targetPage.bitmapPage?.let { oldBitmap ->
                     targetPage.bitmapPage = pageMaker.makePage(
@@ -718,6 +745,7 @@ class DrawViewModel(
                 currentSelection = SelectionGroup(
                     images = pastedImages,
                     strokes = pastedStrokes,
+                    texts = pastedTexts,
                     boundingBox = newBoundingBox,
                     pageIndex = targetPageIndex
                 ).apply {
@@ -860,6 +888,24 @@ class DrawViewModel(
             img.y = newCenterY - (img.height / 2f)
         }
 
+        // 5.5 Calcola le nuove coordinate, dimensioni, rotazione e FONT SIZE per i testi
+        selection.texts.forEach { txt ->
+            val centerX = txt.x + (txt.width / 2f)
+            val centerY = txt.y + (txt.height / 2f)
+
+            pts[0] = centerX
+            pts[1] = centerY
+            finalTransform.mapPoints(pts)
+
+            txt.width *= scale
+            txt.height *= scale
+            txt.fontSize *= scale // MAGIA: Il testo vettoriale non si distorce, cambia dimensione del font!
+            txt.rotation = (txt.rotation + angle) % 360f
+
+            txt.x = pts[0] - (txt.width / 2f)
+            txt.y = pts[1] - (txt.height / 2f)
+        }
+
         // 6. Resetta la matrice temporanea perché ora i dati base sono aggiornati in RAM
         selection.transformMatrix.reset()
 
@@ -872,6 +918,9 @@ class DrawViewModel(
             }
             selection.strokes.forEach { stroke ->
                 repository.updateStroke(targetPage.dbId, stroke)
+            }
+            selection.texts.forEach { txt ->
+                repository.updateText(targetPage.dbId, txt)
             }
         }
     }

@@ -9,7 +9,18 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -17,12 +28,34 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.outlined.Description
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -59,7 +92,12 @@ class MainActivity : ComponentActivity() {
                 Scaffold(
                     topBar = {
                         TopAppBar(
-                            title = { Text("I Miei Appunti") },
+                            title = {
+                                Text(
+                                    text = "I Miei Appunti",
+                                    style = MaterialTheme.typography.titleLarge
+                                )
+                            },
                             colors = TopAppBarDefaults.topAppBarColors(
                                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                                 titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
@@ -197,13 +235,23 @@ fun DocumentListScreen(
                     state = dismissState,
                     backgroundContent = {
                         val direction = dismissState.dismissDirection
+
+                        // Uso i colori "Container" per uno sfondo più morbido e moderno
                         val color by animateColorAsState(
-                            when (dismissState.targetValue) {
-                                SwipeToDismissBoxValue.Settled -> Color.LightGray
-                                SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.primaryContainer // Colore Rinomina
-                                SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer // Colore Elimina
-                            }, label = "color"
+                            targetValue = when (dismissState.targetValue) {
+                                SwipeToDismissBoxValue.Settled -> MaterialTheme.colorScheme.background
+                                SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.secondaryContainer // Rinomina
+                                SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer // Elimina
+                            },
+                            label = "color"
                         )
+
+                        // Tint dinamico per le icone basato sul Container
+                        val iconTint = when (direction) {
+                            SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.onSecondaryContainer
+                            SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.onErrorContainer
+                            else -> MaterialTheme.colorScheme.onBackground
+                        }
 
                         val alignment = when (direction) {
                             SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
@@ -218,7 +266,8 @@ fun DocumentListScreen(
                         }
 
                         val scale by animateFloatAsState(
-                            if (dismissState.targetValue == SwipeToDismissBoxValue.Settled) 0.75f else 1f, label = "scale"
+                            targetValue = if (dismissState.targetValue == SwipeToDismissBoxValue.Settled) 0.75f else 1f,
+                            label = "scale"
                         )
 
                         Box(
@@ -228,14 +277,12 @@ fun DocumentListScreen(
                                 .padding(horizontal = 20.dp),
                             contentAlignment = alignment
                         ) {
-                            if (direction != null) {
-                                Icon(
-                                    imageVector = icon,
-                                    contentDescription = "Swipe Action",
-                                    modifier = Modifier.scale(scale),
-                                    tint = if (direction == SwipeToDismissBoxValue.EndToStart) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer
-                                )
-                            }
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = "Swipe Action",
+                                modifier = Modifier.scale(scale),
+                                tint = iconTint // Usiamo il tint calcolato sopra
+                            )
                         }
                     },
                     content = {
@@ -251,7 +298,12 @@ fun DocumentListScreen(
                             // Resetta lo stato di swipe se l'utente annulla
                             coroutineScope.launch { dismissState.reset() }
                         },
-                        title = { Text("Rinomina Documento") },
+                        title = {
+                            Text(
+                                text = "Rinomina Documento",
+                                style = MaterialTheme.typography.titleLarge
+                            )
+                        },
                         text = {
                             OutlinedTextField(
                                 value = newName,
@@ -273,7 +325,7 @@ fun DocumentListScreen(
                                     }
                                 }
                             ) {
-                                Text("Rinomina")
+                                Text("Rinomina", style = MaterialTheme.typography.labelLarge)
                             }
                         },
                         dismissButton = {
@@ -318,19 +370,17 @@ fun DocumentCard(document: DocumentEntity, onClick: () -> Unit) {
                 Text(
                     text = document.name,
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Spacer(modifier = Modifier.height(4.dp))
 
-                // Formattazione leggibile della data
                 val dateString = remember(document.modifiedAt) {
                     SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(document.modifiedAt))
                 }
                 Text(
                     text = "Ultima modifica: $dateString",
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }

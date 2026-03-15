@@ -43,6 +43,7 @@ import androidx.ink.geometry.AffineTransform
 import androidx.ink.geometry.Intersection.intersects
 import androidx.ink.strokes.MutableStrokeInputBatch
 import androidx.ink.strokes.StrokeInput
+import com.studiomath.drawview.document.page.Text
 import kotlin.math.atan2
 import kotlin.math.hypot
 import kotlin.math.max
@@ -400,6 +401,82 @@ class DrawViewModel(
                 repository.saveNewStroke(pageDbId, stroke)
             }
         }
+    }
+
+    // --- STATO DELL'EDITOR DI TESTO ---
+    var activeTextEditPosition by mutableStateOf<PointF?>(null)
+    var activeTextEditItem by mutableStateOf<Text?>(null)
+    var activeTextPageIndex by mutableStateOf(-1)
+
+    /**
+     * Chiamata da Compose quando l'utente preme "Inserisci".
+     * Salva il testo (nuovo o modificato) nella RAM e nel Database.
+     */
+    fun finishTextEditing(text: String, isLatex: Boolean, color: Int, fontSize: Float, isBold: Boolean, isItalic: Boolean) {
+        val pos = activeTextEditPosition ?: return
+        val pageIndex = activeTextPageIndex
+        if (pageIndex == -1) return
+
+        val doc = documentData ?: return
+        val page = doc.pages.getOrNull(pageIndex) ?: return
+
+        if (text.isNotBlank()) {
+            viewModelScope.launch(Dispatchers.Default) {
+                // Se activeTextEditItem è nullo, stiamo creando un NUOVO testo.
+                val textObj = activeTextEditItem ?: Text(page.textData.size).apply {
+                    // Convertiamo i pixel dello schermo in millimetri della pagina
+                    val pageInfo = drawManager.pagesRectOnWindow.find { it.index == pageIndex }
+                    if (pageInfo != null) {
+                        val scaleX = page.width / pageInfo.rect.width()
+                        val scaleY = page.height / pageInfo.rect.height()
+                        this.x = (pos.x - pageInfo.rect.left) * scaleX
+                        this.y = (pos.y - pageInfo.rect.top) * scaleY
+                    }
+                }
+
+                // Aggiorniamo i campi
+                textObj.text = text
+                textObj.isLatex = isLatex
+                textObj.color = color
+                textObj.fontSize = fontSize
+                textObj.isBold = isBold
+                textObj.isItalic = isItalic
+
+                // Salviamo nel DB
+                if (textObj.dbId == 0) {
+                    repository.saveNewText(page.dbId, textObj)
+                    page.textData.add(textObj)
+                } else {
+                    repository.updateText(page.dbId, textObj)
+                }
+
+                // Chiudiamo l'editor
+                activeTextEditPosition = null
+                activeTextEditItem = null
+                activeTextPageIndex = -1
+
+                // NOTA: Il rendering sul Canvas avverrà nella Fase 3.
+                // Per ora inviamo solo la richiesta di aggiornamento.
+                page.bitmapPage?.let { oldBitmap ->
+                    page.bitmapPage = pageMaker.makePage(
+                        android.graphics.Rect(0, 0, oldBitmap.width, oldBitmap.height), null, page, doc
+                    )
+                }
+                drawManager.requestDraw(
+                    DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                        update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                    }
+                )
+            }
+        } else {
+            cancelTextEditing() // Se è vuoto, annulla.
+        }
+    }
+
+    fun cancelTextEditing() {
+        activeTextEditPosition = null
+        activeTextEditItem = null
+        activeTextPageIndex = -1
     }
 
     /**

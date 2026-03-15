@@ -32,6 +32,7 @@ class DrawDocumentRepository(context: Context) {
     private val documentDao = db.documentDao()
     private val pageDao = db.pageDao()
     private val strokeDao = db.strokeDao()
+    private val textDao = db.textDao()
     private val resourceDao = db.resourceDao()
     private val imageDao = db.imageDao()
     private val pdfDao = db.pdfDao()
@@ -94,7 +95,26 @@ class DrawDocumentRepository(context: Context) {
                     }
                 }
 
-                // 4b. Map Images
+                // 4b. Map Texts
+                pageWithContent.texts.forEach { textEntity ->
+                    val textObj = com.studiomath.drawview.document.page.Text(textEntity.zIndex).apply {
+                        dbId = textEntity.id
+                        text = textEntity.text
+                        isLatex = textEntity.isLatex
+                        x = textEntity.x
+                        y = textEntity.y
+                        width = textEntity.width
+                        height = textEntity.height
+                        rotation = textEntity.rotation
+                        color = textEntity.color
+                        fontSize = textEntity.fontSize
+                        isBold = textEntity.isBold
+                        isItalic = textEntity.isItalic
+                    }
+                    domainPage.textData.add(textObj)
+                }
+
+                // 4c. Map Images
                 pageWithContent.images.forEach { dbImage ->
                     domainPage.imageData.add(
                         Image(dbImage.zIndex).apply {
@@ -109,7 +129,7 @@ class DrawDocumentRepository(context: Context) {
                     )
                 }
 
-                // 4c. Map PDFs
+                // 4d. Map PDFs
                 pageWithContent.pdfs.forEach { dbPdf ->
                     domainPage.pdfData.add(Pdf(dbPdf.zIndex, dbPdf.pdfPageIndex).apply { id = dbPdf.resourceId })
                 }
@@ -220,6 +240,51 @@ class DrawDocumentRepository(context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Error updating stroke in DB", e)
         }
+    }
+
+    suspend fun saveNewText(pageId: Int, textObj: com.studiomath.drawview.document.page.Text): Int = withContext(Dispatchers.IO) {
+        val entity = TextEntity(
+            pageId = pageId,
+            zIndex = textObj.zIndex,
+            text = textObj.text,
+            isLatex = textObj.isLatex,
+            x = textObj.x,
+            y = textObj.y,
+            width = textObj.width,
+            height = textObj.height,
+            rotation = textObj.rotation,
+            color = textObj.color,
+            fontSize = textObj.fontSize,
+            isBold = textObj.isBold,
+            isItalic = textObj.isItalic
+        )
+        val id = textDao.insert(entity).toInt()
+        textObj.dbId = id
+        return@withContext id
+    }
+
+    suspend fun updateText(pageId: Int, textObj: com.studiomath.drawview.document.page.Text) = withContext(Dispatchers.IO) {
+        val entity = TextEntity(
+            id = textObj.dbId, // FONDAMENTALE per aggiornare la riga corretta!
+            pageId = pageId,
+            zIndex = textObj.zIndex,
+            text = textObj.text,
+            isLatex = textObj.isLatex,
+            x = textObj.x,
+            y = textObj.y,
+            width = textObj.width,
+            height = textObj.height,
+            rotation = textObj.rotation,
+            color = textObj.color,
+            fontSize = textObj.fontSize,
+            isBold = textObj.isBold,
+            isItalic = textObj.isItalic
+        )
+        textDao.update(entity)
+    }
+
+    suspend fun deleteText(textId: Int) = withContext(Dispatchers.IO) {
+        textDao.deleteById(textId)
     }
 
     /**

@@ -122,6 +122,35 @@ data class StrokeEntity(
     }
 }
 
+@Entity(
+    tableName = "texts",
+    foreignKeys = [
+        ForeignKey(
+            entity = PageEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["pageId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("pageId")]
+)
+data class TextEntity(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val pageId: Int,
+    val zIndex: Int,
+    val text: String,
+    val isLatex: Boolean,
+    val x: Float, // mm
+    val y: Float, // mm
+    val width: Float, // mm
+    val height: Float, // mm
+    val rotation: Float, // gradi
+    val color: Int,
+    val fontSize: Float,
+    val isBold: Boolean,
+    val isItalic: Boolean
+)
+
 /**
  * Table for Images inside a page.
  * Stores physical coordinates (x, y, width, height) and rotation.

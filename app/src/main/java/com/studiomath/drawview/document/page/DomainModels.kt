@@ -102,6 +102,30 @@ data class Stroke(val zIndex: Int) {
 }
 
 /**
+ * Rappresenta un blocco di testo o una formula LaTeX sulla pagina.
+ */
+class Text(var zIndex: Int) {
+    var dbId: Int = 0
+    var text: String = ""
+    var isLatex: Boolean = false
+    var x: Float = 0f
+    var y: Float = 0f
+    var width: Float = 50f
+    var height: Float = 20f
+    var rotation: Float = 0f
+    var color: Int = android.graphics.Color.BLACK
+    var fontSize: Float = 16f
+    var isBold: Boolean = false
+    var isItalic: Boolean = false
+
+    // Stato per il drag & drop col Lazo
+    var isDragging: Boolean = false
+
+    // Cache per evitare di renderizzare LaTeX continuamente ad ogni frame
+    var bitmapCache: Bitmap? = null
+}
+
+/**
  * Represents an image placed on a document page.
  * Stores physical coordinates (in millimeters) to remain resolution-independent.
  */
@@ -136,6 +160,7 @@ data class Page(val index: Int) {
     var bitmapPage: Bitmap? = null
 
     val strokeData = mutableListOf<Stroke>()
+    val textData = mutableListOf<Text>()
     val imageData = mutableListOf<Image>()
     val pdfData = mutableListOf<Pdf>()
 

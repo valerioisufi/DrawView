@@ -1,5 +1,7 @@
 package com.studiomath.drawview.document.page
 
+import android.R.attr.textSize
+import android.R.attr.typeface
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -9,8 +11,12 @@ import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.BitmapFactory
+import android.graphics.Typeface
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
+import android.text.Layout
+import android.text.StaticLayout
+import android.text.TextPaint
 import android.util.DisplayMetrics
 import android.util.Log
 import androidx.core.graphics.createBitmap
@@ -24,6 +30,7 @@ import java.io.File
 import kotlin.math.max
 import kotlin.math.min
 import androidx.core.graphics.withClip
+import androidx.core.graphics.withSave
 
 /**
  * Handles the generation and rendering of document pages onto Bitmaps.
@@ -222,6 +229,78 @@ class PageMaker(
             }
 
             /**
+             * 2.5 Render Text & LaTeX
+             */
+            val textsSnapshot = page.textData.toList()
+            if (textsSnapshot.isNotEmpty()) {
+                for (textItem in textsSnapshot) {
+                    // Ignora il testo se è in fase di trascinamento col Lazo (verrà disegnato in overlay dal DrawManager)
+                    if (textItem.isDragging) continue
+
+                    if (textItem.isLatex) {
+                        // --- RENDERING FORMULE LATEX ---
+                        if (textItem.bitmapCache == null) {
+                            textItem.bitmapCache = generateLatexBitmap(textItem)
+                        }
+
+                        textItem.bitmapCache?.let { bmp ->
+                            val textMatrix = Matrix()
+
+                            // Adattiamo la bitmap ad alta risoluzione alle dimensioni in millimetri richieste
+                            val scaleX = textItem.width / bmp.width.toFloat()
+                            val scaleY = textItem.height / bmp.height.toFloat()
+                            textMatrix.postScale(scaleX, scaleY)
+
+                            val centerX = textItem.width / 2f
+                            val centerY = textItem.height / 2f
+
+                            textMatrix.postRotate(textItem.rotation, centerX, centerY)
+                            textMatrix.postTranslate(textItem.x, textItem.y)
+                            textMatrix.postConcat(strokePathMatrix) // Mappatura da mm a pixel schermo
+
+                            canvas.drawBitmap(bmp, textMatrix, null)
+                        }
+                    } else {
+                        // --- RENDERING TESTO VETTORIALE NORMALE ---
+                        canvas.withSave {
+                            val textMatrix = Matrix()
+                            val centerX = textItem.width / 2f
+                            val centerY = textItem.height / 2f
+
+                            textMatrix.postRotate(textItem.rotation, centerX, centerY)
+                            textMatrix.postTranslate(textItem.x, textItem.y)
+                            textMatrix.postConcat(strokePathMatrix)
+
+                            // Applichiamo la trasformazione al Canvas: ora stiamo disegnando in scala millimetrica esatta!
+                            canvas.concat(textMatrix)
+
+                            val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                                color = textItem.color
+                                // 1 punto tipografico (pt) equivale a circa 0.3527 millimetri fisici
+                                textSize = textItem.fontSize * 0.3527f
+                                typeface = Typeface.create(Typeface.DEFAULT,
+                                    if (textItem.isBold && textItem.isItalic) Typeface.BOLD_ITALIC
+                                    else if (textItem.isBold) Typeface.BOLD
+                                    else if (textItem.isItalic) Typeface.ITALIC
+                                    else Typeface.NORMAL
+                                )
+                            }
+
+                            // Usiamo StaticLayout per gestire automaticamente gli "A capo" (word wrap)
+                            // Assicuriamoci che la larghezza minima sia 1 per evitare crash matematici
+                            val safeWidth = textItem.width.toInt().coerceAtLeast(1)
+                            val staticLayout = StaticLayout.Builder.obtain(
+                                textItem.text, 0, textItem.text.length, textPaint, safeWidth
+                            ).setAlignment(Layout.Alignment.ALIGN_NORMAL).build()
+
+                            // Disegna vettorialmente il testo sul foglio
+                            staticLayout.draw(canvas)
+                        }
+                    }
+                }
+            }
+
+            /**
              * 3. Render Vector Strokes
              */
             // FIX CONCURRENCY: Creiamo una copia "fotografia" della lista per iterarla in sicurezza
@@ -285,6 +364,46 @@ class PageMaker(
 
         for (pageRect in pagesRect) {
             canvas.drawRect(pageRect.rect, windowBackgroundWithShadowPaint)
+        }
+    }
+
+    /**
+     * Genera una Bitmap ad alta risoluzione partendo da una stringa LaTeX.
+     * NOTA: Per farla funzionare, devi aggiungere una libreria nel tuo build.gradle,
+     * ad esempio: implementation("ru.noties:jlatexmath-android:0.3.1")
+     */
+    private fun generateLatexBitmap(textItem: com.studiomath.drawview.document.page.Text): Bitmap? {
+        try {
+            // SCOMMENTA QUESTO BLOCCO UNA VOLTA INCLUSA LA LIBRERIA JLaTeXMath
+            /*
+            val drawable = ru.noties.jlatexmath.JLatexMathDrawable.builder(textItem.text)
+                .textSize(textItem.fontSize * 10f) // Moltiplichiamo per 10 per avere una super-risoluzione
+                .color(textItem.color)
+                .background(android.graphics.Color.TRANSPARENT)
+                .build()
+                
+            val bitmap = Bitmap.createBitmap(drawable.intrinsicWidth, drawable.intrinsicHeight, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            drawable.setBounds(0, 0, canvas.width, canvas.height)
+            drawable.draw(canvas)
+
+            // Aggiorna le proporzioni millimetriche corrette in base al risultato matematico
+            val ratio = bitmap.height.toFloat() / bitmap.width.toFloat()
+            textItem.height = textItem.width * ratio
+
+            return bitmap
+            */
+
+            // FALLBACK TEMPORANEO (Rimuovilo quando metti la libreria)
+            val fallbackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = textItem.color; textSize = 60f }
+            val w = fallbackPaint.measureText(textItem.text).toInt().coerceAtLeast(10)
+            val bmp = createBitmap(w, 80)
+            Canvas(bmp).drawText(textItem.text, 0f, 60f, fallbackPaint)
+            return bmp
+
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return null
         }
     }
 }

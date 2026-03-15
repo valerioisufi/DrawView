@@ -273,11 +273,30 @@ class OnTouchHover(
         /**
          * Handle drawing inputs (Stylus or Single Finger)
          */
-        isStrokeInProgress = (event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS ||
+        val isDrawingInput = (event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS ||
                 (event.pointerCount == 1 && !isStylusActive && !onScaleTranslate.continueScaleTranslate)) &&
                 drawViewModel.selectedTool != DrawViewModel.ToolUtilities.Tool.PAN
 
-        // Dato che abbiamo scelto la "Scia", la Gomma passa da qui come tutti gli altri strumenti!
+        val isTextTool = drawViewModel.selectedTool == DrawViewModel.ToolUtilities.Tool.TEXT
+
+        // Se è lo strumento Testo, dirottiamo l'evento!
+        if (isDrawingInput && isTextTool && currentDragState == DragState.NONE) {
+            if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                // Troviamo quale pagina ha toccato l'utente
+                val pageInfo = drawViewModel.drawManager.pagesRectOnWindow.find { it.rect.contains(event.x, event.y) }
+                if (pageInfo != null) {
+                    drawViewModel.activeTextEditPosition = android.graphics.PointF(event.x, event.y)
+                    drawViewModel.activeTextPageIndex = pageInfo.index
+                    drawViewModel.activeTextEditItem = null // Crea un nuovo elemento
+                    drawViewModel.drawManager.scroller.forceFinished(true)
+                }
+            }
+            return@OnTouchListener true
+        }
+
+        // Se non è il testo, procedi con i tratti normali (Penna, Gomma, Lazo, ecc.)
+        isStrokeInProgress = isDrawingInput && !isTextTool
+
         if (isStrokeInProgress && currentDragState == DragState.NONE) {
             handleStrokeEvent(view, event)
             return@OnTouchListener true

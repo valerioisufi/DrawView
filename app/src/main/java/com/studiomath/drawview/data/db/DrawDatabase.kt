@@ -16,6 +16,7 @@ import androidx.room.RoomDatabase
         DocumentEntity::class,
         PageEntity::class,
         StrokeEntity::class,
+        TextEntity::class,
         ImageEntity::class,
         PdfEntity::class,
         ResourceEntity::class
@@ -29,6 +30,7 @@ abstract class DrawDatabase : RoomDatabase() {
     abstract fun documentDao(): DocumentDao
     abstract fun pageDao(): PageDao
     abstract fun strokeDao(): StrokeDao
+    abstract fun textDao(): TextDao
     abstract fun imageDao(): ImageDao
     abstract fun pdfDao(): PdfDao
     abstract fun resourceDao(): ResourceDao

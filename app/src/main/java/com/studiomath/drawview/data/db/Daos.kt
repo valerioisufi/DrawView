@@ -35,6 +35,12 @@ data class PageWithContent(
         parentColumn = "id",
         entityColumn = "pageId"
     )
+    val texts: List<TextEntity>,
+
+    @Relation(
+        parentColumn = "id",
+        entityColumn = "pageId"
+    )
     val images: List<ImageEntity>,
 
     @Relation(
@@ -129,6 +135,21 @@ interface StrokeDao {
     /** Clears all strokes from a page (useful for a "Clear Page" tool). */
     @Query("DELETE FROM strokes WHERE pageId = :pageId")
     suspend fun deleteAllFromPage(pageId: Int)
+}
+
+@Dao
+interface TextDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(text: TextEntity): Long
+
+    @Query("SELECT * FROM texts WHERE pageId = :pageId ORDER BY zIndex ASC")
+    suspend fun getTextsForPage(pageId: Int): List<TextEntity>
+
+    @Update
+    suspend fun update(text: TextEntity)
+
+    @Query("DELETE FROM texts WHERE id = :textId")
+    suspend fun deleteById(textId: Int)
 }
 
 @Dao

@@ -662,45 +662,6 @@ class DrawViewModel(
         contextMenuPosition = null
     }
 
-
-    // --- TOOL UTILITIES ---
-    data class ToolUtilities(val toolType: Tool){
-        enum class Tool {
-            INK_PEN, INK_HIGHLIGHTER, ERASER, TEXT, LAZO, PAN, SELECT_OBJECT // Added SELECT_OBJECT
-        }
-
-        data class BrushSettings(
-            val size: Float,
-            val color: Int
-        )
-
-        private var brushList = mutableListOf<BrushSettings>()
-
-        fun getBrush(index: Int): Brush{
-            if (index >= brushList.size) {
-                when(toolType){
-                    Tool.INK_PEN -> brushList.add(BrushSettings(3f, Color.BLUE))
-                    Tool.INK_HIGHLIGHTER -> brushList.add(BrushSettings(15f, Color.argb(0.25f, 1f, 1f, 0f)))
-                    Tool.ERASER -> brushList.add(BrushSettings(20f, Color.argb(0.8f, 1f, 1f, 1f)))
-                    Tool.LAZO -> brushList.add(BrushSettings(2f, Color.argb(1f, 0.53f, 0.6f, 0.7f)))
-                    else -> brushList.add(BrushSettings(4f, Color.BLACK))
-                }
-            }
-            val family = when(toolType){
-                Tool.INK_PEN -> StockBrushes.pressurePen()
-                Tool.INK_HIGHLIGHTER -> StockBrushes.highlighter()
-                Tool.LAZO -> StockBrushes.dashedLine()
-                else -> StockBrushes.marker()
-            }
-            return Brush.createWithColorIntArgb(
-                family = family,
-                colorIntArgb = brushList[index].color,
-                size = brushList[index].size,
-                epsilon = 0.1F
-            )
-        }
-    }
-
     /**
      * Fissa la trasformazione temporanea applicandola definitivamente alle
      * coordinate fisiche di immagini e tratti, per poi salvarli nel DB.
@@ -829,6 +790,45 @@ class DrawViewModel(
             selection.strokes.forEach { stroke ->
                 repository.updateStroke(targetPage.dbId, stroke)
             }
+        }
+    }
+
+
+    // --- TOOL UTILITIES ---
+    data class ToolUtilities(val toolType: Tool){
+        enum class Tool {
+            INK_PEN, INK_HIGHLIGHTER, ERASER, TEXT, LAZO, PAN, SELECT_OBJECT // Added SELECT_OBJECT
+        }
+
+        data class BrushSettings(
+            val size: Float,
+            val color: Int
+        )
+
+        private var brushList = mutableListOf<BrushSettings>()
+
+        fun getBrush(index: Int): Brush{
+            if (index >= brushList.size) {
+                when(toolType){
+                    Tool.INK_PEN -> brushList.add(BrushSettings(3f, Color.BLUE))
+                    Tool.INK_HIGHLIGHTER -> brushList.add(BrushSettings(15f, Color.argb(0.25f, 1f, 1f, 0f)))
+                    Tool.ERASER -> brushList.add(BrushSettings(20f, Color.argb(0.8f, 1f, 1f, 1f)))
+                    Tool.LAZO -> brushList.add(BrushSettings(2f, Color.argb(1f, 0.53f, 0.6f, 0.7f)))
+                    else -> brushList.add(BrushSettings(4f, Color.BLACK))
+                }
+            }
+            val family = when(toolType){
+                Tool.INK_PEN -> StockBrushes.pressurePen()
+                Tool.INK_HIGHLIGHTER -> StockBrushes.highlighter()
+                Tool.LAZO -> StockBrushes.dashedLine()
+                else -> StockBrushes.marker()
+            }
+            return Brush.createWithColorIntArgb(
+                family = family,
+                colorIntArgb = brushList[index].color,
+                size = brushList[index].size,
+                epsilon = 0.1F
+            )
         }
     }
 

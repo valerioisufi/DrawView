@@ -58,8 +58,6 @@ class OnTouchHover(
     private var initialCenterX = 0f
     private var initialCenterY = 0f
 
-    private var draggedImage: Image? = null
-    private var draggedImagePageDbId: Int? = null
     private var lastTouchX: Float = 0f
     private var lastTouchY: Float = 0f
     private var dragScaleMmPerPx: Float = 1f // Ratio to convert screen pixels to physical mm
@@ -257,91 +255,6 @@ class OnTouchHover(
             }
         }
 
-        // --- LOGICA IMMAGINE SINGOLA (se non stiamo trascinando un gruppo) ---
-        if (isSelectObjectMode && currentDragState == DragState.NONE) {
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    draggedImage = null
-                    val doc = drawViewModel.documentData
-                    if (doc != null) {
-                        for (pageRectWithIndex in drawViewModel.drawManager.pagesRectOnWindow) {
-                            val rect = pageRectWithIndex.rect
-                            if (rect.contains(event.x, event.y)) {
-                                val page = doc.pages.getOrNull(pageRectWithIndex.index) ?: continue
-
-                                val scaleX = page.width / rect.width()
-                                val scaleY = page.height / rect.height()
-
-                                val xMm = (event.x - rect.left) * scaleX
-                                val yMm = (event.y - rect.top) * scaleY
-
-                                for (i in page.imageData.indices.reversed()) {
-                                    val img = page.imageData[i]
-                                    if (xMm >= img.x && xMm <= img.x + img.width &&
-                                        yMm >= img.y && yMm <= img.y + img.height) {
-
-                                        draggedImage = img
-                                        draggedImagePageDbId = page.dbId
-                                        lastTouchX = event.x
-                                        lastTouchY = event.y
-                                        dragScaleMmPerPx = scaleX
-
-                                        img.isDragging = true
-                                        drawViewModel.drawManager.activeDraggedImage = img
-
-                                        drawViewModel.drawManager.requestDraw(
-                                            DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                                                update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
-                                            }
-                                        )
-
-                                        drawViewModel.drawManager.scroller.forceFinished(true)
-                                        return@OnTouchListener true
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    draggedImage?.let { img ->
-                        val dxPx = event.x - lastTouchX
-                        val dyPx = event.y - lastTouchY
-
-                        img.x += dxPx * dragScaleMmPerPx
-                        img.y += dyPx * dragScaleMmPerPx
-
-                        lastTouchX = event.x
-                        lastTouchY = event.y
-
-                        drawViewModel.drawManager.requestDraw(
-                            DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.REFRESH)
-                        )
-                        return@OnTouchListener true
-                    }
-                }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    draggedImage?.let { img ->
-                        img.isDragging = false
-                        drawViewModel.drawManager.activeDraggedImage = null
-
-                        draggedImagePageDbId?.let { pageDbId ->
-                            drawViewModel.updateImageInDatabase(pageDbId, img)
-                        }
-
-                        drawViewModel.drawManager.requestDraw(
-                            DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                                update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
-                            }
-                        )
-
-                        draggedImage = null
-                        draggedImagePageDbId = null
-                        return@OnTouchListener true
-                    }
-                }
-            }
-        }
 
         if (isPalmDetected(event)) {
             cancelCurrentStroke(event)
@@ -353,8 +266,7 @@ class OnTouchHover(
          */
         isStrokeInProgress = (event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS ||
                 (event.pointerCount == 1 && !isStylusActive && !onScaleTranslate.continueScaleTranslate)) &&
-                drawViewModel.selectedTool != DrawViewModel.ToolUtilities.Tool.PAN &&
-                !isSelectObjectMode // Cannot draw if select mode is active
+                drawViewModel.selectedTool != DrawViewModel.ToolUtilities.Tool.PAN
 
         if (isStrokeInProgress && currentDragState == DragState.NONE) {
             handleStrokeEvent(view, event)
@@ -367,7 +279,7 @@ class OnTouchHover(
         val isScalePanInput = (event.pointerCount == 1 || event.pointerCount == 2) &&
                 event.getToolType(0) != MotionEvent.TOOL_TYPE_STYLUS ||
                 drawViewModel.selectedTool == DrawViewModel.ToolUtilities.Tool.PAN ||
-                (isSelectObjectMode && draggedImage == null && currentDragState == DragState.NONE)
+                currentDragState == DragState.NONE
 
         if (isScalePanInput) {
             onScaleTranslate.onScaleTranslate(view.context, event)

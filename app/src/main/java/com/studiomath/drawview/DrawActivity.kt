@@ -463,12 +463,76 @@ fun DrawActivity(
                         )
                     }
 
+                    var lazoSettingsExpanded by remember { mutableStateOf(false) }
+
                     ToolButton(
                         onClick = {
+                            if (drawViewModel.selectedTool == ToolUtilities.Tool.LAZO) {
+                                lazoSettingsExpanded = true
+                            } else {
+                                drawViewModel.activeBrush = drawViewModel.lazoTool.getBrush(0)
+                                drawViewModel.selectedTool = ToolUtilities.Tool.LAZO
+                            }
+                        },
+                        onLongClick = {
                             drawViewModel.activeBrush = drawViewModel.lazoTool.getBrush(0)
                             drawViewModel.selectedTool = ToolUtilities.Tool.LAZO
+                            lazoSettingsExpanded = true
                         },
-                        selected = drawViewModel.selectedTool == ToolUtilities.Tool.LAZO
+                        selected = drawViewModel.selectedTool == ToolUtilities.Tool.LAZO,
+                        dropDownMenu = {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                horizontalAlignment = Alignment.Start // L'allineamento a sinistra è più elegante per i menu a scelta
+                            ) {
+                                Text(
+                                    text = "Modalità Lazo",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(bottom = 12.dp)
+                                )
+
+                                // Opzione 1: Seleziona Tutto (Tratti + Immagini)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(MaterialTheme.shapes.small)
+                                        .combinedClickable(
+                                            onClick = { drawViewModel.lassoMode = DrawViewModel.LassoMode.ALL }
+                                        )
+                                        .padding(vertical = 8.dp, horizontal = 4.dp)
+                                ) {
+                                    androidx.compose.material3.RadioButton(
+                                        selected = drawViewModel.lassoMode == DrawViewModel.LassoMode.ALL,
+                                        onClick = { drawViewModel.lassoMode = DrawViewModel.LassoMode.ALL }
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(text = "Seleziona Tutto")
+                                }
+
+                                // Opzione 2: Solo Immagini
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(MaterialTheme.shapes.small)
+                                        .combinedClickable(
+                                            onClick = { drawViewModel.lassoMode = DrawViewModel.LassoMode.IMAGES_ONLY }
+                                        )
+                                        .padding(vertical = 8.dp, horizontal = 4.dp)
+                                ) {
+                                    androidx.compose.material3.RadioButton(
+                                        selected = drawViewModel.lassoMode == DrawViewModel.LassoMode.IMAGES_ONLY,
+                                        onClick = { drawViewModel.lassoMode = DrawViewModel.LassoMode.IMAGES_ONLY }
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(text = "Solo Immagini")
+                                }
+                            }
+                        },
+                        expanded = lazoSettingsExpanded,
+                        onDismissRequest = { lazoSettingsExpanded = false }
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.icon_lasso_select),

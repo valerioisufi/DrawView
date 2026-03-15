@@ -76,6 +76,10 @@ class DrawViewModel(
     }
 
     var currentSelection by mutableStateOf<SelectionGroup?>(null)
+    // --- OPZIONI DEL LAZO ---
+    enum class LassoMode { ALL, IMAGES_ONLY }
+    var lassoMode by mutableStateOf(LassoMode.ALL)
+
     var clipboard by mutableStateOf<SelectionGroup?>(null)
 
     // Stato per il menu a comparsa (Long Press)
@@ -689,21 +693,95 @@ class DrawViewModel(
     fun applySelectionTransformation() {
         val selection = currentSelection ?: return
         val doc = documentData ?: return
-        val page = doc.pages.getOrNull(selection.pageIndex) ?: return
 
-        // 1. Applica la matrice nativa ai tratti
-        selection.strokes.forEach { stroke ->
-            stroke.applyTransform(selection.transformMatrix)
+        val oldPageIndex = selection.pageIndex
+        val oldPageInfo = drawManager.pagesRectOnWindow.find { it.index == oldPageIndex } ?: return
+        val oldPage = doc.pages.getOrNull(oldPageIndex) ?: return
+
+        // --- GESTIONE DRAG & DROP MULTIPAGINA ---
+        // 1. Troviamo dove si trova attualmente il centro della selezione sullo schermo (in pixel)
+        val oldMmToScreenMatrix = Matrix().apply {
+            setRectToRect(oldPage.rect(), oldPageInfo.rect, Matrix.ScaleToFit.CENTER)
+        }
+        val screenBoundingBox = RectF()
+        oldMmToScreenMatrix.mapRect(screenBoundingBox, selection.boundingBox)
+
+        val screenCenterX = screenBoundingBox.centerX()
+        val screenCenterY = screenBoundingBox.centerY()
+
+        // 2. Cerchiamo la pagina che si trova sotto al centro della selezione
+        // Se cadiamo nel "vuoto" tra due pagine, il fallback (?:) lo tiene ancorato alla pagina vecchia
+        val targetPageInfo = drawManager.pagesRectOnWindow.find { it.rect.contains(screenCenterX, screenCenterY) } ?: oldPageInfo
+        val targetPageIndex = targetPageInfo.index
+        val targetPage = doc.pages.getOrNull(targetPageIndex) ?: return
+
+        val isPageChanged = oldPageIndex != targetPageIndex
+
+        // La matrice base di trasformazione (che contiene lo spostamento/zoom dell'utente)
+        val finalTransform = Matrix(selection.transformMatrix)
+
+        if (isPageChanged) {
+            // Se abbiamo trascinato gli elementi su una nuova pagina, dobbiamo convertire
+            // le loro coordinate fisiche: Millimetri Vecchia Pagina -> Pixel Schermo -> Millimetri Nuova Pagina
+            val screenToNewMmMatrix = Matrix()
+            val newMmToScreenMatrix = Matrix().apply {
+                setRectToRect(targetPage.rect(), targetPageInfo.rect, Matrix.ScaleToFit.CENTER)
+            }
+            newMmToScreenMatrix.invert(screenToNewMmMatrix)
+
+            val oldMmToNewMmMatrix = Matrix()
+            oldMmToNewMmMatrix.postConcat(oldMmToScreenMatrix)
+            oldMmToNewMmMatrix.postConcat(screenToNewMmMatrix)
+
+            // Aggiungiamo questa "migrazione di pagina" alla trasformazione finale
+            finalTransform.postConcat(oldMmToNewMmMatrix)
+
+            // Aggiorniamo il Bounding Box e l'indice per ancorare la UI alla nuova pagina!
+            oldMmToNewMmMatrix.mapRect(selection.boundingBox)
+            selection.pageIndex = targetPageIndex
+
+            // Trasferiamo fisicamente gli oggetti nelle liste in RAM
+            oldPage.imageData.removeAll(selection.images)
+            oldPage.strokeData.removeAll(selection.strokes)
+
+            targetPage.imageData.addAll(selection.images)
+            targetPage.strokeData.addAll(selection.strokes)
+
+            // --- FIX EFFETTO FANTASMA ---
+            // Rigeneriamo immediatamente la cache della VECCHIA pagina in background.
+            // Dato che gli elementi sono stati rimossi dalle sue liste, la nuova "fotografia"
+            // della vecchia pagina sarà pulita e senza fantasmi.
+            viewModelScope.launch(Dispatchers.Default) {
+                oldPage.bitmapPage?.let { oldBitmap ->
+                    oldPage.bitmapPage = pageMaker.makePage(
+                        android.graphics.Rect(0, 0, oldBitmap.width, oldBitmap.height), null, oldPage, doc
+                    )
+                }
+
+                // Diciamo al DrawManager di stampare a schermo la vecchia pagina pulita
+                drawManager.requestDraw(
+                    DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                        update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                    }
+                )
+            }
         }
 
-        // 2. Estraiamo i valori matematici di Scala e Rotazione dalla matrice
+        // --- APPLICAZIONE DELLE TRASFORMAZIONI FISICHE ---
+
+        // 3. Applica la matrice nativa (C++) ai tratti
+        selection.strokes.forEach { stroke ->
+            stroke.applyTransform(finalTransform)
+        }
+
+        // 4. Estraiamo i valori matematici di Scala e Rotazione per le immagini
         val values = FloatArray(9)
-        selection.transformMatrix.getValues(values)
+        finalTransform.getValues(values)
 
         val scale = hypot(values[Matrix.MSCALE_X].toDouble(), values[Matrix.MSKEW_Y].toDouble()).toFloat()
         val angle = Math.toDegrees(atan2(values[Matrix.MSKEW_Y].toDouble(), values[Matrix.MSCALE_X].toDouble())).toFloat()
 
-        // 3. Calcola le nuove coordinate, dimensioni e rotazione per le immagini
+        // 5. Calcola le nuove coordinate, dimensioni e rotazione
         val pts = FloatArray(2)
         selection.images.forEach { img ->
             val centerX = img.x + (img.width / 2f)
@@ -711,7 +789,7 @@ class DrawViewModel(
 
             pts[0] = centerX
             pts[1] = centerY
-            selection.transformMatrix.mapPoints(pts)
+            finalTransform.mapPoints(pts)
             val newCenterX = pts[0]
             val newCenterY = pts[1]
 
@@ -723,19 +801,18 @@ class DrawViewModel(
             img.y = newCenterY - (img.height / 2f)
         }
 
-        // 4. Resetta la matrice temporanea perché ora i dati base sono aggiornati in RAM!
+        // 6. Resetta la matrice temporanea perché ora i dati base sono aggiornati in RAM
         selection.transformMatrix.reset()
 
-        // FIX CRUCIALE: NON mettiamo isDragging = false e NON rigeneriamo la cache qui.
-        // Gli elementi sono ancora selezionati, quindi devono restare nascosti dallo sfondo e visibili solo in overlay!
-
-        // 5. Salva in Background nel Database per persistenza (non influenza la UI istantanea)
+        // 7. Salva in Background nel Database (e migra di pagina automaticamente!)
         viewModelScope.launch(Dispatchers.IO) {
             selection.images.forEach { img ->
-                repository.updateImage(page.dbId, img)
+                // NOTA: Passando targetPage.dbId, Room capisce da solo che deve aggiornare il "pageId"
+                // trasferendo ufficialmente l'elemento nel Database!
+                repository.updateImage(targetPage.dbId, img)
             }
             selection.strokes.forEach { stroke ->
-                repository.updateStroke(page.dbId, stroke)
+                repository.updateStroke(targetPage.dbId, stroke)
             }
         }
     }

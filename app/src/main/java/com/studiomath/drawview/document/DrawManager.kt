@@ -79,9 +79,6 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     /** Set containing the currently visible pages and their mapped screen coordinates. */
     var pagesRectOnWindow = mutableSetOf<CalcPage.PageRectWithIndex>()
 
-    /** Oggetto attualmente "sollevato" dall'utente per essere disegnato in overlay fluido */
-    var activeDraggedImage: com.studiomath.drawview.document.page.Image? = null
-
     /**
      * Converts a physical dimension (Measure) into screen pixels relative to the current zoom level.
      *
@@ -205,20 +202,21 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                         // dato che Tratti e Lazo sono già nello stesso spazio (mm)
                         val identityTransform = AffineTransform.IDENTITY
 
-                        // Intersezione Tratti
-                        for (stroke in page.strokeData) {
-                            val nativeStroke = stroke.stroke ?: continue
-                            // Se il tratto tocca la forma chiusa del lazo...
-                            if (nativeStroke.shape.intersects(selectionRegion, identityTransform, identityTransform)) {
-                                newSelection.strokes.add(stroke)
-                                stroke.isDragging = true // Metti in overlay!
+                        // Intersezione Tratti (Saltiamo se la modalità è IMAGES_ONLY)
+                        if (drawViewModel.lassoMode != DrawViewModel.LassoMode.IMAGES_ONLY) {
+                            for (stroke in page.strokeData) {
+                                val nativeStroke = stroke.stroke ?: continue
+                                if (nativeStroke.shape.intersects(selectionRegion, identityTransform, identityTransform)) {
+                                    newSelection.strokes.add(stroke)
+                                    stroke.isDragging = true
 
-                                val sBox = nativeStroke.shape.computeBoundingBox()
-                                if (sBox != null) {
-                                    globalLeft = min(globalLeft, sBox.xMin)
-                                    globalTop = min(globalTop, sBox.yMin)
-                                    globalRight = max(globalRight, sBox.xMax)
-                                    globalBottom = max(globalBottom, sBox.yMax)
+                                    val sBox = nativeStroke.shape.computeBoundingBox()
+                                    if (sBox != null) {
+                                        globalLeft = min(globalLeft, sBox.xMin)
+                                        globalTop = min(globalTop, sBox.yMin)
+                                        globalRight = max(globalRight, sBox.xMax)
+                                        globalBottom = max(globalBottom, sBox.yMax)
+                                    }
                                 }
                             }
                         }
@@ -825,38 +823,6 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     canvas.drawCircle(rotationHandlePx[0], rotationHandlePx[1], handleRadius, handlePaint)
                     canvas.drawCircle(rotationHandlePx[0], rotationHandlePx[1], handleRadius, rotStrokePaint)
                 } // Fine del canvas.withSave
-            }
-        } else {
-            // Se non stiamo usando il lazo, manteniamo il vecchio comportamento per l'immagine singola
-            activeDraggedImage?.let { img ->
-                img.bitmapCache?.let { bmp ->
-                    if (document != null) {
-                        val pageIndex = document.pages.indexOfFirst { p -> p.imageData.contains(img) }
-                        if (pageIndex != -1) {
-                            val pageInfo = pagesRectOnWindow.find { it.index == pageIndex }
-                            val page = document.pages[pageIndex]
-
-                            if (pageInfo != null) {
-                                canvas.withSave {
-                                    val overlayMatrix = Matrix()
-                                    val scaleX = img.width / bmp.width.toFloat()
-                                    val scaleY = img.height / bmp.height.toFloat()
-                                    overlayMatrix.postScale(scaleX, scaleY)
-                                    overlayMatrix.postRotate(img.rotation, img.width / 2f, img.height / 2f)
-                                    overlayMatrix.postTranslate(img.x, img.y)
-
-                                    val mmToScreenMatrix = Matrix().apply {
-                                        setRectToRect(page.rect(), pageInfo.rect, Matrix.ScaleToFit.CENTER)
-                                    }
-                                    overlayMatrix.postConcat(mmToScreenMatrix)
-
-                                    canvas.clipRect(windowRect)
-                                    canvas.drawBitmap(bmp, overlayMatrix, null)
-                                }
-                            }
-                        }
-                    }
-                }
             }
         }
 

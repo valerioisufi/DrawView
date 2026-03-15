@@ -288,10 +288,25 @@ class DrawViewModel(
                 // 4. Determiniamo la pagina e le coordinate di inserimento
                 var targetPageInfo: CalcPage.PageRectWithIndex? = null
                 if (targetXPx != null && targetYPx != null) {
+                    // Se abbiamo le coordinate del dito (Long Press)
                     targetPageInfo = drawManager.pagesRectOnWindow.find { it.rect.contains(targetXPx, targetYPx) }
                 }
+
+                // FIX FANTASMA: Cerchiamo la pagina sotto al centro dello schermo
                 if (targetPageInfo == null) {
-                    targetPageInfo = drawManager.pagesRectOnWindow.firstOrNull()
+                    val screenCenterX = drawManager.windowRect.centerX()
+                    val screenCenterY = drawManager.windowRect.centerY()
+
+                    targetPageInfo = drawManager.pagesRectOnWindow.find {
+                        it.rect.contains(screenCenterX, screenCenterY)
+                    } ?: drawManager.pagesRectOnWindow.minByOrNull { pageInfo ->
+                        // Fallback intelligente: Se cadiamo nello spazio vuoto tra due pagine,
+                        // scegliamo la pagina il cui centro è più vicino al centro dello schermo.
+                        hypot(
+                            (pageInfo.rect.centerX() - screenCenterX).toDouble(),
+                            (pageInfo.rect.centerY() - screenCenterY).toDouble()
+                        )
+                    }
                 }
 
                 val targetPageIndex = targetPageInfo?.index ?: 0

@@ -364,6 +364,13 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 // Send ONLY the newly drawn strokes to the Repository for a rapid SQL insertion.
                 if (newStrokesToSave.isNotEmpty()) {
                     drawViewModel.saveNewStrokesToDatabase(domainPage.dbId, newStrokesToSave)
+
+                    // --- FASE 3: REGISTRIAMO IL NUOVO TRATTO NELLA STORIA ---
+                    drawViewModel.addHistoryAction(
+                        com.studiomath.drawview.document.history.AddStrokesAction(
+                            domainPage.dbId, pageRectWithIndex.index, newStrokesToSave.toList()
+                        )
+                    )
                 }
             }
         }

@@ -499,6 +499,11 @@ class OnTouchHover(
                         // e lo passa a onStrokesFinished in DrawManager.kt
                         drawViewModel.finishStrokeInProgress?.invoke(event, pointerId, strokeId)
                     }
+
+                    // --- FASE 3: CHIUDIAMO LA REGISTRAZIONE DELLA GOMMA ---
+                    if (drawViewModel.selectedTool == DrawViewModel.ToolUtilities.Tool.ERASER) {
+                        drawViewModel.commitEraserHistory()
+                    }
                 }
                 resetStrokeState()
             }

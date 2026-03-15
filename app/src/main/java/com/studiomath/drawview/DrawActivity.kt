@@ -270,21 +270,37 @@ fun DrawActivity(
                 ) {
                     ToolButton(
                         onClick = {
-                        }
-                    ){
+                            drawViewModel.undo()
+                        },
+                        enabled = drawViewModel.undoStack.isNotEmpty() // Disabilita il click se non c'è nulla da annullare
+                    ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.Undo,
                             contentDescription = "Undo",
+                            // Ingrigisce visivamente l'icona se lo stack è vuoto
+                            tint = if (drawViewModel.undoStack.isNotEmpty()) {
+                                MaterialTheme.colorScheme.onSurface
+                            } else {
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                            }
                         )
                     }
+
                     ToolButton(
                         onClick = {
-                            drawViewModel.addNewPageAtBottom()
-                        }
-                    ){
+                            drawViewModel.redo()
+                        },
+                        enabled = drawViewModel.redoStack.isNotEmpty() // Disabilita il click se non c'è nulla da ripristinare
+                    ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.Redo,
                             contentDescription = "Redo",
+                            // Ingrigisce visivamente l'icona se lo stack è vuoto
+                            tint = if (drawViewModel.redoStack.isNotEmpty()) {
+                                MaterialTheme.colorScheme.onSurface
+                            } else {
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                            }
                         )
                     }
 

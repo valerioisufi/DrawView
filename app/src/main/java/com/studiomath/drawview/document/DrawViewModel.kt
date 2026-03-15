@@ -263,11 +263,10 @@ class DrawViewModel(
                     }
                 }
 
-                val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeFile(destFile.absolutePath, options)
-
-                val pxWidth = options.outWidth.toFloat()
-                val pxHeight = options.outHeight.toFloat()
+                // FIX 1: Carichiamo subito l'immagine REALE in RAM per farla vedere in overlay
+                val decodedBitmap = BitmapFactory.decodeFile(destFile.absolutePath)
+                val pxWidth = decodedBitmap?.width?.toFloat() ?: 100f
+                val pxHeight = decodedBitmap?.height?.toFloat() ?: 100f
 
                 val defaultPhysicalWidthMm = 100f
                 val ratio = if (pxWidth > 0) pxHeight / pxWidth else 1f
@@ -282,7 +281,7 @@ class DrawViewModel(
 
                 currentDoc.resources.add(resource)
 
-                // 4. Find the currently visible page to place the image
+                // 4. Determiniamo la pagina e le coordinate di inserimento
                 var targetPageInfo: CalcPage.PageRectWithIndex? = null
                 if (targetXPx != null && targetYPx != null) {
                     targetPageInfo = drawManager.pagesRectOnWindow.find { it.rect.contains(targetXPx, targetYPx) }
@@ -294,7 +293,6 @@ class DrawViewModel(
                 val targetPageIndex = targetPageInfo?.index ?: 0
                 val targetPage = currentDoc.pages.getOrNull(targetPageIndex) ?: return@launch
 
-                // Calcoliamo le coordinate fisiche (in millimetri)
                 var imgX = (targetPage.width / 2f) - (imgWidthMm / 2f)
                 var imgY = (targetPage.height / 2f) - (imgHeightMm / 2f)
 
@@ -315,6 +313,7 @@ class DrawViewModel(
                     }
                 }
 
+                // Creiamo l'oggetto Immagine
                 val newImage = Image(zIndex = targetPage.imageData.size).apply {
                     id = resourceIdStr
                     x = imgX
@@ -322,18 +321,38 @@ class DrawViewModel(
                     width = imgWidthMm
                     height = imgHeightMm
                     rotation = 0f
+                    isDragging = true
+                    bitmapCache = decodedBitmap // FIX 2: Assegniamo subito la cache grafica!
                 }
 
                 repository.addImageToPage(targetPage.dbId, newImage)
                 targetPage.imageData.add(newImage)
 
-                targetPage.bitmapPage?.let { bmp ->
-                    targetPage.bitmapPage = pageMaker.makePage(
-                        Rect(0, 0, bmp.width, bmp.height), null, targetPage, currentDoc
-                    )
-                }
+                val newBoundingBox = RectF(
+                    newImage.x,
+                    newImage.y,
+                    newImage.x + newImage.width,
+                    newImage.y + newImage.height
+                )
+
+                // FIX 3: Rimosso il vecchio makePage() prematuro. La pagina verrà rigenerata
+                // correttamente da clearSelection() solo quando l'utente avrà finito di posizionarla!
 
                 withContext(Dispatchers.Main) {
+                    // Spegniamo eventuali altre selezioni aperte
+                    currentSelection?.let { oldSel ->
+                        oldSel.images.forEach { it.isDragging = false }
+                        oldSel.strokes.forEach { it.isDragging = false }
+                    }
+
+                    // Inseriamo l'immagine nel gruppo di selezione attivo
+                    currentSelection = SelectionGroup(
+                        images = mutableListOf(newImage),
+                        strokes = mutableListOf(),
+                        boundingBox = newBoundingBox,
+                        pageIndex = targetPageIndex
+                    )
+
                     drawManager.requestDraw(
                         DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
                             update = DrawManager.DrawAttachments.Update.DRAW_BITMAP

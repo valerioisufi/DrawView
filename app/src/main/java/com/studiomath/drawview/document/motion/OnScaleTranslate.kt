@@ -295,13 +295,18 @@ class OnScaleTranslate(
 
         val minVelocity = drawViewModel.configuration.scaledMinimumFlingVelocity
 
+        // Inneschiamo il fling se la velocità è sufficiente
         if (abs(vX) > minVelocity || abs(vY) > minVelocity) {
             Log.d(TAG, "Starting Fling with velocity X: $vX, Y: $vY")
+
+            // --- FIX JITTER: Salviamo il punto di partenza esatto ---
+            manager.lastFlingX = startPointScroller[0].toInt()
+            manager.lastFlingY = startPointScroller[1].toInt()
+
             manager.scroller.fling(
-                startPointScroller[0].toInt(), startPointScroller[1].toInt(),
+                manager.lastFlingX, manager.lastFlingY, // Usiamo le nuove variabili come partenza
                 vX, vY,
                 minX, maxX, minY, maxY,
-                // Passiamo l'overscroll limite ad Android per permettere che il fling "sfondi" un po' il muro prima di fermarsi
                 OVERSCROLL_LIMIT, OVERSCROLL_LIMIT
             )
 

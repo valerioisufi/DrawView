@@ -54,6 +54,10 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     /** Scroller used to calculate inertial fling animations after a quick pan gesture. */
     lateinit var scroller: OverScroller
 
+    // --- Memoria per l'integrazione fluida del Fling ---
+    var lastFlingX = 0
+    var lastFlingY = 0
+
     /** The calculated bounding box representing the limits of the document on the screen. */
     var contentConstraintsOnWindow = RectF()
 
@@ -724,20 +728,27 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     DrawAttachments.AnimationType.FLING -> {
                         // Calculate the next step of the inertial scroll animation
                         if (scroller.computeScrollOffset()) {
-                            val translate = floatArrayOf(0f, 0f)
-                            startAnimateMatrix.mapPoints(translate)
+                            // 1. Calcoliamo il Delta (spostamento esatto) rispetto al frame precedente
+                            var dx = (scroller.currX - lastFlingX).toFloat()
+                            var dy = (scroller.currY - lastFlingY).toFloat()
+                            lastFlingX = scroller.currX
+                            lastFlingY = scroller.currY
 
-                            val deltaScrollX = scroller.currX - translate[0].toInt()
-                            val deltaScrollY = scroller.currY - translate[1].toInt()
-
-                            moveMatrix = Matrix(startAnimateMatrix).apply {
-                                postTranslate(deltaScrollX.toFloat(), deltaScrollY.toFloat())
-                            }
-
-                            // --- FASE 3: ELASTICO DINAMICO DURANTE IL FLING ---
-                            // Se l'inerzia del fling "sfonda" il bordo, calcoliamo la resistenza in tempo reale!
+                            // 2. Verifichiamo se siamo fuori bordo PRIMA di muoverci
                             val excess = calcPage.calculateExcess(moveMatrix, calcPage.contentRect, windowRect)
-                            elasticMatrix = calcPage.applyRubberBandEffect(excess.first, excess.second, windowRect)
+
+                            // 3. LA FISICA DEL MURO DI GOMMA!
+                            // Se siamo in overscroll, la telecamera "fa fatica" a muoversi.
+                            // Moltiplichiamo il delta per 0.15, assorbendo l'85% dell'energia cinetica del Fling!
+                            if (excess.first != 0f) dx *= 0.15f
+                            if (excess.second != 0f) dy *= 0.15f
+
+                            // 4. Applichiamo lo spostamento in modo incrementale (Zero microscatti da toInt!)
+                            moveMatrix.postTranslate(dx, dy)
+
+                            // 5. Ricalcoliamo l'elastico visivo per mostrare la tensione
+                            val newExcess = calcPage.calculateExcess(moveMatrix, calcPage.contentRect, windowRect)
+                            elasticMatrix = calcPage.applyRubberBandEffect(newExcess.first, newExcess.second, windowRect)
 
                             needsInvalidate = true // Keep the animation loop running
                         } else {

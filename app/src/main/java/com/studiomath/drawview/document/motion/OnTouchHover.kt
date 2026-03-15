@@ -78,6 +78,12 @@ class OnTouchHover(
         if (gestureDetector == null) {
             gestureDetector = GestureDetector(view.context, object : GestureDetector.SimpleOnGestureListener() {
                 override fun onLongPress(e: MotionEvent) {
+
+                    // Ignora il Long Press se l'input proviene da una penna (Stylus)
+                    if (e.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS) {
+                        return
+                    }
+
                     // Apri il menu se non stiamo spostando/ridimensionando un gruppo
                     if (currentDragState == DragState.NONE) {
 

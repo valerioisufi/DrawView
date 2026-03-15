@@ -508,12 +508,6 @@ fun DrawActivity(
                         )
                     }
 
-                    if (drawViewModel.clipboard != null) {
-                        IconButton(onClick = { drawViewModel.pasteSelection() }) {
-                            Icon(Icons.Default.ContentPaste, contentDescription = "Incolla")
-                        }
-                    }
-
                     VerticalDivider(
                         modifier = Modifier
                             .padding(8.dp),

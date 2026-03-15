@@ -469,14 +469,30 @@ class DrawViewModel(
 
     /**
      * Incolla gli appunti. Se vengono fornite le coordinate (targetXPx, targetYPx) dallo schermo,
-     * il centro del gruppo copiato verrà incollato esattamente in quel punto.
+     * il centro del gruppo copiato verrà incollato esattamente in quel punto,
+     * sulla pagina effettivamente toccata.
      */
     fun pasteSelection(targetXPx: Float? = null, targetYPx: Float? = null) {
         val copiedGroup = clipboard ?: return
         val doc = documentData ?: return
 
-        // Determiniamo dove incollare (usiamo la prima pagina visibile, o in fallback la pagina originale)
-        val targetPageInfo = drawManager.pagesRectOnWindow.firstOrNull()
+        // 1. Determiniamo la pagina di destinazione tramite le coordinate del tocco
+        var targetPageInfo: CalcPage.PageRectWithIndex? = null
+
+        if (targetXPx != null && targetYPx != null) {
+            // Cerchiamo quale pagina visibile contiene il punto toccato
+            targetPageInfo = drawManager.pagesRectOnWindow.find {
+                it.rect.contains(targetXPx, targetYPx)
+            }
+        }
+
+        // Fallback: se usiamo il tasto Incolla generico (senza coordinate)
+        // usiamo la prima pagina visibile.
+        if (targetPageInfo == null) {
+            targetPageInfo = drawManager.pagesRectOnWindow.firstOrNull()
+        }
+
+        // Ricaviamo l'indice e l'oggetto Page
         val targetPageIndex = targetPageInfo?.index ?: copiedGroup.pageIndex
         val targetPage = doc.pages.getOrNull(targetPageIndex) ?: return
 

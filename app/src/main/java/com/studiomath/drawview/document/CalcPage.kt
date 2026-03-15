@@ -194,9 +194,16 @@ class CalcPage(
      * @param matrix The current viewport matrix to be constrained.
      * @param contentRect The bounding box of the entire document.
      * @param windowRect The physical screen bounds.
+     * @param constrainMatrix If true, physically alters the matrix to stay within bounds.
+     * If false, only calculates the excess for the elastic effect.
      * @return A Pair representing the out-of-bounds drag (excessX, excessY).
      */
-    fun applyBounds(matrix: Matrix, contentRect: RectF, windowRect: RectF): Pair<Float, Float> {
+    fun applyBounds(
+        matrix: Matrix,
+        contentRect: RectF,
+        windowRect: RectF,
+        constrainMatrix: Boolean = true // NUOVO PARAMETRO
+    ): Pair<Float, Float> {
         val transformedContentRect = RectF(contentRect)
         matrix.mapRect(transformedContentRect)
 
@@ -240,8 +247,10 @@ class CalcPage(
             }
         }
 
-        // Apply the constraint correction directly to the matrix
-        matrix.postTranslate(offsetX, offsetY)
+        // Modifichiamo la matrice SOLO se ci viene richiesto (es. a fine gesture)
+        if (constrainMatrix) {
+            matrix.postTranslate(offsetX, offsetY)
+        }
 
         return Pair(excessX, excessY)
     }

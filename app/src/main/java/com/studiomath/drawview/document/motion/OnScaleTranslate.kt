@@ -179,23 +179,27 @@ class OnScaleTranslate(
      */
     private fun applyMatrixAndRequestDraw(tempMatrix: Matrix) {
         drawViewModel.drawManager.apply {
-            val result = calcPage.applyBounds(tempMatrix, calcPage.contentRect, windowRect)
+            // 1. Facciamo calcolare E MODIFICARE la tempMatrix ad applyBounds
+            // affinché "sbatta" e si fermi contro i limiti fisici del documento.
+            // Il risultato (excessX, excessY) è di quanti pixel abbiamo cercato di sfondare il muro.
+            val result = calcPage.applyBounds(tempMatrix, calcPage.contentRect, windowRect, constrainMatrix = true)
             excessX = result.first
             excessY = result.second
+
+            // Salviamo la matrice "bloccata" come nuova posizione ufficiale della telecamera.
+            moveMatrix = Matrix(tempMatrix)
 
             val transformedContentRect = RectF(calcPage.contentRect)
             moveMatrix.mapRect(transformedContentRect)
 
-            // Prevent horizontal elastic effect if the content is smaller than the window width
-            // and we are not currently scaling.
             if (transformedContentRect.width() < windowRect.width() && !isScaling) {
                 excessX = 0f
             }
 
+            // 2. Usiamo i pixel "in eccesso" per generare una matrice elastica temporanea.
+            // Questa matrice si occuperà di fare il disegno "tirato", mentre moveMatrix è ferma al bordo.
             elasticMatrix = calcPage.applyElasticEffect(excessX, excessY)
-            moveMatrix = Matrix(tempMatrix)
 
-            Log.d(TAG, "onDrawView: moveMatrix = $moveMatrix")
             requestDraw(DrawAttachments(drawMode = DrawMode.SCALE_TRANSLATE))
         }
     }
@@ -275,8 +279,9 @@ class OnScaleTranslate(
      * @return true if the fling was successfully initiated, false otherwise.
      */
     private fun handleFling(velocityX: Float, velocityY: Float): Boolean {
-        // Prevent fling if we are already out of bounds (let bounce-back handle it instead).
-        if (excessX != 0f || excessY != 0f) {
+        // Se c'è una tensione elastica in corso, blocchiamo il fling e lasciamo
+        // che l'animazione di rimbalzo (Bounce Back) riporti la pagina a riposo.
+        if (abs(excessX) > 1f || abs(excessY) > 1f) {
             Log.d(TAG, "Fling disabled: out of bounds. Falling back to Bounce Back.")
             checkBoundsAndBounceBack()
             return true
@@ -327,6 +332,13 @@ class OnScaleTranslate(
             )
             return true
         }
+
+        // Se la velocità era troppo bassa, chiediamo un aggiornamento HD
+        manager.requestDraw(
+            DrawAttachments(drawMode = DrawMode.UPDATE).apply {
+                update = DrawAttachments.Update.DRAW_BITMAP
+            }
+        )
         return false
     }
 }

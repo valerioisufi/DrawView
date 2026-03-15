@@ -242,10 +242,8 @@ class OnScaleTranslate(
                         )
                     },
                     onEndCallback = {
-                        // Fine del rimbalzo: pulizia totale
-                        excessX = 0f
-                        excessY = 0f
-                        elasticMatrix.reset()
+                        // Fine del rimbalzo: nessuna forzatura delle variabili!
+                        // La telecamera è rientrata e la matematica si sistemerà da sola.
                         requestDraw(
                             DrawAttachments(drawMode = DrawMode.UPDATE).apply {
                                 update = DrawAttachments.Update.DRAW_BITMAP

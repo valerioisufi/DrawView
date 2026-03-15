@@ -755,7 +755,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                         })
                                     },
                                     onEndCallback = {
-                                        elasticMatrix.reset()
+                                        // Rimosso elasticMatrix.reset() per evitare salti
                                         requestDraw(DrawAttachments(drawMode = DrawAttachments.DrawMode.UPDATE).apply {
                                             update = DrawAttachments.Update.DRAW_BITMAP
                                         })

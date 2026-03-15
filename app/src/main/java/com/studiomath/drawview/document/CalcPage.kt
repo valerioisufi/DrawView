@@ -1,5 +1,7 @@
 package com.studiomath.drawview.document
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.graphics.Matrix
 import android.graphics.RectF
@@ -278,17 +280,13 @@ class CalcPage(
     // Variabile per tenere traccia dell'animazione in corso
     private var bounceAnimator: ValueAnimator? = null
 
-    /**
-     * FASE 3 - STOP ANIMAZIONI: Ferma istantaneamente il rimbalzo se l'utente
-     * tocca di nuovo lo schermo ("afferra" il documento al volo).
-     */
     fun cancelAnimations() {
         bounceAnimator?.cancel()
     }
 
     /**
      * FASE 1 - RITORNO A MOLLA (Bounce Back) RIPROGETTATO
-     * Usa il calcolo assoluto della matrice per evitare errori di arrotondamento a fine corsa.
+     * Usa il calcolo assoluto e protegge dai falsi trigger se l'animazione viene interrotta.
      */
     fun startBounceBackAnimation(
         excessX: Float,
@@ -297,10 +295,10 @@ class CalcPage(
         updateCallback: () -> Unit,
         onEndCallback: () -> Unit
     ) {
-        cancelAnimations() // Assicuriamoci che non ci siano altre animazioni in corso
+        cancelAnimations()
 
-        // Salviamo la fotografia esatta della matrice alla partenza
         val startMatrix = Matrix(moveMatrix)
+        var isCanceled = false // Flag per capire se il dito dell'utente ha interrotto l'animazione
 
         bounceAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 350
@@ -309,23 +307,29 @@ class CalcPage(
             addUpdateListener { animation ->
                 val progress = animation.animatedValue as Float
 
-                // CALCOLO ASSOLUTO: Evita l'accumulo di errori dei Float!
-                // Spostiamo progressivamente dal 0% al 100% dell'eccesso totale
                 val currentTransX = -excessX * progress
                 val currentTransY = -excessY * progress
 
-                // Partiamo sempre dalla matrice originale e applichiamo lo spostamento calcolato
-                moveMatrix.apply {
-                    set(startMatrix)
-                    postTranslate(currentTransX, currentTransY)
-                }
+                // Sintassi corretta per il reset assoluto della matrice
+                moveMatrix.set(startMatrix)
+                moveMatrix.postTranslate(currentTransX, currentTransY)
 
                 updateCallback()
             }
 
-            doOnEnd {
-                onEndCallback()
-            }
+            // Usiamo il Listener nativo per separare CANCELLAZIONE e FINE NATURALE
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationCancel(animation: Animator) {
+                    isCanceled = true
+                }
+
+                override fun onAnimationEnd(animation: Animator) {
+                    // Eseguiamo il ricalcolo HD SOLO se il rimbalzo si è concluso dolcemente
+                    if (!isCanceled) {
+                        onEndCallback()
+                    }
+                }
+            })
         }
 
         bounceAnimator?.start()

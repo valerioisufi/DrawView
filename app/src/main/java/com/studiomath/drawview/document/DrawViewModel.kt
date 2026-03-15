@@ -463,9 +463,6 @@ class DrawViewModel(
                     newImage.y + newImage.height
                 )
 
-                // FIX 3: Rimosso il vecchio makePage() prematuro. La pagina verrà rigenerata
-                // correttamente da clearSelection() solo quando l'utente avrà finito di posizionarla!
-
                 withContext(Dispatchers.Main) {
                     // Spegniamo eventuali altre selezioni aperte
                     currentSelection?.let { oldSel ->
@@ -479,6 +476,13 @@ class DrawViewModel(
                         strokes = mutableListOf(),
                         boundingBox = newBoundingBox,
                         pageIndex = targetPageIndex
+                    )
+
+                    // --- NUOVO: REGISTRIAMO L'INSERIMENTO NELLA STORIA ---
+                    addHistoryAction(
+                        com.studiomath.drawview.document.history.AddImageAction(
+                            targetPage.dbId, targetPageIndex, newImage
+                        )
                     )
 
                     drawManager.requestDraw(

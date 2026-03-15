@@ -206,3 +206,33 @@ class TransformSelectionAction(
         applyTransformation(viewModel, oldPageIndex, newPageIndex, newPageDbId, newImageStates, newTextStates, newStrokeNative)
     }
 }
+
+// --- 5. AZIONE: INSERIMENTO/ELIMINAZIONE IMMAGINE ---
+class AddImageAction(
+    private val pageDbId: Int,
+    private val pageIndex: Int,
+    private val imageItem: Image
+) : DrawAction {
+
+    override suspend fun undo(viewModel: DrawViewModel) {
+        val page = viewModel.documentData?.pages?.getOrNull(pageIndex) ?: return
+
+        page.imageData.remove(imageItem)
+        withContext(Dispatchers.IO) {
+            viewModel.repository.deleteImage(imageItem.dbId)
+        }
+        refreshPageCache(viewModel, page)
+    }
+
+    override suspend fun redo(viewModel: DrawViewModel) {
+        val page = viewModel.documentData?.pages?.getOrNull(pageIndex) ?: return
+
+        page.imageData.add(imageItem)
+        withContext(Dispatchers.IO) {
+            // Nota: Se la tua repository non ha 'saveNewImage', usa 'updateImage'
+            // ma assicurati che Room gestisca l'inserimento di un id=0
+            viewModel.repository.addImageToPage(pageDbId, imageItem)
+        }
+        refreshPageCache(viewModel, page)
+    }
+}

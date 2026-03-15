@@ -30,6 +30,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import androidx.ink.strokes.Stroke as InkStroke
@@ -728,29 +729,34 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     DrawAttachments.AnimationType.FLING -> {
                         // Calculate the next step of the inertial scroll animation
                         if (scroller.computeScrollOffset()) {
-                            // 1. Calcoliamo il Delta (spostamento esatto) rispetto al frame precedente
+                            // 1. Calcolo del Delta
                             var dx = (scroller.currX - lastFlingX).toFloat()
                             var dy = (scroller.currY - lastFlingY).toFloat()
                             lastFlingX = scroller.currX
                             lastFlingY = scroller.currY
 
-                            // 2. Verifichiamo se siamo fuori bordo PRIMA di muoverci
+                            // 2. Verifica eccesso pre-movimento
                             val excess = calcPage.calculateExcess(moveMatrix, calcPage.contentRect, windowRect)
 
-                            // 3. LA FISICA DEL MURO DI GOMMA!
-                            // Se siamo in overscroll, la telecamera "fa fatica" a muoversi.
-                            // Moltiplichiamo il delta per 0.15, assorbendo l'85% dell'energia cinetica del Fling!
+                            // 3. Attrito del muro di gomma
                             if (excess.first != 0f) dx *= 0.15f
                             if (excess.second != 0f) dy *= 0.15f
 
-                            // 4. Applichiamo lo spostamento in modo incrementale (Zero microscatti da toInt!)
+                            // 4. Applichiamo lo spostamento
                             moveMatrix.postTranslate(dx, dy)
 
-                            // 5. Ricalcoliamo l'elastico visivo per mostrare la tensione
+                            // 5. Ricalcoliamo l'eccesso DOPO lo spostamento
                             val newExcess = calcPage.calculateExcess(moveMatrix, calcPage.contentRect, windowRect)
                             elasticMatrix = calcPage.applyRubberBandEffect(newExcess.first, newExcess.second, windowRect)
 
-                            needsInvalidate = true // Keep the animation loop running
+                            // --- AGGIUNGI QUESTO BLOCCO QUI ---
+                            // Se l'eccesso supera i 50px, fermiamo il fling per far partire subito il bounce back
+                            if (abs(newExcess.first) > 50f || abs(newExcess.second) > 50f) {
+                                scroller.forceFinished(true)
+                            }
+                            // ----------------------------------
+
+                            needsInvalidate = true
                         } else {
                             // --- FASE 3: FINE FLING E CONTROLLO RIMBALZO ---
 

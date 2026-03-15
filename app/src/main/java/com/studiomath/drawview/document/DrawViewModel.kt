@@ -486,50 +486,56 @@ class DrawViewModel(
     }
 
     /**
-     * Incolla gli appunti. Se vengono fornite le coordinate (targetXPx, targetYPx) dallo schermo,
-     * il centro del gruppo copiato verrà incollato esattamente in quel punto,
-     * sulla pagina effettivamente toccata.
+     * Verifica se ci sono elementi pronti per essere incollati.
+     */
+    fun canPaste(): Boolean {
+        val clipMgr = getApplication<Application>().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val description = clipMgr.primaryClipDescription ?: return false
+
+        // Se l'ultima cosa copiata nel telefono è il nostro bigliettino "DrawViewInternal"
+        if (description.label == "DrawViewInternal" && clipboard != null) {
+            return true
+        }
+
+        // Altrimenti, verifichiamo se l'ultima cosa copiata è un'immagine esterna
+        return description.hasMimeType("image/*") ||
+                description.hasMimeType("image/jpeg") ||
+                description.hasMimeType("image/png")
+    }
+
+    /**
+     * Incolla gli appunti.
      */
     fun pasteSelection(targetXPx: Float? = null, targetYPx: Float? = null) {
-        val copiedGroup = clipboard
+        val clipMgr = getApplication<Application>().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val description = clipMgr.primaryClipDescription ?: return
 
-        if (copiedGroup != null) {
+        // 1. L'utente vuole incollare i TRATTI INTERNI
+        if (description.label == "DrawViewInternal" && clipboard != null) {
+            val copiedGroup = clipboard!!
             val doc = documentData ?: return
 
-            // 1. Determiniamo la pagina di destinazione tramite le coordinate del tocco
             var targetPageInfo: CalcPage.PageRectWithIndex? = null
-
             if (targetXPx != null && targetYPx != null) {
-                // Cerchiamo quale pagina visibile contiene il punto toccato
-                targetPageInfo = drawManager.pagesRectOnWindow.find {
-                    it.rect.contains(targetXPx, targetYPx)
-                }
+                targetPageInfo = drawManager.pagesRectOnWindow.find { it.rect.contains(targetXPx, targetYPx) }
             }
-
-            // Fallback: se usiamo il tasto Incolla generico (senza coordinate)
-            // usiamo la prima pagina visibile.
             if (targetPageInfo == null) {
                 targetPageInfo = drawManager.pagesRectOnWindow.firstOrNull()
             }
 
-            // Ricaviamo l'indice e l'oggetto Page
             val targetPageIndex = targetPageInfo?.index ?: copiedGroup.pageIndex
             val targetPage = doc.pages.getOrNull(targetPageIndex) ?: return
 
             viewModelScope.launch(Dispatchers.Default) {
-                // Offset di default (10mm in diagonale) se usiamo il tasto nella toolbar
                 var offsetXMm = 10f
                 var offsetYMm = 10f
 
-                // Se l'utente ha fatto un long-press, calcoliamo l'offset esatto!
                 if (targetXPx != null && targetYPx != null && targetPageInfo != null) {
-                    // 1. Convertiamo i pixel dello schermo nei millimetri fisici del foglio
                     val scaleX = targetPage.width / targetPageInfo.rect.width()
                     val scaleY = targetPage.height / targetPageInfo.rect.height()
                     val clickMmX = (targetXPx - targetPageInfo.rect.left) * scaleX
                     val clickMmY = (targetYPx - targetPageInfo.rect.top) * scaleY
 
-                    // 2. Calcoliamo di quanto spostare il gruppo affinché il suo centro coincida col tocco
                     val groupCenterX = copiedGroup.boundingBox.centerX()
                     val groupCenterY = copiedGroup.boundingBox.centerY()
 
@@ -540,11 +546,10 @@ class DrawViewModel(
                 val pastedStrokes = mutableListOf<Stroke>()
                 val pastedImages = mutableListOf<Image>()
 
-                // 1. Clona e sposta le Immagini
                 copiedGroup.images.forEach { originalImg ->
                     val newImg = Image(zIndex = targetPage.imageData.size + pastedImages.size).apply {
-                        id = originalImg.id // Mantiene lo stesso file risorsa
-                        dbId = 0 // Nuovo inserimento
+                        id = originalImg.id
+                        dbId = 0
                         x = originalImg.x + offsetXMm
                         y = originalImg.y + offsetYMm
                         width = originalImg.width
@@ -555,49 +560,37 @@ class DrawViewModel(
                     pastedImages.add(newImg)
                 }
 
-                // 2. Clona e sposta i Tratti
                 val offsetMatrix = Matrix().apply { postTranslate(offsetXMm, offsetYMm) }
 
                 copiedGroup.strokes.forEach { originalStroke ->
-                    // NOTA: Poiché i tratti hanno il nativo C++ stroke, clonarlo richiede un po' di cura.
-                    // Per farlo velocemente, creiamo una "copia profonda" leggendo e riscrivendo le proprietà base
                     val newStroke = Stroke(zIndex = targetPage.strokeData.size + pastedStrokes.size).apply {
-                        dbId = 0 // Nuovo inserimento
+                        dbId = 0
                         color = originalStroke.color
                         size = originalStroke.size
                         toolType = originalStroke.toolType
                         brush = originalStroke.brush
-                        // Assegniamo il tratto nativo originale...
                         stroke = originalStroke.stroke
                     }
-
-                    // ...e poi gli diciamo di spostarsi (questo ricreerà un NUOVO tratto nativo C++ spostato!)
                     newStroke.applyTransform(offsetMatrix)
-
-                    // Salva nel DB per ottenere il vero dbId
                     repository.saveNewStroke(targetPage.dbId, newStroke)
                     pastedStrokes.add(newStroke)
                 }
 
-                // 3. Aggiungi i cloni ai dati in RAM della pagina
                 targetPage.imageData.addAll(pastedImages)
                 targetPage.strokeData.addAll(pastedStrokes)
 
-                // 4. Rigenera la Bitmap Cache per mostrare gli elementi incollati
                 targetPage.bitmapPage?.let { oldBitmap ->
                     targetPage.bitmapPage = pageMaker.makePage(
                         Rect(0, 0, oldBitmap.width, oldBitmap.height), null, targetPage, doc
                     )
                 }
 
-                // 5. Richiedi l'aggiornamento visivo
                 drawManager.requestDraw(
                     DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
                         update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
                     }
                 )
 
-                // 6. Seleziona automaticamente gli elementi incollati
                 val newBoundingBox = RectF(copiedGroup.boundingBox)
                 newBoundingBox.offset(offsetXMm, offsetYMm)
 
@@ -607,47 +600,30 @@ class DrawViewModel(
                     boundingBox = newBoundingBox,
                     pageIndex = targetPageIndex
                 ).apply {
-                    // Impostiamo isDragging = true in modo che appaiano subito in overlay col rettangolo azzurro
                     images.forEach { it.isDragging = true }
                     strokes.forEach { it.isDragging = true }
                 }
             }
-        } else {
-            // --- NUOVA LOGICA: INCOLLA IMMAGINE DI SISTEMA (es. copiata da Chrome o Galleria) ---
-            val clipMgr = getApplication<Application>().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+
+        }
+        // 2. L'utente vuole incollare un'IMMAGINE ESTERNA (es. Chrome)
+        else {
             val clip = clipMgr.primaryClip
             if (clip != null && clip.itemCount > 0) {
                 val uri = clip.getItemAt(0).uri
                 if (uri != null) {
-                    // Controlla se l'URI è un'immagine prima di importare
                     val mimeType = getApplication<Application>().contentResolver.getType(uri)
-                    if (mimeType?.startsWith("image/") == true || clipMgr.primaryClipDescription?.hasMimeType("image/*") == true) {
+                    if (mimeType?.startsWith("image/") == true || description.hasMimeType("image/*")) {
                         importImageFromUri(uri, targetXPx, targetYPx)
                     }
                 }
             }
         }
 
-        // Chiudiamo il menu contestuale
+        // Chiudiamo il menu contestuale in ogni caso
         contextMenuPosition = null
     }
 
-    /**
-     * Verifica se ci sono elementi pronti per essere incollati
-     * (o copiati internamente all'app, o un'immagine copiata da un'altra app)
-     */
-    fun canPaste(): Boolean {
-        // Se abbiamo appena copiato qualcosa col Lazo, mostriamo il tasto
-        if (clipboard != null) return true
-
-        // Altrimenti, verifichiamo se l'ultima cosa copiata nel telefono è un'immagine
-        val clipMgr = getApplication<Application>().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val description = clipMgr.primaryClipDescription ?: return false
-
-        return description.hasMimeType("image/*") ||
-                description.hasMimeType("image/jpeg") ||
-                description.hasMimeType("image/png")
-    }
 
     // --- TOOL UTILITIES ---
     data class ToolUtilities(val toolType: Tool){

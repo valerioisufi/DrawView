@@ -773,14 +773,22 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                             canvas.drawBitmap(txt.bitmapCache!!, overlayMatrix, null)
                         } else if (!txt.isLatex) {
                             canvas.withSave {
-                                // 1. Estraiamo la scala e lo spostamento dalla matrice fusa dell'overlay
-                                val matrixValues = FloatArray(9)
-                                finalOverlayMatrix.getValues(matrixValues)
-                                val scaleX = matrixValues[Matrix.MSCALE_X]
-                                val scaleY = matrixValues[Matrix.MSCALE_Y]
+                                // 1. Creiamo la matrice base dell'oggetto (senza le trasformazioni dinamiche)
+                                val baseObjMatrix = Matrix()
+                                baseObjMatrix.postRotate(txt.rotation, txt.width / 2f, txt.height / 2f)
+                                baseObjMatrix.postTranslate(txt.x, txt.y)
 
-                                // 2. Font scalato nativamente in base allo zoom, con i flag vettoriali!
-                                val screenFontSizePx = txt.fontSize * 0.3527f * scaleX
+                                // 2. Fondiamo la matrice base con la matrice dinamica dell'overlay (dito + zoom)
+                                val fullRenderMatrix = Matrix(baseObjMatrix)
+                                fullRenderMatrix.postConcat(finalOverlayMatrix)
+
+                                // 3. Estraiamo la VERA scala assoluta (usando la trigonometria per ignorare l'effetto della rotazione)
+                                val matrixValues = FloatArray(9)
+                                fullRenderMatrix.getValues(matrixValues)
+                                val trueScaleX = Math.hypot(matrixValues[Matrix.MSCALE_X].toDouble(), matrixValues[Matrix.MSKEW_Y].toDouble()).toFloat()
+
+                                // 4. Creiamo il font ad alta risoluzione basato sulla scala reale
+                                val screenFontSizePx = txt.fontSize * 0.3527f * trueScaleX
                                 val textPaint = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG or Paint.LINEAR_TEXT_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
                                     color = txt.color
                                     textSize = screenFontSizePx
@@ -792,24 +800,16 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                     )
                                 }
 
-                                // 3. Calcoliamo la larghezza con il Safety Buffer del 5%
-                                val screenSafeWidthPx = (txt.width * scaleX * 1.05f).toInt().coerceAtLeast(1)
-
+                                // 5. Creiamo il Layout
+                                val screenSafeWidthPx = (txt.width * trueScaleX * 1.05f).toInt().coerceAtLeast(1)
                                 val staticLayout = android.text.StaticLayout.Builder.obtain(
                                     txt.text, 0, txt.text.length, textPaint, screenSafeWidthPx
                                 ).setAlignment(android.text.Layout.Alignment.ALIGN_NORMAL).build()
 
-                                // 4. Applichiamo la posizione (ignorando la scala, perché l'abbiamo già messa nel font)
-                                val translationMatrix = Matrix()
-                                translationMatrix.postTranslate(matrixValues[Matrix.MTRANS_X], matrixValues[Matrix.MTRANS_Y])
-
-                                val localTransform = Matrix()
-                                localTransform.postRotate(txt.rotation, (txt.width / 2f) * scaleX, (txt.height / 2f) * scaleY)
-                                localTransform.postTranslate(txt.x * scaleX, txt.y * scaleY)
-
-                                translationMatrix.preConcat(localTransform)
-
-                                canvas.concat(translationMatrix)
+                                // 6. LA MAGIA: Applichiamo l'intera matrice per posizionare/ruotare il Canvas...
+                                canvas.concat(fullRenderMatrix)
+                                // ...ma cancelliamo l'effetto sgranatura riducendo il Canvas localmente!
+                                canvas.scale(1f / trueScaleX, 1f / trueScaleX)
 
                                 staticLayout.draw(canvas)
                             }

@@ -1,6 +1,9 @@
 package com.studiomath.drawview.document
 
 import android.app.Application
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Matrix
@@ -240,10 +243,10 @@ class DrawViewModel(
     }
 
     /**
-     * Imports an image from a given URI and places it perfectly centered
-     * on the currently visible page on the screen.
+     * Imports an image from a given URI. Se vengono fornite le coordinate,
+     * la posiziona esattamente sotto al tocco.
      */
-    fun importImageFromUri(uri: Uri) {
+    fun importImageFromUri(uri: Uri, targetXPx: Float? = null, targetYPx: Float? = null) {
         val currentDoc = documentData ?: return
         val actualDocId = currentDoc.dbId
 
@@ -251,7 +254,6 @@ class DrawViewModel(
             try {
                 val context = getApplication<Application>()
 
-                // 1. Copy Image to internal storage
                 val fileName = "img_${System.currentTimeMillis()}.png"
                 val destFile = File(context.filesDir, fileName)
 
@@ -261,20 +263,17 @@ class DrawViewModel(
                     }
                 }
 
-                // 2. Determine original aspect ratio without loading full bitmap into memory
                 val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 BitmapFactory.decodeFile(destFile.absolutePath, options)
 
                 val pxWidth = options.outWidth.toFloat()
                 val pxHeight = options.outHeight.toFloat()
 
-                // Calculate physical dimensions. Max width: 100mm.
                 val defaultPhysicalWidthMm = 100f
                 val ratio = if (pxWidth > 0) pxHeight / pxWidth else 1f
                 val imgWidthMm = defaultPhysicalWidthMm
                 val imgHeightMm = defaultPhysicalWidthMm * ratio
 
-                // 3. Register the Resource in the Database
                 val resourceIdStr = repository.addResource(actualDocId, "IMAGE", fileName).toString()
                 val resource = com.studiomath.drawview.document.page.Resource(
                     id = resourceIdStr,
@@ -284,27 +283,38 @@ class DrawViewModel(
                 currentDoc.resources.add(resource)
 
                 // 4. Find the currently visible page to place the image
-                val visiblePageInfo = drawManager.pagesRectOnWindow.firstOrNull()
-                val targetPageIndex = visiblePageInfo?.index ?: 0
+                var targetPageInfo: CalcPage.PageRectWithIndex? = null
+                if (targetXPx != null && targetYPx != null) {
+                    targetPageInfo = drawManager.pagesRectOnWindow.find { it.rect.contains(targetXPx, targetYPx) }
+                }
+                if (targetPageInfo == null) {
+                    targetPageInfo = drawManager.pagesRectOnWindow.firstOrNull()
+                }
+
+                val targetPageIndex = targetPageInfo?.index ?: 0
                 val targetPage = currentDoc.pages.getOrNull(targetPageIndex) ?: return@launch
 
-                // Calculate the exact millimeter coordinates matching the center of the user's screen
+                // Calcoliamo le coordinate fisiche (in millimetri)
                 var imgX = (targetPage.width / 2f) - (imgWidthMm / 2f)
                 var imgY = (targetPage.height / 2f) - (imgHeightMm / 2f)
 
-                if (visiblePageInfo != null) {
+                if (targetPageInfo != null) {
                     val screenToPageMatrix = Matrix()
-                    // Create an inverse mapping from the screen bounds to the physical page bounds
-                    screenToPageMatrix.setRectToRect(visiblePageInfo.rect, targetPage.rect(), Matrix.ScaleToFit.FILL)
+                    screenToPageMatrix.setRectToRect(targetPageInfo.rect, targetPage.rect(), Matrix.ScaleToFit.FILL)
 
-                    val centerPoint = floatArrayOf(drawManager.windowRect.centerX(), drawManager.windowRect.centerY())
-                    screenToPageMatrix.mapPoints(centerPoint)
-
-                    imgX = centerPoint[0] - (imgWidthMm / 2f)
-                    imgY = centerPoint[1] - (imgHeightMm / 2f)
+                    if (targetXPx != null && targetYPx != null) {
+                        val clickPoint = floatArrayOf(targetXPx, targetYPx)
+                        screenToPageMatrix.mapPoints(clickPoint)
+                        imgX = clickPoint[0] - (imgWidthMm / 2f)
+                        imgY = clickPoint[1] - (imgHeightMm / 2f)
+                    } else {
+                        val centerPoint = floatArrayOf(drawManager.windowRect.centerX(), drawManager.windowRect.centerY())
+                        screenToPageMatrix.mapPoints(centerPoint)
+                        imgX = centerPoint[0] - (imgWidthMm / 2f)
+                        imgY = centerPoint[1] - (imgHeightMm / 2f)
+                    }
                 }
 
-                // 5. Create Domain Object and save to Database
                 val newImage = Image(zIndex = targetPage.imageData.size).apply {
                     id = resourceIdStr
                     x = imgX
@@ -317,14 +327,12 @@ class DrawViewModel(
                 repository.addImageToPage(targetPage.dbId, newImage)
                 targetPage.imageData.add(newImage)
 
-                // Rigenera la bitmap cache della pagina a bassa risoluzione per includere l'immagine
                 targetPage.bitmapPage?.let { bmp ->
                     targetPage.bitmapPage = pageMaker.makePage(
                         Rect(0, 0, bmp.width, bmp.height), null, targetPage, currentDoc
                     )
                 }
 
-                // 6. Refresh the UI
                 withContext(Dispatchers.Main) {
                     drawManager.requestDraw(
                         DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
@@ -444,26 +452,36 @@ class DrawViewModel(
     fun copySelection() {
         val selection = currentSelection ?: return
 
-        // Salviamo i riferimenti nella clipboard e chiudiamo la selezione
+        // Salviamo i riferimenti nella clipboard interna
         clipboard = SelectionGroup(
             images = selection.images.toMutableList(),
             strokes = selection.strokes.toMutableList(),
             boundingBox = RectF(selection.boundingBox),
             pageIndex = selection.pageIndex
         )
-        clearSelection() // Deseleziona dopo aver copiato
+
+        // --- FIX PRIVACY: Segnaliamo al sistema che abbiamo copiato qualcosa! ---
+        val clipMgr = getApplication<Application>().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = ClipData.newPlainText("DrawViewInternal", "internal_data")
+        clipMgr.setPrimaryClip(clip)
+
+        clearSelection()
     }
 
     fun cutSelection() {
         val selection = currentSelection ?: return
-        // Prima salviamo nella clipboard...
         clipboard = SelectionGroup(
             images = selection.images.toMutableList(),
             strokes = selection.strokes.toMutableList(),
             boundingBox = RectF(selection.boundingBox),
             pageIndex = selection.pageIndex
         )
-        // ...e poi eliminiamo gli originali!
+
+        // --- FIX PRIVACY ---
+        val clipMgr = getApplication<Application>().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = ClipData.newPlainText("DrawViewInternal", "internal_data")
+        clipMgr.setPrimaryClip(clip)
+
         deleteSelection()
     }
 
@@ -473,128 +491,162 @@ class DrawViewModel(
      * sulla pagina effettivamente toccata.
      */
     fun pasteSelection(targetXPx: Float? = null, targetYPx: Float? = null) {
-        val copiedGroup = clipboard ?: return
-        val doc = documentData ?: return
+        val copiedGroup = clipboard
 
-        // 1. Determiniamo la pagina di destinazione tramite le coordinate del tocco
-        var targetPageInfo: CalcPage.PageRectWithIndex? = null
+        if (copiedGroup != null) {
+            val doc = documentData ?: return
 
-        if (targetXPx != null && targetYPx != null) {
-            // Cerchiamo quale pagina visibile contiene il punto toccato
-            targetPageInfo = drawManager.pagesRectOnWindow.find {
-                it.rect.contains(targetXPx, targetYPx)
-            }
-        }
+            // 1. Determiniamo la pagina di destinazione tramite le coordinate del tocco
+            var targetPageInfo: CalcPage.PageRectWithIndex? = null
 
-        // Fallback: se usiamo il tasto Incolla generico (senza coordinate)
-        // usiamo la prima pagina visibile.
-        if (targetPageInfo == null) {
-            targetPageInfo = drawManager.pagesRectOnWindow.firstOrNull()
-        }
-
-        // Ricaviamo l'indice e l'oggetto Page
-        val targetPageIndex = targetPageInfo?.index ?: copiedGroup.pageIndex
-        val targetPage = doc.pages.getOrNull(targetPageIndex) ?: return
-
-        viewModelScope.launch(Dispatchers.Default) {
-            // Offset di default (10mm in diagonale) se usiamo il tasto nella toolbar
-            var offsetXMm = 10f
-            var offsetYMm = 10f
-
-            // Se l'utente ha fatto un long-press, calcoliamo l'offset esatto!
-            if (targetXPx != null && targetYPx != null && targetPageInfo != null) {
-                // 1. Convertiamo i pixel dello schermo nei millimetri fisici del foglio
-                val scaleX = targetPage.width / targetPageInfo.rect.width()
-                val scaleY = targetPage.height / targetPageInfo.rect.height()
-                val clickMmX = (targetXPx - targetPageInfo.rect.left) * scaleX
-                val clickMmY = (targetYPx - targetPageInfo.rect.top) * scaleY
-
-                // 2. Calcoliamo di quanto spostare il gruppo affinché il suo centro coincida col tocco
-                val groupCenterX = copiedGroup.boundingBox.centerX()
-                val groupCenterY = copiedGroup.boundingBox.centerY()
-
-                offsetXMm = clickMmX - groupCenterX
-                offsetYMm = clickMmY - groupCenterY
-            }
-
-            val pastedStrokes = mutableListOf<Stroke>()
-            val pastedImages = mutableListOf<Image>()
-
-            // 1. Clona e sposta le Immagini
-            copiedGroup.images.forEach { originalImg ->
-                val newImg = Image(zIndex = targetPage.imageData.size + pastedImages.size).apply {
-                    id = originalImg.id // Mantiene lo stesso file risorsa
-                    dbId = 0 // Nuovo inserimento
-                    x = originalImg.x + offsetXMm
-                    y = originalImg.y + offsetYMm
-                    width = originalImg.width
-                    height = originalImg.height
-                    rotation = originalImg.rotation
+            if (targetXPx != null && targetYPx != null) {
+                // Cerchiamo quale pagina visibile contiene il punto toccato
+                targetPageInfo = drawManager.pagesRectOnWindow.find {
+                    it.rect.contains(targetXPx, targetYPx)
                 }
-                repository.addImageToPage(targetPage.dbId, newImg)
-                pastedImages.add(newImg)
             }
 
-            // 2. Clona e sposta i Tratti
-            val offsetMatrix = Matrix().apply { postTranslate(offsetXMm, offsetYMm) }
+            // Fallback: se usiamo il tasto Incolla generico (senza coordinate)
+            // usiamo la prima pagina visibile.
+            if (targetPageInfo == null) {
+                targetPageInfo = drawManager.pagesRectOnWindow.firstOrNull()
+            }
 
-            copiedGroup.strokes.forEach { originalStroke ->
-                // NOTA: Poiché i tratti hanno il nativo C++ stroke, clonarlo richiede un po' di cura.
-                // Per farlo velocemente, creiamo una "copia profonda" leggendo e riscrivendo le proprietà base
-                val newStroke = Stroke(zIndex = targetPage.strokeData.size + pastedStrokes.size).apply {
-                    dbId = 0 // Nuovo inserimento
-                    color = originalStroke.color
-                    size = originalStroke.size
-                    toolType = originalStroke.toolType
-                    brush = originalStroke.brush
-                    // Assegniamo il tratto nativo originale...
-                    stroke = originalStroke.stroke
+            // Ricaviamo l'indice e l'oggetto Page
+            val targetPageIndex = targetPageInfo?.index ?: copiedGroup.pageIndex
+            val targetPage = doc.pages.getOrNull(targetPageIndex) ?: return
+
+            viewModelScope.launch(Dispatchers.Default) {
+                // Offset di default (10mm in diagonale) se usiamo il tasto nella toolbar
+                var offsetXMm = 10f
+                var offsetYMm = 10f
+
+                // Se l'utente ha fatto un long-press, calcoliamo l'offset esatto!
+                if (targetXPx != null && targetYPx != null && targetPageInfo != null) {
+                    // 1. Convertiamo i pixel dello schermo nei millimetri fisici del foglio
+                    val scaleX = targetPage.width / targetPageInfo.rect.width()
+                    val scaleY = targetPage.height / targetPageInfo.rect.height()
+                    val clickMmX = (targetXPx - targetPageInfo.rect.left) * scaleX
+                    val clickMmY = (targetYPx - targetPageInfo.rect.top) * scaleY
+
+                    // 2. Calcoliamo di quanto spostare il gruppo affinché il suo centro coincida col tocco
+                    val groupCenterX = copiedGroup.boundingBox.centerX()
+                    val groupCenterY = copiedGroup.boundingBox.centerY()
+
+                    offsetXMm = clickMmX - groupCenterX
+                    offsetYMm = clickMmY - groupCenterY
                 }
 
-                // ...e poi gli diciamo di spostarsi (questo ricreerà un NUOVO tratto nativo C++ spostato!)
-                newStroke.applyTransform(offsetMatrix)
+                val pastedStrokes = mutableListOf<Stroke>()
+                val pastedImages = mutableListOf<Image>()
 
-                // Salva nel DB per ottenere il vero dbId
-                repository.saveNewStroke(targetPage.dbId, newStroke)
-                pastedStrokes.add(newStroke)
-            }
+                // 1. Clona e sposta le Immagini
+                copiedGroup.images.forEach { originalImg ->
+                    val newImg = Image(zIndex = targetPage.imageData.size + pastedImages.size).apply {
+                        id = originalImg.id // Mantiene lo stesso file risorsa
+                        dbId = 0 // Nuovo inserimento
+                        x = originalImg.x + offsetXMm
+                        y = originalImg.y + offsetYMm
+                        width = originalImg.width
+                        height = originalImg.height
+                        rotation = originalImg.rotation
+                    }
+                    repository.addImageToPage(targetPage.dbId, newImg)
+                    pastedImages.add(newImg)
+                }
 
-            // 3. Aggiungi i cloni ai dati in RAM della pagina
-            targetPage.imageData.addAll(pastedImages)
-            targetPage.strokeData.addAll(pastedStrokes)
+                // 2. Clona e sposta i Tratti
+                val offsetMatrix = Matrix().apply { postTranslate(offsetXMm, offsetYMm) }
 
-            // 4. Rigenera la Bitmap Cache per mostrare gli elementi incollati
-            targetPage.bitmapPage?.let { oldBitmap ->
-                targetPage.bitmapPage = pageMaker.makePage(
-                    Rect(0, 0, oldBitmap.width, oldBitmap.height), null, targetPage, doc
+                copiedGroup.strokes.forEach { originalStroke ->
+                    // NOTA: Poiché i tratti hanno il nativo C++ stroke, clonarlo richiede un po' di cura.
+                    // Per farlo velocemente, creiamo una "copia profonda" leggendo e riscrivendo le proprietà base
+                    val newStroke = Stroke(zIndex = targetPage.strokeData.size + pastedStrokes.size).apply {
+                        dbId = 0 // Nuovo inserimento
+                        color = originalStroke.color
+                        size = originalStroke.size
+                        toolType = originalStroke.toolType
+                        brush = originalStroke.brush
+                        // Assegniamo il tratto nativo originale...
+                        stroke = originalStroke.stroke
+                    }
+
+                    // ...e poi gli diciamo di spostarsi (questo ricreerà un NUOVO tratto nativo C++ spostato!)
+                    newStroke.applyTransform(offsetMatrix)
+
+                    // Salva nel DB per ottenere il vero dbId
+                    repository.saveNewStroke(targetPage.dbId, newStroke)
+                    pastedStrokes.add(newStroke)
+                }
+
+                // 3. Aggiungi i cloni ai dati in RAM della pagina
+                targetPage.imageData.addAll(pastedImages)
+                targetPage.strokeData.addAll(pastedStrokes)
+
+                // 4. Rigenera la Bitmap Cache per mostrare gli elementi incollati
+                targetPage.bitmapPage?.let { oldBitmap ->
+                    targetPage.bitmapPage = pageMaker.makePage(
+                        Rect(0, 0, oldBitmap.width, oldBitmap.height), null, targetPage, doc
+                    )
+                }
+
+                // 5. Richiedi l'aggiornamento visivo
+                drawManager.requestDraw(
+                    DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                        update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                    }
                 )
-            }
 
-            // 5. Richiedi l'aggiornamento visivo
-            drawManager.requestDraw(
-                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                // 6. Seleziona automaticamente gli elementi incollati
+                val newBoundingBox = RectF(copiedGroup.boundingBox)
+                newBoundingBox.offset(offsetXMm, offsetYMm)
+
+                currentSelection = SelectionGroup(
+                    images = pastedImages,
+                    strokes = pastedStrokes,
+                    boundingBox = newBoundingBox,
+                    pageIndex = targetPageIndex
+                ).apply {
+                    // Impostiamo isDragging = true in modo che appaiano subito in overlay col rettangolo azzurro
+                    images.forEach { it.isDragging = true }
+                    strokes.forEach { it.isDragging = true }
                 }
-            )
-
-            // 6. Seleziona automaticamente gli elementi incollati
-            val newBoundingBox = RectF(copiedGroup.boundingBox)
-            newBoundingBox.offset(offsetXMm, offsetYMm)
-
-            currentSelection = SelectionGroup(
-                images = pastedImages,
-                strokes = pastedStrokes,
-                boundingBox = newBoundingBox,
-                pageIndex = targetPageIndex
-            ).apply {
-                // Impostiamo isDragging = true in modo che appaiano subito in overlay col rettangolo azzurro
-                images.forEach { it.isDragging = true }
-                strokes.forEach { it.isDragging = true }
+            }
+        } else {
+            // --- NUOVA LOGICA: INCOLLA IMMAGINE DI SISTEMA (es. copiata da Chrome o Galleria) ---
+            val clipMgr = getApplication<Application>().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clip = clipMgr.primaryClip
+            if (clip != null && clip.itemCount > 0) {
+                val uri = clip.getItemAt(0).uri
+                if (uri != null) {
+                    // Controlla se l'URI è un'immagine prima di importare
+                    val mimeType = getApplication<Application>().contentResolver.getType(uri)
+                    if (mimeType?.startsWith("image/") == true || clipMgr.primaryClipDescription?.hasMimeType("image/*") == true) {
+                        importImageFromUri(uri, targetXPx, targetYPx)
+                    }
+                }
             }
         }
 
         // Chiudiamo il menu contestuale
         contextMenuPosition = null
+    }
+
+    /**
+     * Verifica se ci sono elementi pronti per essere incollati
+     * (o copiati internamente all'app, o un'immagine copiata da un'altra app)
+     */
+    fun canPaste(): Boolean {
+        // Se abbiamo appena copiato qualcosa col Lazo, mostriamo il tasto
+        if (clipboard != null) return true
+
+        // Altrimenti, verifichiamo se l'ultima cosa copiata nel telefono è un'immagine
+        val clipMgr = getApplication<Application>().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val description = clipMgr.primaryClipDescription ?: return false
+
+        return description.hasMimeType("image/*") ||
+                description.hasMimeType("image/jpeg") ||
+                description.hasMimeType("image/png")
     }
 
     // --- TOOL UTILITIES ---

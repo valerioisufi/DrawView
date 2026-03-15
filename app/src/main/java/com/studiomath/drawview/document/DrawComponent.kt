@@ -156,8 +156,8 @@ fun DrawComponent(
                 ) {
                     Row(modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)) {
 
-                        // Tasto Incolla (Visibile solo se ci sono dati copiati)
-                        if (drawViewModel.clipboard != null) {
+                        // Tasto Incolla (Visibile se abbiamo copiato un gruppo O un'immagine da un'altra app)
+                        if (drawViewModel.canPaste()) {
                             IconButton(onClick = { drawViewModel.pasteSelection(pos.x, pos.y) }) {
                                 Icon(Icons.Default.ContentPaste, contentDescription = "Incolla", tint = MaterialTheme.colorScheme.primary)
                             }

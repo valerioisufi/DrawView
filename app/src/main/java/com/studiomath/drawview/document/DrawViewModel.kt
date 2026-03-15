@@ -451,6 +451,8 @@ class DrawViewModel(
                 textObj.width = measuredWidthMm
                 textObj.height = measuredHeightMm
 
+                textObj.isDragging = false
+
                 // Salviamo nel DB
                 if (textObj.dbId == 0) {
                     repository.saveNewText(page.dbId, textObj)

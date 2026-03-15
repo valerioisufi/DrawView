@@ -100,6 +100,66 @@ class OnTouchHover(
                         drawViewModel.drawManager.scroller.forceFinished(true)
                     }
                 }
+
+                // --- NUOVO: RILEVAMENTO TAP PULITO TRAMITE GESTURE DETECTOR ---
+                override fun onSingleTapUp(e: MotionEvent): Boolean {
+                    // Funziona SOLO se lo strumento selezionato è il Testo!
+                    val isTextTool = drawViewModel.selectedTool == DrawViewModel.ToolUtilities.Tool.TEXT
+
+                    if (isTextTool && currentDragState == DragState.NONE) {
+                        val pageInfo = drawViewModel.drawManager.pagesRectOnWindow.find { it.rect.contains(e.x, e.y) }
+                        if (pageInfo != null) {
+                            val page = drawViewModel.documentData!!.pages[pageInfo.index]
+
+                            val scaleX = pageInfo.rect.width() / page.width
+                            val scaleY = pageInfo.rect.height() / page.height
+
+                            // Convertiamo le coordinate del tocco in millimetri
+                            val xMm = (e.x - pageInfo.rect.left) / scaleX
+                            val yMm = (e.y - pageInfo.rect.top) / scaleY
+
+                            // Controlliamo se abbiamo toccato un testo esistente (dal più alto al più basso in z-index)
+                            var tappedText: com.studiomath.drawview.document.page.Text? = null
+                            for (txt in page.textData.reversed()) {
+                                if (xMm >= txt.x && xMm <= txt.x + txt.width && yMm >= txt.y && yMm <= txt.y + txt.height) {
+                                    tappedText = txt
+                                    break
+                                }
+                            }
+
+                            drawViewModel.activeTextScale = scaleX
+                            drawViewModel.activeTextPageIndex = pageInfo.index
+
+                            if (tappedText != null) {
+                                // 1. TAP SU TESTO ESISTENTE: Apriamo la modifica
+                                drawViewModel.activeTextEditItem = tappedText
+
+                                val pts = floatArrayOf(tappedText.x, tappedText.y)
+                                val mmToScreenMatrix = Matrix().apply {
+                                    setRectToRect(page.rect(), pageInfo.rect, Matrix.ScaleToFit.CENTER)
+                                }
+                                mmToScreenMatrix.mapPoints(pts)
+                                drawViewModel.activeTextEditPosition = android.graphics.PointF(pts[0], pts[1])
+
+                                tappedText.isDragging = true // Nascondiamolo temporaneamente dal canvas
+                                drawViewModel.drawManager.requestDraw(
+                                    DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                                        update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                                    }
+                                )
+                            } else {
+                                // 2. TAP SUL VUOTO: Creiamo un nuovo testo
+                                drawViewModel.activeTextEditPosition = android.graphics.PointF(e.x, e.y)
+                                drawViewModel.activeTextEditItem = null
+                            }
+
+                            drawViewModel.drawManager.scroller.forceFinished(true)
+                            return true // Abbiamo gestito il tocco!
+                        }
+                    }
+                    return false
+                }
+
             })
         }
 
@@ -237,7 +297,10 @@ class OnTouchHover(
                             }
                             DragState.SCALING -> {
                                 // Calcoliamo la nuova distanza dal centro
-                                val currentDist = Math.hypot((xMm - initialCenterX).toDouble(), (yMm - initialCenterY).toDouble()).toFloat()
+                                val currentDist = hypot(
+                                    (xMm - initialCenterX).toDouble(),
+                                    (yMm - initialCenterY).toDouble()
+                                ).toFloat()
                                 if (initialDistance > 0.1f) {
                                     val scaleFactor = currentDist / initialDistance
                                     // Scaliamo rispetto al centro del gruppo
@@ -252,7 +315,12 @@ class OnTouchHover(
                             }
                             DragState.ROTATING -> {
                                 // Calcoliamo il nuovo angolo
-                                val currentAngle = Math.toDegrees(Math.atan2((yMm - initialCenterY).toDouble(), (xMm - initialCenterX).toDouble())).toFloat()
+                                val currentAngle = Math.toDegrees(
+                                    atan2(
+                                        (yMm - initialCenterY).toDouble(),
+                                        (xMm - initialCenterX).toDouble()
+                                    )
+                                ).toFloat()
                                 val deltaAngle = currentAngle - initialAngle
 
                                 // Ruotiamo rispetto al centro del gruppo
@@ -301,11 +369,14 @@ class OnTouchHover(
                     }
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                         if (currentDragState != DragState.NONE) {
+
+                            // --- COMPORTAMENTO STANDARD DI FINE TRASCINAMENTO ---
                             currentDragState = DragState.NONE
+
                             // Fissa le coordinate in RAM e salva nel DB
                             drawViewModel.applySelectionTransformation()
 
-                            // FIX: Richiedi un refresh per ridisegnare i bordi azzurri nella nuova posizione
+                            // Richiedi un refresh per ridisegnare i bordi azzurri nella nuova posizione
                             drawViewModel.drawManager.requestDraw(
                                 DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.REFRESH)
                             )
@@ -331,23 +402,9 @@ class OnTouchHover(
 
         val isTextTool = drawViewModel.selectedTool == DrawViewModel.ToolUtilities.Tool.TEXT
 
-        // Se è lo strumento Testo, dirottiamo l'evento!
+        // Consumiamo tutti gli eventi di trascinamento/tocco dello strumento testo
+        // in modo che non passino alla libreria di disegno o al pan/zoom della pagina.
         if (isDrawingInput && isTextTool && currentDragState == DragState.NONE) {
-            if (event.actionMasked == MotionEvent.ACTION_DOWN) {
-                // Troviamo quale pagina ha toccato l'utente
-                val pageInfo = drawViewModel.drawManager.pagesRectOnWindow.find { it.rect.contains(event.x, event.y) }
-                if (pageInfo != null) {
-                    val page = drawViewModel.documentData!!.pages[pageInfo.index]
-
-                    // Calcoliamo lo zoom attuale (Pixel a Schermo / Millimetri del Foglio)
-                    drawViewModel.activeTextScale = pageInfo.rect.width() / page.width
-
-                    drawViewModel.activeTextEditPosition = android.graphics.PointF(event.x, event.y)
-                    drawViewModel.activeTextPageIndex = pageInfo.index
-                    drawViewModel.activeTextEditItem = null // Crea un nuovo elemento
-                    drawViewModel.drawManager.scroller.forceFinished(true)
-                }
-            }
             return@OnTouchListener true
         }
 

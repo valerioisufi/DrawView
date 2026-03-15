@@ -243,7 +243,13 @@ class OnTouchHover(
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                         if (currentDragState != DragState.NONE) {
                             currentDragState = DragState.NONE
+                            // Fissa le coordinate in RAM e salva nel DB
                             drawViewModel.applySelectionTransformation()
+
+                            // FIX: Richiedi un refresh per ridisegnare i bordi azzurri nella nuova posizione
+                            drawViewModel.drawManager.requestDraw(
+                                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.REFRESH)
+                            )
                             return@OnTouchListener true
                         }
                     }

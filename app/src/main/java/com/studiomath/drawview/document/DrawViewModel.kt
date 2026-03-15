@@ -644,7 +644,7 @@ class DrawViewModel(
         val doc = documentData ?: return
         val page = doc.pages.getOrNull(selection.pageIndex) ?: return
 
-        // 1. Applica la matrice nativa ai tratti (C++ ink-strokes gestisce scala, rotazione e traslazione sui punti vettoriali!)
+        // 1. Applica la matrice nativa ai tratti
         selection.strokes.forEach { stroke ->
             stroke.applyTransform(selection.transformMatrix)
         }
@@ -653,22 +653,12 @@ class DrawViewModel(
         val values = FloatArray(9)
         selection.transformMatrix.getValues(values)
 
-        // La scala uniforme è l'ipotenusa tra la componente X della scala e lo skew Y
         val scale = hypot(values[Matrix.MSCALE_X].toDouble(), values[Matrix.MSKEW_Y].toDouble()).toFloat()
-
-        // L'angolo si ricava con l'arcotangente (in gradi)
-        val angle = Math.toDegrees(
-            atan2(
-                values[Matrix.MSKEW_Y].toDouble(),
-                values[Matrix.MSCALE_X].toDouble()
-            )
-        ).toFloat()
+        val angle = Math.toDegrees(atan2(values[Matrix.MSKEW_Y].toDouble(), values[Matrix.MSCALE_X].toDouble())).toFloat()
 
         // 3. Calcola le nuove coordinate, dimensioni e rotazione per le immagini
         val pts = FloatArray(2)
         selection.images.forEach { img ->
-            // FONDAMENTALE: Per evitare che l'immagine si "sposti" ruotandola,
-            // calcoliamo la nuova posizione mappando il suo CENTRO, non l'angolo in alto a sinistra.
             val centerX = img.x + (img.width / 2f)
             val centerY = img.y + (img.height / 2f)
 
@@ -678,49 +668,26 @@ class DrawViewModel(
             val newCenterX = pts[0]
             val newCenterY = pts[1]
 
-            // Aggiorniamo le dimensioni e la rotazione cumulativa
             img.width *= scale
             img.height *= scale
             img.rotation = (img.rotation + angle) % 360f
 
-            // Ricalcoliamo il nuovo top-left (x, y) sottraendo metà delle NUOVE dimensioni
             img.x = newCenterX - (img.width / 2f)
             img.y = newCenterY - (img.height / 2f)
         }
 
-        // 4. Resetta la matrice temporanea perché ora i dati base sono aggiornati!
+        // 4. Resetta la matrice temporanea perché ora i dati base sono aggiornati in RAM!
         selection.transformMatrix.reset()
 
-        // 5. Spegni la flag isDragging così tornano sul livello statico
-        selection.images.forEach { it.isDragging = false }
-        selection.strokes.forEach { it.isDragging = false }
+        // FIX CRUCIALE: NON mettiamo isDragging = false e NON rigeneriamo la cache qui.
+        // Gli elementi sono ancora selezionati, quindi devono restare nascosti dallo sfondo e visibili solo in overlay!
 
-        // 6. Rigenera la bitmapPage e salva nel DB (tutto in background!)
-        viewModelScope.launch(Dispatchers.Default) {
-
-            // "Scatta una nuova fotografia" della pagina
-            page.bitmapPage?.let { oldBitmap ->
-                page.bitmapPage = pageMaker.makePage(
-                    android.graphics.Rect(0, 0, oldBitmap.width, oldBitmap.height),
-                    null,
-                    page,
-                    doc
-                )
-            }
-
-            // Stampa la nuova fotografia sullo schermo
-            drawManager.requestDraw(
-                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
-                }
-            )
-
-            // Salva le modifiche definitive nel Database!
+        // 5. Salva in Background nel Database per persistenza (non influenza la UI istantanea)
+        viewModelScope.launch(Dispatchers.IO) {
             selection.images.forEach { img ->
                 repository.updateImage(page.dbId, img)
             }
             selection.strokes.forEach { stroke ->
-                // NOTA: Decommenta questa riga non appena hai creato la funzione updateStroke() nel tuo Repository!
                 repository.updateStroke(page.dbId, stroke)
             }
         }

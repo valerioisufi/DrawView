@@ -417,7 +417,10 @@ class DrawViewModel(
      * Chiamata da Compose quando l'utente preme "Inserisci".
      * Salva il testo (nuovo o modificato) nella RAM e nel Database.
      */
-    fun finishTextEditing(text: String, isLatex: Boolean, color: Int, fontSize: Float, isBold: Boolean, isItalic: Boolean) {
+    fun finishTextEditing(
+        text: String, isLatex: Boolean, color: Int, fontSize: Float,
+        isBold: Boolean, isItalic: Boolean, measuredWidthMm: Float, measuredHeightMm: Float // NUOVO
+    ) {
         val pos = activeTextEditPosition ?: return
         val pageIndex = activeTextPageIndex
         if (pageIndex == -1) return
@@ -427,9 +430,7 @@ class DrawViewModel(
 
         if (text.isNotBlank()) {
             viewModelScope.launch(Dispatchers.Default) {
-                // Se activeTextEditItem è nullo, stiamo creando un NUOVO testo.
                 val textObj = activeTextEditItem ?: Text(page.textData.size).apply {
-                    // Convertiamo i pixel dello schermo in millimetri della pagina
                     val pageInfo = drawManager.pagesRectOnWindow.find { it.index == pageIndex }
                     if (pageInfo != null) {
                         val scaleX = page.width / pageInfo.rect.width()
@@ -439,13 +440,17 @@ class DrawViewModel(
                     }
                 }
 
-                // Aggiorniamo i campi
+                // Applichiamo le dimensioni REALI calcolate da Compose
                 textObj.text = text
                 textObj.isLatex = isLatex
                 textObj.color = color
                 textObj.fontSize = fontSize
                 textObj.isBold = isBold
                 textObj.isItalic = isItalic
+
+                // Aggiungiamo un piccolo buffer (+1 mm) per compensare i minuscoli arrotondamenti Float
+                textObj.width = measuredWidthMm + 1f
+                textObj.height = measuredHeightMm + 1f
 
                 // Salviamo nel DB
                 if (textObj.dbId == 0) {

@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.foundation.text.BasicTextField
@@ -214,10 +215,24 @@ fun DrawComponent(
             val displayMetrics = drawViewModel.displayMetrics
             var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
 
+            // 1 pt = 0.3527 mm. Calcoliamo la dimensione esatta in pixel sullo schermo
             val defaultFontSizePt = 16f
             val baseFontSizeMm = defaultFontSizePt * 0.3527f
             val scaledFontSizePx = baseFontSizeMm * scale
             val scaledFontSizeSp = with(LocalDensity.current) { scaledFontSizePx.toSp() }
+
+            // NUOVO: Calcoliamo la distanza dal tocco fino al bordo destro del foglio (in pixel)
+            val pageInfo = drawViewModel.drawManager.pagesRectOnWindow.find { it.index == drawViewModel.activeTextPageIndex }
+            val maxAllowedWidthPx = if (pageInfo != null) {
+                // Distanza dal punto di tocco (pos.x) al margine destro della pagina
+                (pageInfo.rect.right - pos.x).coerceAtLeast(100f) // Minimo 100px di spazio
+            } else {
+                300f
+            }
+
+            // Variabile per salvare la larghezza REALE occupata dal testo
+            var actualTextWidthPx by remember { mutableStateOf(10f) }
+            var actualTextHeightPx by remember { mutableStateOf(10f) }
 
             Box(
                 modifier = Modifier
@@ -225,7 +240,14 @@ fun DrawComponent(
                     .pointerInput(Unit) {
                         detectTapGestures(onTap = {
                             keyboardController?.hide()
-                            drawViewModel.finishTextEditing(textValue, false, android.graphics.Color.BLACK, defaultFontSizePt, false, false)
+
+                            // Convertiamo i pixel misurati da Compose in millimetri per salvarli nel DB
+                            val widthMm = actualTextWidthPx / scale
+                            val heightMm = actualTextHeightPx / scale
+
+                            drawViewModel.finishTextEditing(
+                                textValue, false, android.graphics.Color.BLACK, defaultFontSizePt, false, false, widthMm, heightMm
+                            )
                         })
                     }
             ) {
@@ -234,13 +256,20 @@ fun DrawComponent(
                     onValueChange = { textValue = it },
                     modifier = Modifier
                         .offset { IntOffset(pos.x.toInt(), pos.y.toInt()) }
+                        .widthIn(max = with(LocalDensity.current) { maxAllowedWidthPx.toDp() }) // LIMITA AL BORDO DEL FOGLIO!
                         .focusRequester(focusRequester),
                     textStyle = TextStyle(
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = scaledFontSizeSp
+                        fontSize = scaledFontSizeSp,
+                        lineHeight = scaledFontSizeSp * 1.2f // Assicura che la spaziatura sia identica a StaticLayout
                     ),
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                    onTextLayout = { textLayoutResult = it } // Salviamo il layout del testo ad ogni lettera
+                    onTextLayout = { result ->
+                        textLayoutResult = result
+                        // Salviamo la dimensione esatta occupata dal testo in questo istante
+                        actualTextWidthPx = result.size.width.toFloat()
+                        actualTextHeightPx = result.size.height.toFloat()
+                    }
                 )
             }
 

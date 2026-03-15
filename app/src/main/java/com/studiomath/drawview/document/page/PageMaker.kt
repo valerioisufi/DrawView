@@ -263,21 +263,19 @@ class PageMaker(
                     } else {
                         // --- RENDERING TESTO VETTORIALE NORMALE ---
                         canvas.withSave {
-                            val textMatrix = Matrix()
-                            val centerX = textItem.width / 2f
-                            val centerY = textItem.height / 2f
+                            // Estraiamo lo zoom attuale dalla matrice di proiezione (da millimetri a pixel)
+                            val matrixValues = FloatArray(9)
+                            strokePathMatrix.getValues(matrixValues)
+                            val scaleX = matrixValues[Matrix.MSCALE_X]
+                            val scaleY = matrixValues[Matrix.MSCALE_Y]
 
-                            textMatrix.postRotate(textItem.rotation, centerX, centerY)
-                            textMatrix.postTranslate(textItem.x, textItem.y)
-                            textMatrix.postConcat(strokePathMatrix)
-
-                            // Applichiamo la trasformazione al Canvas: ora stiamo disegnando in scala millimetrica esatta!
-                            canvas.concat(textMatrix)
+                            // 1. Diciamo alla penna di usare il font SCALATO AI PIXEL DELLO SCHERMO
+                            // 1pt = 0.3527mm. Moltiplichiamo per lo zoom (scaleX)
+                            val screenFontSizePx = textItem.fontSize * 0.3527f * scaleX
 
                             val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
                                 color = textItem.color
-                                // 1 punto tipografico (pt) equivale a circa 0.3527 millimetri fisici
-                                textSize = textItem.fontSize * 0.3527f
+                                textSize = screenFontSizePx
                                 typeface = Typeface.create(Typeface.DEFAULT,
                                     if (textItem.isBold && textItem.isItalic) Typeface.BOLD_ITALIC
                                     else if (textItem.isBold) Typeface.BOLD
@@ -286,14 +284,37 @@ class PageMaker(
                                 )
                             }
 
-                            // Usiamo StaticLayout per gestire automaticamente gli "A capo" (word wrap)
-                            // Assicuriamoci che la larghezza minima sia 1 per evitare crash matematici
-                            val safeWidth = textItem.width.toInt().coerceAtLeast(1)
+                            // 2. Calcoliamo la larghezza consentita (anche lei scalata in pixel)
+                            val screenSafeWidthPx = (textItem.width * scaleX).toInt().coerceAtLeast(1)
+
+                            // 3. Creiamo il Layout
                             val staticLayout = StaticLayout.Builder.obtain(
-                                textItem.text, 0, textItem.text.length, textPaint, safeWidth
+                                textItem.text, 0, textItem.text.length, textPaint, screenSafeWidthPx
                             ).setAlignment(Layout.Alignment.ALIGN_NORMAL).build()
 
-                            // Disegna vettorialmente il testo sul foglio
+                            // 4. Posizioniamo il Canvas nel punto corretto (usando la matrice base)
+                            val textMatrix = Matrix()
+                            val centerX = textItem.width / 2f
+                            val centerY = textItem.height / 2f
+
+                            textMatrix.postRotate(textItem.rotation, centerX, centerY)
+                            textMatrix.postTranslate(textItem.x, textItem.y)
+                            textMatrix.postConcat(strokePathMatrix)
+
+                            // 5. APPLICHIAMO SOLO LO SPOSTAMENTO/ROTAZIONE, NON LA SCALA!
+                            // (Perché il testo lo abbiamo già scalato nel paint)
+                            val translationMatrix = Matrix()
+                            translationMatrix.postTranslate(matrixValues[Matrix.MTRANS_X], matrixValues[Matrix.MTRANS_Y])
+
+                            val localTransform = Matrix()
+                            localTransform.postRotate(textItem.rotation, centerX * scaleX, centerY * scaleY)
+                            localTransform.postTranslate(textItem.x * scaleX, textItem.y * scaleY)
+
+                            translationMatrix.preConcat(localTransform)
+
+                            canvas.concat(translationMatrix)
+
+                            // Disegniamo!
                             staticLayout.draw(canvas)
                         }
                     }

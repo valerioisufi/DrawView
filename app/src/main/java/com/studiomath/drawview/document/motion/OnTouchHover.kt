@@ -3,7 +3,6 @@ package com.studiomath.drawview.document.motion
 import android.annotation.SuppressLint
 import android.graphics.Matrix
 import android.graphics.RectF
-import android.util.Log
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
@@ -11,7 +10,6 @@ import androidx.ink.authoring.InProgressStrokeId
 import androidx.input.motionprediction.MotionEventPredictor
 import com.studiomath.drawview.document.DrawManager
 import com.studiomath.drawview.document.DrawViewModel
-import com.studiomath.drawview.document.page.Image
 import kotlin.math.hypot
 
 /**
@@ -269,23 +267,13 @@ class OnTouchHover(
         /**
          * Handle drawing inputs (Stylus or Single Finger)
          */
-        val isDrawingInput = (event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS ||
+        isStrokeInProgress = (event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS ||
                 (event.pointerCount == 1 && !isStylusActive && !onScaleTranslate.continueScaleTranslate)) &&
                 drawViewModel.selectedTool != DrawViewModel.ToolUtilities.Tool.PAN
 
-        val isEraserTool = drawViewModel.selectedTool == DrawViewModel.ToolUtilities.Tool.ERASER
-
-        // Disegniamo con Ink Library solo se NON è selezionata la gomma
-        isStrokeInProgress = isDrawingInput && !isEraserTool
-
+        // Dato che abbiamo scelto la "Scia", la Gomma passa da qui come tutti gli altri strumenti!
         if (isStrokeInProgress && currentDragState == DragState.NONE) {
             handleStrokeEvent(view, event)
-            return@OnTouchListener true
-        }
-
-        // Se è la gomma, dirottiamo l'evento verso il nostro motore di Hit-Testing
-        if (isDrawingInput && isEraserTool && currentDragState == DragState.NONE) {
-            handleEraserEvent(view, event)
             return@OnTouchListener true
         }
 
@@ -322,11 +310,11 @@ class OnTouchHover(
             MotionEvent.ACTION_DOWN -> {
                 drawViewModel.drawManager.scroller.forceFinished(true)
                 view.requestUnbufferedDispatch(event)
-
-                // CLEAR SELECTION:
-                // Se inizio a tracciare un nuovo lazo o a scrivere con la penna,
-                // devo svuotare l'eventuale selezione precedente e riancorare gli elementi allo sfondo.
                 drawViewModel.clearSelection()
+
+                // Salviamo il punto di partenza per la gomma
+                lastEraserX = event.x
+                lastEraserY = event.y
 
                 val pointerIndex = event.actionIndex
                 val pointerId = event.getPointerId(pointerIndex)
@@ -341,9 +329,26 @@ class OnTouchHover(
                 val strokeId = currentStrokeId ?: return
                 val predictedEvent = motionEventPredictor?.predict()
 
+                // Disegniamo la scia a schermo (funziona per penna, evidenziatore, lazo E GOMMA)
                 drawViewModel.addToStrokeInProgress?.invoke(
                     event, pointerId, strokeId, predictedEvent
                 )
+
+                // Se stiamo usando la gomma, distruggiamo in tempo reale i tratti che tocchiamo!
+                if (drawViewModel.selectedTool == DrawViewModel.ToolUtilities.Tool.ERASER) {
+                    // Controlliamo anche la "history" dell'evento per non perdere punti se muovi il dito velocissimo
+                    for (i in 0 until event.historySize) {
+                        val hx = event.getHistoricalX(i)
+                        val hy = event.getHistoricalY(i)
+                        drawViewModel.eraseStrokesAtLine(lastEraserX, lastEraserY, hx, hy)
+                        lastEraserX = hx
+                        lastEraserY = hy
+                    }
+                    // Controlliamo il punto attuale
+                    drawViewModel.eraseStrokesAtLine(lastEraserX, lastEraserY, event.x, event.y)
+                    lastEraserX = event.x
+                    lastEraserY = event.y
+                }
             }
             MotionEvent.ACTION_UP -> {
                 val pointerIndex = event.actionIndex
@@ -365,29 +370,6 @@ class OnTouchHover(
                 if (pointerId == currentPointerId) {
                     cancelCurrentStroke(event)
                 }
-            }
-        }
-    }
-
-    private fun handleEraserEvent(view: View, event: MotionEvent) {
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                drawViewModel.drawManager.scroller.forceFinished(true)
-                drawViewModel.clearSelection()
-                lastEraserX = event.x
-                lastEraserY = event.y
-                isErasing = true
-            }
-            MotionEvent.ACTION_MOVE -> {
-                if (isErasing) {
-                    // Passiamo il micro-segmento al ViewModel per l'intersezione matematica
-                    drawViewModel.eraseStrokesAtLine(lastEraserX, lastEraserY, event.x, event.y)
-                    lastEraserX = event.x
-                    lastEraserY = event.y
-                }
-            }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                isErasing = false
             }
         }
     }

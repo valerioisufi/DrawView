@@ -120,6 +120,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     override fun onStrokesFinished(strokes: Map<InProgressStrokeId, InkStroke>) {
         val document = drawViewModel.documentData ?: return
         val isLasso = drawViewModel.selectedTool == DrawViewModel.ToolUtilities.Tool.LAZO
+        val isEraser = drawViewModel.selectedTool == DrawViewModel.ToolUtilities.Tool.ERASER
 
         // --- FASE 2: HIT TESTING DEL LAZO ---
         if (isLasso) {
@@ -256,6 +257,20 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 }
             )
             return // ESCI: Non procedere con il salvataggio o il disegno normale!
+        }
+
+        // --- FASE 2.5: EVAPORAZIONE DELLA GOMMA ---
+        if (isEraser) {
+            // Rimuoviamo la scia temporanea della gomma dallo schermo
+            drawViewModel.removeFinishedStrokes?.invoke(strokes.keys)
+
+            // Invalidiamo la vista per farla sparire visivamente
+            requestDraw(
+                DrawAttachments(drawMode = DrawAttachments.DrawMode.UPDATE).apply {
+                    update = DrawAttachments.Update.DRAW_BITMAP
+                }
+            )
+            return // ESCI: Non salvare la scia nel DB e non "stamparla" sul foglio!
         }
 
         // 1. Immediate visual rendering to the UI cache (Main Thread to prevent flickering)

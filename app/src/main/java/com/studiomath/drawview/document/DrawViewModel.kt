@@ -800,8 +800,8 @@ class DrawViewModel(
     }
 
     /**
-     * Motore "Live Eraser": Crea un segmento fisico per la gomma e distrugge
-     * i tratti della pagina che intersecano la sua Mesh partizionata.
+     * Motore "Live Eraser": Crea un segmento virtuale spesso quanto la gomma
+     * e distrugge i tratti della pagina che intersecano la sua Mesh partizionata.
      */
     fun eraseStrokesAtLine(x1Px: Float, y1Px: Float, x2Px: Float, y2Px: Float) {
         val doc = documentData ?: return
@@ -812,14 +812,14 @@ class DrawViewModel(
         for (pageInfo in drawManager.pagesRectOnWindow) {
             val page = doc.pages.getOrNull(pageInfo.index) ?: continue
 
-            // 1. FAST PASS SCHERMO: Controlliamo se il segmento tocca almeno la pagina visibile
+            // 1. FAST PASS SCHERMO: Il segmento tocca questa pagina visibile?
             val lineBox = RectF(
                 min(x1Px, x2Px) - eraserThicknessPx, min(y1Px, y2Px) - eraserThicknessPx,
                 max(x1Px, x2Px) + eraserThicknessPx, max(y1Px, y2Px) + eraserThicknessPx
             )
             if (!RectF.intersects(lineBox, pageInfo.rect)) continue
 
-            // 2. Convertiamo i punti dello schermo nei millimetri della pagina
+            // 2. Convertiamo i pixel del segmento nei millimetri del foglio
             val screenToMmMatrix = Matrix().apply {
                 setRectToRect(pageInfo.rect, page.rect(), Matrix.ScaleToFit.CENTER)
             }
@@ -843,32 +843,30 @@ class DrawViewModel(
             val strokesToRemove = mutableListOf<Stroke>()
             val identityTransform = AffineTransform.IDENTITY
 
-            // 4. HIT-TESTING
-            for (stroke in page.strokeData) {
+            // 4. HIT-TESTING SUI TRATTI DELLA PAGINA
+            // (Usiamo toList() per creare uno snapshot ed evitare eccezioni di concorrenza se cancelliamo molto in fretta)
+            for (stroke in page.strokeData.toList()) {
                 val nativeStroke = stroke.stroke ?: continue
                 val strokeBox = nativeStroke.shape.computeBoundingBox() ?: continue
                 val strokeRectF = RectF(strokeBox.xMin, strokeBox.yMin, strokeBox.xMax, strokeBox.yMax)
 
-                // Fast-Pass Bounding Box: Evitiamo calcoli complessi se i due oggetti sono lontani
+                // Intersezione dei Bounding Box (Veloce)
                 if (RectF.intersects(eraserRectF, strokeRectF)) {
-                    // Exact-Pass Mesh: Intersezione al millimetro tramite C++
+                    // Intersezione Poligonale Esatta (Precisa)
                     if (nativeStroke.shape.intersects(eraserShape, identityTransform, identityTransform)) {
                         strokesToRemove.add(stroke)
                     }
                 }
             }
 
-            // 5. ELIMINAZIONE E AGGIORNAMENTO UI
+            // 5. RIMOZIONE DEFINITIVA
             if (strokesToRemove.isNotEmpty()) {
-                // Rimuoviamo istantaneamente i dati dalla RAM
                 page.strokeData.removeAll(strokesToRemove)
 
-                // Rimuoviamo dal Database in background
                 viewModelScope.launch(Dispatchers.IO) {
                     strokesToRemove.forEach { repository.deleteStroke(it.dbId) }
                 }
 
-                // "Scattiamo una nuova fotografia" della pagina senza i tratti eliminati
                 viewModelScope.launch(Dispatchers.Default) {
                     page.bitmapPage?.let { oldBitmap ->
                         page.bitmapPage = pageMaker.makePage(
@@ -876,7 +874,6 @@ class DrawViewModel(
                         )
                     }
 
-                    // Stampiamo a schermo!
                     drawManager.requestDraw(
                         DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
                             update = DrawManager.DrawAttachments.Update.DRAW_BITMAP

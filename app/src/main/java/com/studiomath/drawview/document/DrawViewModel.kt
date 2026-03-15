@@ -77,7 +77,7 @@ class DrawViewModel(
         var boundingBox: RectF = RectF(),
         var pageIndex: Int = -1
     ) {
-        fun isEmpty() = images.isEmpty() && strokes.isEmpty()
+        fun isEmpty() = images.isEmpty() && strokes.isEmpty() && texts.isEmpty()
 
         // La matrice temporanea per lo spostamento (e futuro ridimensionamento)
         val transformMatrix = Matrix()

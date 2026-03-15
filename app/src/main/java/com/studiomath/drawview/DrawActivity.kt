@@ -11,6 +11,7 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +29,7 @@ import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -256,11 +258,14 @@ fun DrawActivity(
 
                 HorizontalDivider()
 
+                val scrollState = rememberScrollState()
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp)
-                        .padding(horizontal = 4.dp),
+                        .padding(horizontal = 4.dp)
+                        .horizontalScroll(scrollState),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     ToolButton(

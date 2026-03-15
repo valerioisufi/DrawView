@@ -10,7 +10,9 @@ import androidx.ink.authoring.InProgressStrokeId
 import androidx.input.motionprediction.MotionEventPredictor
 import com.studiomath.drawview.document.DrawManager
 import com.studiomath.drawview.document.DrawViewModel
+import kotlin.math.atan2
 import kotlin.math.hypot
+import kotlin.math.max
 
 /**
  * Orchestrates touch and hover events on the drawing canvas.
@@ -52,7 +54,7 @@ class OnTouchHover(
 
     // --- VARIABLES FOR OBJECT SELECTION AND DRAGGING ---
     // --- VARIABLES FOR OBJECT SELECTION AND MANIPULATION ---
-    enum class DragState { NONE, PANNING, SCALING, ROTATING }
+    enum class DragState { NONE, PANNING, SCALING, ROTATING, TEXT_RESIZE_LEFT, TEXT_RESIZE_RIGHT }
     private var currentDragState = DragState.NONE
 
     // Per calcolare l'angolo e la scala cumulativi
@@ -170,7 +172,16 @@ class OnTouchHover(
                             (yMm - rotHandleY).toDouble()
                         ) <= handleRadiusMm
 
-                        // C. Controllo Tocco per TRASCINAMENTO (Corpo centrale)
+                        // --- NUOVO: C. Controllo Tocco sulle MANIGLIE LATERALI TESTO ---
+                        var hitTextLeft = false
+                        var hitTextRight = false
+                        val isSingleText = selection.images.isEmpty() && selection.strokes.isEmpty() && selection.texts.size == 1
+                        if (isSingleText) {
+                            hitTextLeft = hypot((xMm - baseBox.left).toDouble(), (yMm - initialCenterY).toDouble()) <= handleRadiusMm
+                            hitTextRight = hypot((xMm - baseBox.right).toDouble(), (yMm - initialCenterY).toDouble()) <= handleRadiusMm
+                        }
+
+                        // D. Controllo Tocco per TRASCINAMENTO (Corpo centrale)
                         val grabBox = RectF(baseBox).apply { inset(-5f, -5f) }
                         val hitBody = grabBox.contains(xMm, yMm)
 
@@ -178,13 +189,29 @@ class OnTouchHover(
                         if (hitScaleHandle) {
                             currentDragState = DragState.SCALING
                             // Salviamo la distanza iniziale dal centro per calcolare il fattore di scala
-                            initialDistance = Math.hypot((xMm - initialCenterX).toDouble(), (yMm - initialCenterY).toDouble()).toFloat()
+                            initialDistance = hypot(
+                                (xMm - initialCenterX).toDouble(),
+                                (yMm - initialCenterY).toDouble()
+                            ).toFloat()
                             drawViewModel.drawManager.scroller.forceFinished(true)
                             return@OnTouchListener true
                         } else if (hitRotHandle) {
                             currentDragState = DragState.ROTATING
                             // Salviamo l'angolo iniziale usando l'arcotangente
-                            initialAngle = Math.toDegrees(Math.atan2((yMm - initialCenterY).toDouble(), (xMm - initialCenterX).toDouble())).toFloat()
+                            initialAngle = Math.toDegrees(
+                                atan2(
+                                    (yMm - initialCenterY).toDouble(),
+                                    (xMm - initialCenterX).toDouble()
+                                )
+                            ).toFloat()
+                            drawViewModel.drawManager.scroller.forceFinished(true)
+                            return@OnTouchListener true
+                        } else if (hitTextLeft) {
+                            currentDragState = DragState.TEXT_RESIZE_LEFT
+                            drawViewModel.drawManager.scroller.forceFinished(true)
+                            return@OnTouchListener true
+                        } else if (hitTextRight) {
+                            currentDragState = DragState.TEXT_RESIZE_RIGHT
                             drawViewModel.drawManager.scroller.forceFinished(true)
                             return@OnTouchListener true
                         } else if (hitBody) {
@@ -231,11 +258,36 @@ class OnTouchHover(
                                 // Ruotiamo rispetto al centro del gruppo
                                 selection.transformMatrix.postRotate(deltaAngle, initialCenterX, initialCenterY)
 
-                                // NOTA: Non aggiorniamo il BoundingBox con la rotazione in RAM,
-                                // perché Android non supporta RectF ruotati. Il BoundingBox grafico
-                                // è già disegnato correttamente da DrawManager.kt mappando i punti!
-
                                 initialAngle = currentAngle
+                            }
+                            // --- NUOVO: GESTIONE MANIGLIE LATERALI TESTO ---
+                            DragState.TEXT_RESIZE_LEFT, DragState.TEXT_RESIZE_RIGHT -> {
+                                val txt = selection.texts[0]
+
+                                // Togliamo l'effetto di eventuali rotazioni fatte precedentemente
+                                // per poter trascinare e allargare il testo lungo il suo asse "dritto"
+                                val pts = floatArrayOf(xMm, yMm)
+                                val inverseTransform = Matrix()
+                                selection.transformMatrix.invert(inverseTransform)
+                                inverseTransform.mapPoints(pts)
+
+                                val touchLocalX = pts[0]
+                                val minWidthMm = 20f // Larghezza minima (2 cm) per non far collassare il box
+
+                                if (currentDragState == DragState.TEXT_RESIZE_RIGHT) {
+                                    val newWidth = touchLocalX - txt.x
+                                    txt.width = max(minWidthMm, newWidth)
+                                } else {
+                                    val rightEdge = txt.x + txt.width
+                                    val newWidth = rightEdge - touchLocalX
+                                    if (newWidth >= minWidthMm) {
+                                        txt.x = touchLocalX
+                                        txt.width = newWidth
+                                    }
+                                }
+
+                                // Aggiorniamo la scatola base visiva
+                                selection.boundingBox.set(txt.x, txt.y, txt.x + txt.width, txt.y + txt.height)
                             }
                             DragState.NONE -> {}
                         }

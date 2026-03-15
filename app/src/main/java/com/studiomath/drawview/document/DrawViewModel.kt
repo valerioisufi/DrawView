@@ -448,9 +448,8 @@ class DrawViewModel(
                 textObj.isBold = isBold
                 textObj.isItalic = isItalic
 
-                // Aggiungiamo un piccolo buffer (+1 mm) per compensare i minuscoli arrotondamenti Float
-                textObj.width = measuredWidthMm + 1f
-                textObj.height = measuredHeightMm + 1f
+                textObj.width = measuredWidthMm
+                textObj.height = measuredHeightMm
 
                 // Salviamo nel DB
                 if (textObj.dbId == 0) {
@@ -501,6 +500,15 @@ class DrawViewModel(
                     activeTextEditPosition = android.graphics.PointF(pos.x, pos.y + stepDy)
                 }
             }
+        }
+    }
+
+    /**
+     * Salva al volo le modifiche al testo (es. quando viene ridimensionato con le maniglie laterali)
+     */
+    fun updateTextInDatabase(pageDbId: Int, textItem: Text) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.updateText(pageDbId, textItem)
         }
     }
 

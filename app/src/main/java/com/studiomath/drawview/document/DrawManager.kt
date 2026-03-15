@@ -853,12 +853,21 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     val midTopYMm = boxMm.top - 12f // 12 mm sopra il bordo superiore
                     val rotationHandleMm = floatArrayOf(midTopXMm, midTopYMm, midTopXMm, boxMm.top) // [X maniglia, Y maniglia, X ancoraggio, Y ancoraggio]
 
+                    // --- FASE 2: MANIGLIE LATERALI PER IL TESTO ---
+                    val isSingleText = selection.images.isEmpty() && selection.strokes.isEmpty() && selection.texts.size == 1
+                    val sideHandlesMm = floatArrayOf(boxMm.left, boxMm.centerY(), boxMm.right, boxMm.centerY()) // [Sinistra X, Sinistra Y, Destra X, Destra Y]
+
                     // Mappiamo tutti i punti attraverso la matrice fusa (Spostamento/Rotazione Gruppo + Zoom/Pan Schermo)
                     val cornersPx = FloatArray(8)
                     mmToScreenMatrix.mapPoints(cornersPx, cornersMm)
 
                     val rotationHandlePx = FloatArray(4)
                     mmToScreenMatrix.mapPoints(rotationHandlePx, rotationHandleMm)
+
+                    val sideHandlesPx = FloatArray(4)
+                    if (isSingleText) {
+                        mmToScreenMatrix.mapPoints(sideHandlesPx, sideHandlesMm)
+                    }
 
                     // --- STILI GRAFICI ---
                     val boxPaint = Paint().apply {
@@ -884,6 +893,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                         isAntiAlias = true
                     }
                     val rotStrokePaint = Paint(handleStrokePaint).apply { color = "#0F9D58".toColorInt() } // Verde per la rotazione
+                    val textHandleStrokePaint = Paint(handleStrokePaint).apply { color = "#FF9800".toColorInt() } // Arancione per la larghezza testo
+
                     val handleRadius = 24f // Dimensione fissa in pixel per le maniglie
 
                     // --- DISEGNO ---
@@ -902,7 +913,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     // B. Disegniamo la linea di ancoraggio per la maniglia di rotazione
                     canvas.drawLine(rotationHandlePx[0], rotationHandlePx[1], rotationHandlePx[2], rotationHandlePx[3], boxPaint)
 
-                    // C. Disegniamo i 4 pallini di ridimensionamento agli angoli
+                    // C. Disegniamo i 4 pallini di ridimensionamento (Zoom) agli angoli
                     for (i in 0 until 4) {
                         val cx = cornersPx[i * 2]
                         val cy = cornersPx[i * 2 + 1]
@@ -913,6 +924,17 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     // D. Disegniamo il pallino verde di rotazione
                     canvas.drawCircle(rotationHandlePx[0], rotationHandlePx[1], handleRadius, handlePaint)
                     canvas.drawCircle(rotationHandlePx[0], rotationHandlePx[1], handleRadius, rotStrokePaint)
+
+                    // E. Disegniamo le maniglie laterali (Arancioni) SOLO se è un singolo testo
+                    if (isSingleText) {
+                        // Sinistra
+                        canvas.drawCircle(sideHandlesPx[0], sideHandlesPx[1], handleRadius, handlePaint)
+                        canvas.drawCircle(sideHandlesPx[0], sideHandlesPx[1], handleRadius, textHandleStrokePaint)
+                        // Destra
+                        canvas.drawCircle(sideHandlesPx[2], sideHandlesPx[3], handleRadius, handlePaint)
+                        canvas.drawCircle(sideHandlesPx[2], sideHandlesPx[3], handleRadius, textHandleStrokePaint)
+                    }
+
                 } // Fine del canvas.withSave
             }
         }

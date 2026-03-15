@@ -43,6 +43,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -66,6 +67,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.ink.authoring.InProgressStrokesView
 import androidx.input.motionprediction.MotionEventPredictor
 import com.studiomath.drawview.document.motion.OnTouchHover
+import kotlin.math.min
 
 @Composable
 fun DrawComponent(
@@ -222,7 +224,7 @@ fun DrawComponent(
             val scaledFontSizePx = baseFontSizeMm * scale
             val scaledFontSizeSp = with(density) { scaledFontSizePx.toSp() }
 
-            // LIMITI DEL FOGLIO (Larghezza massima dinamica)
+            // LIMITI E LARGHEZZA INIZIALE
             val pageInfo = drawViewModel.drawManager.pagesRectOnWindow.find { it.index == drawViewModel.activeTextPageIndex }
             val maxAllowedWidthPx = if (pageInfo != null) {
                 (pageInfo.rect.right - pos.x).coerceAtLeast(100f)
@@ -230,26 +232,28 @@ fun DrawComponent(
                 300f
             }
 
-            var actualTextWidthPx by remember { mutableStateOf(10f) }
-            var actualTextHeightPx by remember { mutableStateOf(10f) }
+            // Se stiamo modificando un testo esistente, usiamo la sua larghezza esatta.
+            // Se è un testo nuovo, gli diamo una scatola di default (es. 80mm), o meno se siamo vicini al bordo.
+            val initialWidthMm = drawViewModel.activeTextEditItem?.width ?: min(80f, maxAllowedWidthPx / scale)
 
-            // FIX 1: Usiamo BoxWithConstraints per avere l'altezza REALE del contenitore,
-            // depurata dalle barre di stato e di navigazione del sistema.
+            // Usiamo questa larghezza come valore fisso per la UI
+            var currentBoxWidthMm by remember { mutableFloatStateOf(initialWidthMm) }
+            var actualTextHeightPx by remember { mutableFloatStateOf(10f) }
+
             BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxSize()
                     .pointerInput(Unit) {
                         detectTapGestures(onTap = {
                             keyboardController?.hide()
-                            val widthMm = actualTextWidthPx / scale
+                            // Passiamo la larghezza FISSA e l'altezza calcolata
                             val heightMm = actualTextHeightPx / scale
                             drawViewModel.finishTextEditing(
-                                textValue, false, android.graphics.Color.BLACK, defaultFontSizePt, false, false, widthMm, heightMm
+                                textValue, false, android.graphics.Color.BLACK, defaultFontSizePt, false, false, currentBoxWidthMm, heightMm
                             )
                         })
                     }
             ) {
-                // Leggiamo l'altezza esatta misurata in questo istante
                 val containerHeightPx = constraints.maxHeight.toFloat()
 
                 BasicTextField(
@@ -257,7 +261,8 @@ fun DrawComponent(
                     onValueChange = { textValue = it },
                     modifier = Modifier
                         .offset { IntOffset(pos.x.toInt(), pos.y.toInt()) }
-                        .widthIn(max = with(density) { maxAllowedWidthPx.toDp() })
+                        // FIX: Forziamo la scatola ad avere esattamente la larghezza impostata!
+                        .width(with(density) { (currentBoxWidthMm * scale).toDp() })
                         .focusRequester(focusRequester),
                     textStyle = TextStyle(
                         color = MaterialTheme.colorScheme.onSurface,
@@ -267,7 +272,7 @@ fun DrawComponent(
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                     onTextLayout = { result ->
                         textLayoutResult = result
-                        actualTextWidthPx = result.size.width.toFloat()
+                        // Salviamo solo l'altezza dinamica, la larghezza è comandata da noi
                         actualTextHeightPx = result.size.height.toFloat()
                     }
                 )

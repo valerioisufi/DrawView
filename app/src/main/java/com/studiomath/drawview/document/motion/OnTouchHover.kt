@@ -96,6 +96,56 @@ class OnTouchHover(
                             isStrokeInProgress = false
                         }
 
+                        // --- NUOVO: SELEZIONE IMMAGINE TRAMITE LONG PRESS ---
+                        val pageInfo = drawViewModel.drawManager.pagesRectOnWindow.find { it.rect.contains(e.x, e.y) }
+
+                        if (pageInfo != null) {
+                            val page = drawViewModel.documentData!!.pages[pageInfo.index]
+
+                            // 1. Convertiamo il tocco in millimetri
+                            val scaleX = pageInfo.rect.width() / page.width
+                            val scaleY = pageInfo.rect.height() / page.height
+                            val xMm = (e.x - pageInfo.rect.left) / scaleX
+                            val yMm = (e.y - pageInfo.rect.top) / scaleY
+
+                            // 2. Cerchiamo se c'è un'immagine sotto il dito (dalla più recente alla più vecchia in z-index)
+                            var tappedImage: com.studiomath.drawview.document.page.Image? = null
+                            for (img in page.imageData.reversed()) {
+                                if (xMm >= img.x && xMm <= img.x + img.width && yMm >= img.y && yMm <= img.y + img.height) {
+                                    tappedImage = img
+                                    break
+                                }
+                            }
+
+                            // 3. Se abbiamo trovato un'immagine, la selezioniamo automaticamente!
+                            if (tappedImage != null) {
+                                drawViewModel.clearSelection() // Spegniamo eventuali altre selezioni aperte
+
+                                tappedImage.isDragging = true // La passiamo in overlay
+                                val newBoundingBox = RectF(
+                                    tappedImage.x, tappedImage.y,
+                                    tappedImage.x + tappedImage.width, tappedImage.y + tappedImage.height
+                                )
+
+                                drawViewModel.currentSelection = DrawViewModel.SelectionGroup(
+                                    images = mutableListOf(tappedImage),
+                                    strokes = mutableListOf(),
+                                    texts = mutableListOf(),
+                                    boundingBox = newBoundingBox,
+                                    pageIndex = pageInfo.index
+                                )
+
+                                // Aggiorniamo il Canvas visivamente
+                                drawViewModel.drawManager.requestDraw(
+                                    DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                                        update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                                    }
+                                )
+                            }
+                        }
+
+                        // 4. Mostriamo il menu fluttuante in entrambi i casi
+                        // (Sull'immagine per tagliarla/cancellarla, o sul vuoto per incollare!)
                         drawViewModel.contextMenuPosition = android.graphics.PointF(e.x, e.y)
                         drawViewModel.drawManager.scroller.forceFinished(true)
                     }

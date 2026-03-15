@@ -38,6 +38,8 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import android.graphics.Rect
 import android.graphics.RectF
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.ink.brush.InputToolType
 import androidx.ink.geometry.AffineTransform
 import androidx.ink.geometry.Intersection.intersects
@@ -407,7 +409,9 @@ class DrawViewModel(
     // --- STATO DELL'EDITOR DI TESTO ---
     var activeTextEditPosition by mutableStateOf<PointF?>(null)
     var activeTextEditItem by mutableStateOf<Text?>(null)
-    var activeTextPageIndex by mutableStateOf(-1)
+    var activeTextPageIndex by mutableIntStateOf(-1)
+
+    var activeTextScale by mutableFloatStateOf(1f) // Memorizza lo zoom per scalare il font in Compose
 
     /**
      * Chiamata da Compose quando l'utente preme "Inserisci".
@@ -478,6 +482,21 @@ class DrawViewModel(
         activeTextEditPosition = null
         activeTextEditItem = null
         activeTextPageIndex = -1
+    }
+
+    /**
+     * Chiamata da Compose quando il cursore finisce sotto la tastiera.
+     * Sposta il canvas e il cursore in perfetta sincronia.
+     */
+    fun panCanvasForKeyboard(deltaY: Float) {
+        viewModelScope.launch(Dispatchers.Main) {
+            drawManager.smoothPanBy(deltaY) { stepDy ->
+                activeTextEditPosition?.let { pos ->
+                    // Muove il cursore di Compose in perfetta sincronia con il Canvas
+                    activeTextEditPosition = android.graphics.PointF(pos.x, pos.y + stepDy)
+                }
+            }
+        }
     }
 
     /**

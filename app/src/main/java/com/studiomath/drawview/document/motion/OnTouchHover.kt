@@ -285,6 +285,11 @@ class OnTouchHover(
                 // Troviamo quale pagina ha toccato l'utente
                 val pageInfo = drawViewModel.drawManager.pagesRectOnWindow.find { it.rect.contains(event.x, event.y) }
                 if (pageInfo != null) {
+                    val page = drawViewModel.documentData!!.pages[pageInfo.index]
+
+                    // Calcoliamo lo zoom attuale (Pixel a Schermo / Millimetri del Foglio)
+                    drawViewModel.activeTextScale = pageInfo.rect.width() / page.width
+
                     drawViewModel.activeTextEditPosition = android.graphics.PointF(event.x, event.y)
                     drawViewModel.activeTextPageIndex = pageInfo.index
                     drawViewModel.activeTextEditItem = null // Crea un nuovo elemento

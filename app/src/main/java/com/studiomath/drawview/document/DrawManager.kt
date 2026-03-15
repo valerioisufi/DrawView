@@ -1,5 +1,6 @@
 package com.studiomath.drawview.document
 
+import android.animation.ValueAnimator
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.DashPathEffect
@@ -928,6 +929,42 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             requestDraw(DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
                 update = DrawAttachments.Update.DRAW_BITMAP
             })
+        }
+    }
+
+    private var panAnimator: ValueAnimator? = null
+
+    /**
+     * Esegue un Pan (spostamento) fluido della telecamera e notifica il ViewModel
+     * ad ogni step per mantenere sincronizzati gli elementi UI in overlay (es. il Cursore di testo).
+     */
+    fun smoothPanBy(deltaY: Float, onUpdate: (stepDy: Float) -> Unit) {
+        panAnimator?.cancel()
+        val startMatrix = Matrix(moveMatrix)
+        var previousDy = 0f
+
+        panAnimator = ValueAnimator.ofFloat(0f, deltaY).apply {
+            duration = 250 // Quarto di secondo per un'animazione naturale
+            addUpdateListener { anim ->
+                val currentDy = anim.animatedValue as Float
+                val stepDy = currentDy - previousDy
+                previousDy = currentDy
+
+                // Spostiamo la matrice della telecamera
+                moveMatrix = Matrix(startMatrix).apply {
+                    postTranslate(0f, currentDy)
+                }
+
+                // Ricalcoliamo le posizioni delle pagine sullo schermo
+                pagesRectOnWindow = calcPage.getPagesRectOnWindowTransformation(windowRect, moveMatrix)
+
+                // Diciamo a Compose di muovere il cursore degli stessi esatti pixel
+                onUpdate(stepDy)
+
+                // Disegniamo il frame spostato
+                requestDraw(DrawAttachments(drawMode = DrawAttachments.DrawMode.SCALE_TRANSLATE))
+            }
+            start()
         }
     }
 }

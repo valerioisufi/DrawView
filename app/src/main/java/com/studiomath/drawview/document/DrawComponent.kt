@@ -6,18 +6,22 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.systemGestureExclusion
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
@@ -35,13 +39,21 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -187,82 +199,73 @@ fun DrawComponent(
             }
         }
 
-        // --- EDITOR DI TESTO FLUTTUANTE ---
+        // --- EDITOR DI TESTO IN-PLACE (Fasi 3 e 4) ---
         if (drawViewModel.activeTextEditPosition != null) {
             val pos = drawViewModel.activeTextEditPosition!!
+            val scale = drawViewModel.activeTextScale
 
-            // Variabili di stato interne all'editor
             var textValue by remember { mutableStateOf(drawViewModel.activeTextEditItem?.text ?: "") }
-            var isLatex by remember { mutableStateOf(drawViewModel.activeTextEditItem?.isLatex ?: false) }
-            var isBold by remember { mutableStateOf(drawViewModel.activeTextEditItem?.isBold ?: false) }
-            var isItalic by remember { mutableStateOf(drawViewModel.activeTextEditItem?.isItalic ?: false) }
-            var textColor = drawViewModel.activeTextEditItem?.color ?: MaterialTheme.colorScheme.onSurface.toArgb()
+
+            val focusRequester = remember { FocusRequester() }
+            val keyboardController = LocalSoftwareKeyboardController.current
+
+            // Variabili per il tracking della tastiera
+            val imeBottom = WindowInsets.ime.getBottom(LocalDensity.current)
+            val displayMetrics = drawViewModel.displayMetrics
+            var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
+
+            val defaultFontSizePt = 16f
+            val baseFontSizeMm = defaultFontSizePt * 0.3527f
+            val scaledFontSizePx = baseFontSizeMm * scale
+            val scaledFontSizeSp = with(LocalDensity.current) { scaledFontSizePx.toSp() }
 
             Box(
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectTapGestures(onTap = {
+                            keyboardController?.hide()
+                            drawViewModel.finishTextEditing(textValue, false, android.graphics.Color.BLACK, defaultFontSizePt, false, false)
+                        })
+                    }
             ) {
-                ElevatedCard(
+                BasicTextField(
+                    value = textValue,
+                    onValueChange = { textValue = it },
                     modifier = Modifier
-                        // Posizioniamo l'editor partendo dalle coordinate del tocco
                         .offset { IntOffset(pos.x.toInt(), pos.y.toInt()) }
-                        .padding(end = 16.dp, bottom = 16.dp), // Margine per non uscire dallo schermo
-                    shape = RoundedCornerShape(12.dp),
-                    elevation = CardDefaults.elevatedCardElevation(12.dp),
-                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .padding(12.dp)
-                            .width(280.dp) // Larghezza fissa per comodità
-                    ) {
-                        // Toolbar formattazione
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row {
-                                TextButton(onClick = { isBold = !isBold }) {
-                                    Text("B", fontWeight = FontWeight.ExtraBold, color = if (isBold) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
-                                }
-                                TextButton(onClick = { isItalic = !isItalic }) {
-                                    Text("I", fontStyle = FontStyle.Italic, color = if (isItalic) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
-                                }
-                                TextButton(onClick = { isLatex = !isLatex }) {
-                                    Text("TeX", fontWeight = FontWeight.Bold, color = if (isLatex) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
-                                }
-                            }
-                            IconButton(onClick = { drawViewModel.cancelTextEditing() }) {
-                                Icon(Icons.Default.Close, contentDescription = "Chiudi")
-                            }
-                        }
+                        .focusRequester(focusRequester),
+                    textStyle = TextStyle(
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = scaledFontSizeSp
+                    ),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    onTextLayout = { textLayoutResult = it } // Salviamo il layout del testo ad ogni lettera
+                )
+            }
 
-                        // Campo di testo
-                        OutlinedTextField(
-                            value = textValue,
-                            onValueChange = { textValue = it },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(120.dp),
-                            placeholder = { Text(if (isLatex) "es. \\int_{a}^{b} x^2 dx" else "Scrivi qualcosa...") },
-                            textStyle = TextStyle(
-                                fontWeight = if (isBold) FontWeight.Bold else FontWeight.Normal,
-                                fontStyle = if (isItalic) FontStyle.Italic else FontStyle.Normal,
-                                fontSize = 16.sp
-                            )
-                        )
+            LaunchedEffect(Unit) {
+                focusRequester.requestFocus()
+                keyboardController?.show()
+            }
 
-                        // Bottone di conferma
-                        Button(
-                            onClick = {
-                                drawViewModel.finishTextEditing(textValue, isLatex, textColor, 16f, isBold, isItalic)
-                            },
-                            modifier = Modifier
-                                .align(Alignment.End)
-                                .padding(top = 8.dp)
-                        ) {
-                            Text("Inserisci")
-                        }
+            // --- FASE 4: AUTO-TRACKING DEL CURSORE ---
+            LaunchedEffect(textValue, textLayoutResult, imeBottom) {
+                if (imeBottom > 0 && textLayoutResult != null) {
+                    // Troviamo il punto più basso dell'ultima riga di testo digitata
+                    val lineCount = textLayoutResult!!.lineCount
+                    val textBottomLocal = textLayoutResult!!.getLineBottom(lineCount - 1)
+
+                    // Convertiamo in coordinate assolute dello schermo
+                    val absoluteBottomY = pos.y + textBottomLocal
+
+                    // Definiamo l'area sicura (Schermo - Tastiera - 80px di margine per vedere bene la riga)
+                    val safeAreaBottom = displayMetrics.heightPixels - imeBottom - 80f
+
+                    // Se stiamo scrivendo sotto la tastiera, solleviamo il documento!
+                    if (absoluteBottomY > safeAreaBottom) {
+                        val deltaY = safeAreaBottom - absoluteBottomY // Sarà un valore negativo (spostamento verso l'alto)
+                        drawViewModel.panCanvasForKeyboard(deltaY)
                     }
                 }
             }

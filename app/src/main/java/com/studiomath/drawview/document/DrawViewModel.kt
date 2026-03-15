@@ -84,9 +84,18 @@ class DrawViewModel(
         var pageIndex: Int = -1
     ) {
         fun isEmpty() = images.isEmpty() && strokes.isEmpty() && texts.isEmpty()
-
-        // La matrice temporanea per lo spostamento (e futuro ridimensionamento)
         val transformMatrix = Matrix()
+
+        // --- FASE 4 (UNDO/REDO): FOTOGRAFIE DELLO STATO ---
+        var oldImageStates: List<FloatArray>? = null
+        var oldTextStates: List<FloatArray>? = null
+        var oldStrokeNative: List<androidx.ink.strokes.Stroke?>? = null
+
+        fun captureOriginalStates() {
+            oldImageStates = images.map { floatArrayOf(it.x, it.y, it.width, it.height, it.rotation) }
+            oldTextStates = texts.map { floatArrayOf(it.x, it.y, it.width, it.height, it.rotation, it.fontSize) }
+            oldStrokeNative = strokes.map { it.stroke }
+        }
     }
 
     var currentSelection by mutableStateOf<SelectionGroup?>(null)
@@ -962,9 +971,11 @@ class DrawViewModel(
             // Trasferiamo fisicamente gli oggetti nelle liste in RAM
             oldPage.imageData.removeAll(selection.images)
             oldPage.strokeData.removeAll(selection.strokes)
+            oldPage.textData.removeAll(selection.texts)
 
             targetPage.imageData.addAll(selection.images)
             targetPage.strokeData.addAll(selection.strokes)
+            targetPage.textData.addAll(selection.texts)
 
             // --- FIX EFFETTO FANTASMA ---
             // Rigeneriamo immediatamente la cache della VECCHIA pagina in background.
@@ -1040,6 +1051,31 @@ class DrawViewModel(
 
         // 6. Resetta la matrice temporanea perché ora i dati base sono aggiornati in RAM
         selection.transformMatrix.reset()
+
+        // --- UNDO/REDO: SALVIAMO L'AZIONE NELLA STORIA ---
+        if (selection.oldImageStates != null) {
+            val newImageStates = selection.images.map { floatArrayOf(it.x, it.y, it.width, it.height, it.rotation) }
+            val newTextStates = selection.texts.map { floatArrayOf(it.x, it.y, it.width, it.height, it.rotation, it.fontSize) }
+            val newStrokeNative = selection.strokes.map { it.stroke }
+
+            addHistoryAction(
+                com.studiomath.drawview.document.history.TransformSelectionAction(
+                    oldPageDbId = oldPage.dbId,
+                    oldPageIndex = oldPageIndex,
+                    newPageDbId = targetPage.dbId,
+                    newPageIndex = targetPageIndex,
+                    images = selection.images.toList(),
+                    texts = selection.texts.toList(),
+                    strokes = selection.strokes.toList(),
+                    oldImageStates = selection.oldImageStates!!,
+                    newImageStates = newImageStates,
+                    oldTextStates = selection.oldTextStates!!,
+                    newTextStates = newTextStates,
+                    oldStrokeNative = selection.oldStrokeNative!!,
+                    newStrokeNative = newStrokeNative
+                )
+            )
+        }
 
         // 7. Salva in Background nel Database (e migra di pagina automaticamente!)
         viewModelScope.launch(Dispatchers.IO) {

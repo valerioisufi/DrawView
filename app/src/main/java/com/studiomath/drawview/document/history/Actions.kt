@@ -3,11 +3,13 @@ package com.studiomath.drawview.document.history
 import android.graphics.Rect
 import com.studiomath.drawview.document.DrawManager
 import com.studiomath.drawview.document.DrawViewModel
+import com.studiomath.drawview.document.page.Image
 import com.studiomath.drawview.document.page.Page
 import com.studiomath.drawview.document.page.Stroke
 import com.studiomath.drawview.document.page.Text
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.collections.forEachIndexed
 
 /**
  * Funzione di utilità usata da tutte le azioni per ricalcolare la cache
@@ -119,5 +121,88 @@ class AddTextAction(
             viewModel.repository.saveNewText(pageDbId, textItem)
         }
         refreshPageCache(viewModel, page)
+    }
+}
+
+// --- 4. AZIONE: TRASFORMAZIONE COL LAZO (Spostamento, Zoom, Rotazione, Cambio Pagina) ---
+class TransformSelectionAction(
+    private val oldPageDbId: Int,
+    private val oldPageIndex: Int,
+    private val newPageDbId: Int,
+    private val newPageIndex: Int,
+    private val images: List<Image>,
+    private val texts: List<Text>,
+    private val strokes: List<Stroke>,
+    private val oldImageStates: List<FloatArray>,
+    private val newImageStates: List<FloatArray>,
+    private val oldTextStates: List<FloatArray>,
+    private val newTextStates: List<FloatArray>,
+    private val oldStrokeNative: List<androidx.ink.strokes.Stroke?>,
+    private val newStrokeNative: List<androidx.ink.strokes.Stroke?>
+) : DrawAction {
+
+    private suspend fun applyTransformation(
+        viewModel: DrawViewModel,
+        fromPageIndex: Int,
+        toPageIndex: Int,
+        toPageDbId: Int,
+        imageStates: List<FloatArray>,
+        textStates: List<FloatArray>,
+        strokeNatives: List<androidx.ink.strokes.Stroke?>
+    ) {
+        // Spegniamo il lazo se è attivo per evitare crash visivi
+        withContext(Dispatchers.Main) { viewModel.clearSelection() }
+
+        val doc = viewModel.documentData ?: return
+        val fromPage = doc.pages.getOrNull(fromPageIndex) ?: return
+        val toPage = doc.pages.getOrNull(toPageIndex) ?: return
+
+        val isPageChanged = fromPageIndex != toPageIndex
+
+        // 1. Gestione cambio pagina
+        if (isPageChanged) {
+            fromPage.imageData.removeAll(images)
+            fromPage.strokeData.removeAll(strokes)
+            fromPage.textData.removeAll(texts)
+
+            toPage.imageData.addAll(images)
+            toPage.strokeData.addAll(strokes)
+            toPage.textData.addAll(texts)
+        }
+
+        // 2. Applica i nuovi stati in RAM usando la "fotografia"
+        images.forEachIndexed { i, img ->
+            val state = imageStates[i]
+            img.x = state[0]; img.y = state[1]; img.width = state[2]; img.height = state[3]; img.rotation = state[4]
+        }
+
+        texts.forEachIndexed { i, txt ->
+            val state = textStates[i]
+            txt.x = state[0]; txt.y = state[1]; txt.width = state[2]; txt.height = state[3]; txt.rotation = state[4]; txt.fontSize = state[5]
+        }
+
+        strokes.forEachIndexed { i, stroke ->
+            // Per i tratti vettoriali, ripristiniamo letteralmente la mesh originale non deformata!
+            stroke.stroke = strokeNatives[i]
+        }
+
+        // 3. Salva nel Database
+        withContext(Dispatchers.IO) {
+            images.forEach { viewModel.repository.updateImage(toPageDbId, it) }
+            texts.forEach { viewModel.repository.updateText(toPageDbId, it) }
+            strokes.forEach { viewModel.repository.updateStroke(toPageDbId, it) }
+        }
+
+        // 4. Aggiorna le Cache Visive
+        if (isPageChanged) refreshPageCache(viewModel, fromPage)
+        refreshPageCache(viewModel, toPage)
+    }
+
+    override suspend fun undo(viewModel: DrawViewModel) {
+        applyTransformation(viewModel, newPageIndex, oldPageIndex, oldPageDbId, oldImageStates, oldTextStates, oldStrokeNative)
+    }
+
+    override suspend fun redo(viewModel: DrawViewModel) {
+        applyTransformation(viewModel, oldPageIndex, newPageIndex, newPageDbId, newImageStates, newTextStates, newStrokeNative)
     }
 }

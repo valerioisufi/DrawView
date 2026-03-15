@@ -198,6 +198,11 @@ class OnTouchHover(
 
                 when (event.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
+                        // --- UNDO/REDO: FOTOGRAFIAMO LO STATO PRIMA DI TOCCARE ---
+                        if (currentDragState == DragState.NONE) {
+                            selection.captureOriginalStates()
+                        }
+
                         val baseBox = selection.boundingBox
 
                         // Il raggio di cattura delle maniglie (in millimetri, scalato approssimativamente)

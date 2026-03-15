@@ -33,36 +33,45 @@ private suspend fun refreshPageCache(viewModel: DrawViewModel, page: Page) {
     }
 }
 
-// --- 1. AZIONE: INSERIMENTO DI NUOVI TRATTI ---
+// --- Raggruppa i tratti per pagina ---
+data class PageStrokeGroup(val pageDbId: Int, val pageIndex: Int, val strokes: List<Stroke>)
+
+// --- 1. AZIONE: INSERIMENTO DI NUOVI TRATTI (Supporta Multi-Pagina!) ---
 class AddStrokesAction(
-    private val pageDbId: Int,
-    private val pageIndex: Int,
-    private val strokes: List<Stroke>
+    private val groups: List<PageStrokeGroup>
 ) : DrawAction {
 
     override suspend fun undo(viewModel: DrawViewModel) {
-        val page = viewModel.documentData?.pages?.getOrNull(pageIndex) ?: return
+        val doc = viewModel.documentData ?: return
 
-        // RIMUOVIAMO: RAM -> DB -> UI
-        page.strokeData.removeAll(strokes)
-        withContext(Dispatchers.IO) {
-            strokes.forEach { viewModel.repository.deleteStroke(it.dbId) }
+        // Cicliamo su tutte le pagine toccate dal tratto
+        groups.forEach { group ->
+            val page = doc.pages.getOrNull(group.pageIndex) ?: return@forEach
+
+            // Rimuoviamo i tratti da questa specifica pagina
+            page.strokeData.removeAll(group.strokes)
+            withContext(Dispatchers.IO) {
+                group.strokes.forEach { viewModel.repository.deleteStroke(it.dbId) }
+            }
+            refreshPageCache(viewModel, page)
         }
-        refreshPageCache(viewModel, page)
     }
 
     override suspend fun redo(viewModel: DrawViewModel) {
-        val page = viewModel.documentData?.pages?.getOrNull(pageIndex) ?: return
+        val doc = viewModel.documentData ?: return
 
-        // RIPRISTINIAMO: RAM -> DB -> UI
-        page.strokeData.addAll(strokes)
-        withContext(Dispatchers.IO) {
-            strokes.forEach {
-                // Salviamo come nuovo tratto (prenderà un nuovo DB ID in automatico)
-                viewModel.repository.saveNewStroke(pageDbId, it)
+        groups.forEach { group ->
+            val page = doc.pages.getOrNull(group.pageIndex) ?: return@forEach
+
+            // Ripristiniamo i tratti su questa specifica pagina
+            page.strokeData.addAll(group.strokes)
+            withContext(Dispatchers.IO) {
+                group.strokes.forEach {
+                    viewModel.repository.saveNewStroke(group.pageDbId, it)
+                }
             }
+            refreshPageCache(viewModel, page)
         }
-        refreshPageCache(viewModel, page)
     }
 }
 

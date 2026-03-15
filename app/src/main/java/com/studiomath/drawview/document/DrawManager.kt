@@ -13,6 +13,7 @@ import android.util.DisplayMetrics
 import android.widget.OverScroller
 import androidx.annotation.UiThread
 import androidx.core.graphics.createBitmap
+import androidx.core.graphics.toColorInt
 import androidx.core.graphics.withClip
 import androidx.core.graphics.withMatrix
 import androidx.core.graphics.withSave
@@ -33,7 +34,6 @@ import kotlin.math.max
 import kotlin.math.min
 import androidx.ink.strokes.Stroke as InkStroke
 import com.studiomath.drawview.document.page.Stroke as DomainStroke
-import androidx.core.graphics.toColorInt
 
 /**
  * The core rendering engine and state manager for the drawing canvas.
@@ -336,42 +336,77 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
         // 2. Data serialization and persistence (Background Thread)
         scope.launch {
-            for (pageRectWithIndex in pagesRectOnWindow){
-                val domainPage = document.pages.getOrNull(pageRectWithIndex.index) ?: continue
+            // --- FIX: Troviamo TUTTE le pagine toccate dal tratto tramite intersezione! ---
+            val strokesByPage = mutableMapOf<Int, MutableList<InkStroke>>()
 
-                val matrix = Matrix().apply {
-                    setRectToRect(pageRectWithIndex.rect, domainPage.rect(), Matrix.ScaleToFit.CENTER)
-                }
+            strokes.values.forEach { inkStroke ->
+                val box = inkStroke.shape.computeBoundingBox()
+                if (box != null) {
+                    val strokeRect = RectF(box.xMin, box.yMin, box.xMax, box.yMax)
 
-                // Temporary list to hold only the strokes that were just created
-                val newStrokesToSave = mutableListOf<DomainStroke>()
-
-                strokes.values.forEach { inkStroke ->
-                    // FASE 4: Usiamo i nuovi metodi ultra-veloci basati su binario
-                    val domainStroke = DomainStroke(domainPage.strokeData.size).apply {
-                        this.stroke = inkStroke
-                        extractProperties()    // Estrae colore, spessore e tipo di strumento
-                        applyTransform(matrix) // Applica lo zoom e converte i pixel in mm in C++ nativo!
+                    var touchedAnyPage = false
+                    // Controlliamo se il rettangolo del tratto si sovrappone al rettangolo della pagina
+                    for (pageInfo in pagesRectOnWindow) {
+                        if (RectF.intersects(strokeRect, pageInfo.rect)) {
+                            strokesByPage.getOrPut(pageInfo.index) { mutableListOf() }.add(inkStroke)
+                            touchedAnyPage = true
+                        }
                     }
 
-                    // Update in-memory state
+                    // Fallback: Se il tratto è minuscolo e cade esattamente nella fessura tra le pagine,
+                    // lo assegniamo alla prima pagina visibile per non perderlo.
+                    if (!touchedAnyPage) {
+                        pagesRectOnWindow.firstOrNull()?.let {
+                            strokesByPage.getOrPut(it.index) { mutableListOf() }.add(inkStroke)
+                        }
+                    }
+                }
+            }
+
+            // Prepariamo il contenitore per la singola Azione della Storia
+            val historyGroups = mutableListOf<com.studiomath.drawview.document.history.PageStrokeGroup>()
+
+            // Elaboriamo il salvataggio per ogni pagina coinvolta
+            for ((pageIndex, pageStrokes) in strokesByPage) {
+                val domainPage = document.pages.getOrNull(pageIndex) ?: continue
+                val pageInfo = pagesRectOnWindow.find { it.index == pageIndex } ?: continue
+
+                val matrix = Matrix().apply {
+                    setRectToRect(pageInfo.rect, domainPage.rect(), Matrix.ScaleToFit.CENTER)
+                }
+
+                val newStrokesToSave = mutableListOf<DomainStroke>()
+
+                pageStrokes.forEach { inkStroke ->
+                    val domainStroke = DomainStroke(domainPage.strokeData.size).apply {
+                        this.stroke = inkStroke
+                        extractProperties()
+                        applyTransform(matrix)
+                    }
                     domainPage.strokeData.add(domainStroke)
-                    // Add to the fast-save list
                     newStrokesToSave.add(domainStroke)
                 }
 
-                // Instant Database Save
-                // Send ONLY the newly drawn strokes to the Repository for a rapid SQL insertion.
                 if (newStrokesToSave.isNotEmpty()) {
                     drawViewModel.saveNewStrokesToDatabase(domainPage.dbId, newStrokesToSave)
 
-                    // --- FASE 3: REGISTRIAMO IL NUOVO TRATTO NELLA STORIA ---
-                    drawViewModel.addHistoryAction(
-                        com.studiomath.drawview.document.history.AddStrokesAction(
-                            domainPage.dbId, pageRectWithIndex.index, newStrokesToSave.toList()
+                    // Aggiungiamo i tratti di questa pagina al gruppo per la Storia
+                    historyGroups.add(
+                        com.studiomath.drawview.document.history.PageStrokeGroup(
+                            domainPage.dbId, pageIndex, newStrokesToSave.toList()
                         )
                     )
                 }
+            }
+
+            // --- REGISTRAZIONE NELLA STORIA (Un solo click Undo per più pagine!) ---
+            if (historyGroups.isNotEmpty() &&
+                drawViewModel.selectedTool != DrawViewModel.ToolUtilities.Tool.LAZO &&
+                drawViewModel.selectedTool != DrawViewModel.ToolUtilities.Tool.ERASER) {
+
+                drawViewModel.addHistoryAction(
+                    com.studiomath.drawview.document.history.AddStrokesAction(historyGroups)
+                )
             }
         }
     }

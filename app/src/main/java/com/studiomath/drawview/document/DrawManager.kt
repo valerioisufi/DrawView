@@ -563,6 +563,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     var postInvalidateOnAnimationRequest: (() -> Unit)? = null
 
     var isDrawing = false
+    var isUserTouching = false
 
     /**
      * Pushes the rendering request to the queue and asks the Android View framework to invalidate,
@@ -741,31 +742,40 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                             needsInvalidate = true // Keep the animation loop running
                         } else {
                             // --- FASE 3: FINE FLING E CONTROLLO RIMBALZO ---
-                            // Il Fling ha perso energia. Se si è fermato "fuori" dal foglio, lanciamo il Bounce Back!
-                            val excess = calcPage.calculateExcess(moveMatrix, calcPage.contentRect, windowRect)
-                            if (excess.first != 0f || excess.second != 0f) {
-                                startAnimateMatrix.set(moveMatrix)
-                                calcPage.startBounceBackAnimation(
-                                    excess.first, excess.second, moveMatrix,
-                                    updateCallback = {
-                                        val currentExcess = calcPage.calculateExcess(moveMatrix, calcPage.contentRect, windowRect)
-                                        elasticMatrix = calcPage.applyRubberBandEffect(currentExcess.first, currentExcess.second, windowRect)
-                                        requestDraw(DrawAttachments(drawMode = DrawAttachments.DrawMode.ANIMATE).apply {
-                                            animationType = DrawAttachments.AnimationType.BOUNCE_BACK
-                                        })
-                                    },
-                                    onEndCallback = {
-                                        // Rimosso elasticMatrix.reset() per evitare salti
-                                        requestDraw(DrawAttachments(drawMode = DrawAttachments.DrawMode.UPDATE).apply {
-                                            update = DrawAttachments.Update.DRAW_BITMAP
-                                        })
-                                    }
-                                )
-                            } else {
-                                // Fling terminato pulito dentro i limiti. Richiediamo il disegno in HD.
+
+                            // FIX BUG CATTURA: Se l'utente ha il dito sullo schermo,
+                            // NON facciamo partire il rimbalzo. Lo lasciamo gestire al Pan manuale!
+                            if (isUserTouching) {
                                 requestDraw(DrawAttachments(drawMode = DrawAttachments.DrawMode.UPDATE).apply {
                                     update = DrawAttachments.Update.DRAW_BITMAP
                                 })
+                            } else {
+                                // Il Fling ha perso energia naturalmente. Lanciamo il Bounce Back se fuori limiti!
+                                val excess = calcPage.calculateExcess(moveMatrix, calcPage.contentRect, windowRect)
+                                if (excess.first != 0f || excess.second != 0f) {
+                                    startAnimateMatrix.set(moveMatrix)
+                                    calcPage.startBounceBackAnimation(
+                                        excess.first, excess.second, moveMatrix,
+                                        updateCallback = {
+                                            val currentExcess = calcPage.calculateExcess(moveMatrix, calcPage.contentRect, windowRect)
+                                            elasticMatrix = calcPage.applyRubberBandEffect(currentExcess.first, currentExcess.second, windowRect)
+                                            requestDraw(DrawAttachments(drawMode = DrawAttachments.DrawMode.ANIMATE).apply {
+                                                animationType = DrawAttachments.AnimationType.BOUNCE_BACK
+                                            })
+                                        },
+                                        onEndCallback = {
+                                            elasticMatrix.reset()
+                                            requestDraw(DrawAttachments(drawMode = DrawAttachments.DrawMode.UPDATE).apply {
+                                                update = DrawAttachments.Update.DRAW_BITMAP
+                                            })
+                                        }
+                                    )
+                                } else {
+                                    // Fling terminato pulito dentro i limiti.
+                                    requestDraw(DrawAttachments(drawMode = DrawAttachments.DrawMode.UPDATE).apply {
+                                        update = DrawAttachments.Update.DRAW_BITMAP
+                                    })
+                                }
                             }
                         }
                     }

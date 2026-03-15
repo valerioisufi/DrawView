@@ -76,6 +76,12 @@ class OnTouchHover(
         // Ignore touches if the document is not fully loaded and displayed
         if (!drawViewModel.isDocumentLoaded || !drawViewModel.isDocumentShowed) return@OnTouchListener false
 
+        // --- FIX BUG CATTURA: Tracciamo costantemente se il dito è fisicamente sullo schermo ---
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> drawViewModel.drawManager.isUserTouching = true
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_OUTSIDE -> drawViewModel.drawManager.isUserTouching = false
+        }
+
         // Inizializza il detector la prima volta che tocchiamo lo schermo
         if (gestureDetector == null) {
             gestureDetector = GestureDetector(view.context, object : GestureDetector.SimpleOnGestureListener() {

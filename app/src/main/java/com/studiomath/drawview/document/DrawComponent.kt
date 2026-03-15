@@ -9,6 +9,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -210,91 +211,92 @@ fun DrawComponent(
             val focusRequester = remember { FocusRequester() }
             val keyboardController = LocalSoftwareKeyboardController.current
 
-            // Variabili per il tracking della tastiera
-            val imeBottom = WindowInsets.ime.getBottom(LocalDensity.current)
-            val displayMetrics = drawViewModel.displayMetrics
+            // Variabili per il tracking della tastiera e densità
+            val density = LocalDensity.current
+            val imeBottom = WindowInsets.ime.getBottom(density)
             var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
 
-            // 1 pt = 0.3527 mm. Calcoliamo la dimensione esatta in pixel sullo schermo
+            // Calcolo Font Size
             val defaultFontSizePt = 16f
             val baseFontSizeMm = defaultFontSizePt * 0.3527f
             val scaledFontSizePx = baseFontSizeMm * scale
-            val scaledFontSizeSp = with(LocalDensity.current) { scaledFontSizePx.toSp() }
+            val scaledFontSizeSp = with(density) { scaledFontSizePx.toSp() }
 
-            // NUOVO: Calcoliamo la distanza dal tocco fino al bordo destro del foglio (in pixel)
+            // LIMITI DEL FOGLIO (Larghezza massima dinamica)
             val pageInfo = drawViewModel.drawManager.pagesRectOnWindow.find { it.index == drawViewModel.activeTextPageIndex }
             val maxAllowedWidthPx = if (pageInfo != null) {
-                // Distanza dal punto di tocco (pos.x) al margine destro della pagina
-                (pageInfo.rect.right - pos.x).coerceAtLeast(100f) // Minimo 100px di spazio
+                (pageInfo.rect.right - pos.x).coerceAtLeast(100f)
             } else {
                 300f
             }
 
-            // Variabile per salvare la larghezza REALE occupata dal testo
             var actualTextWidthPx by remember { mutableStateOf(10f) }
             var actualTextHeightPx by remember { mutableStateOf(10f) }
 
-            Box(
+            // FIX 1: Usiamo BoxWithConstraints per avere l'altezza REALE del contenitore,
+            // depurata dalle barre di stato e di navigazione del sistema.
+            BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxSize()
                     .pointerInput(Unit) {
                         detectTapGestures(onTap = {
                             keyboardController?.hide()
-
-                            // Convertiamo i pixel misurati da Compose in millimetri per salvarli nel DB
                             val widthMm = actualTextWidthPx / scale
                             val heightMm = actualTextHeightPx / scale
-
                             drawViewModel.finishTextEditing(
                                 textValue, false, android.graphics.Color.BLACK, defaultFontSizePt, false, false, widthMm, heightMm
                             )
                         })
                     }
             ) {
+                // Leggiamo l'altezza esatta misurata in questo istante
+                val containerHeightPx = constraints.maxHeight.toFloat()
+
                 BasicTextField(
                     value = textValue,
                     onValueChange = { textValue = it },
                     modifier = Modifier
                         .offset { IntOffset(pos.x.toInt(), pos.y.toInt()) }
-                        .widthIn(max = with(LocalDensity.current) { maxAllowedWidthPx.toDp() }) // LIMITA AL BORDO DEL FOGLIO!
+                        .widthIn(max = with(density) { maxAllowedWidthPx.toDp() })
                         .focusRequester(focusRequester),
                     textStyle = TextStyle(
                         color = MaterialTheme.colorScheme.onSurface,
                         fontSize = scaledFontSizeSp,
-                        lineHeight = scaledFontSizeSp * 1.2f // Assicura che la spaziatura sia identica a StaticLayout
+                        lineHeight = scaledFontSizeSp * 1.2f
                     ),
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                     onTextLayout = { result ->
                         textLayoutResult = result
-                        // Salviamo la dimensione esatta occupata dal testo in questo istante
                         actualTextWidthPx = result.size.width.toFloat()
                         actualTextHeightPx = result.size.height.toFloat()
                     }
                 )
-            }
 
-            LaunchedEffect(Unit) {
-                focusRequester.requestFocus()
-                keyboardController?.show()
-            }
+                LaunchedEffect(Unit) {
+                    focusRequester.requestFocus()
+                    keyboardController?.show()
+                }
 
-            // --- FASE 4: AUTO-TRACKING DEL CURSORE ---
-            LaunchedEffect(textValue, textLayoutResult, imeBottom) {
-                if (imeBottom > 0 && textLayoutResult != null) {
-                    // Troviamo il punto più basso dell'ultima riga di testo digitata
-                    val lineCount = textLayoutResult!!.lineCount
-                    val textBottomLocal = textLayoutResult!!.getLineBottom(lineCount - 1)
+                // --- FASE 4: AUTO-TRACKING DEL CURSORE MIGLIORATO ---
+                LaunchedEffect(textValue, textLayoutResult, imeBottom, containerHeightPx) {
+                    if (imeBottom > 0 && textLayoutResult != null) {
+                        // Troviamo il punto più basso dell'ultima riga di testo digitata
+                        val lineCount = textLayoutResult!!.lineCount
+                        val textBottomLocal = textLayoutResult!!.getLineBottom(lineCount - 1)
+                        val absoluteBottomY = pos.y + textBottomLocal
 
-                    // Convertiamo in coordinate assolute dello schermo
-                    val absoluteBottomY = pos.y + textBottomLocal
+                        // FIX 2: Convertiamo 80 DP in Pixel reali (garantisce lo stesso margine fisico
+                        // su telefoni standard e telefoni ad altissima risoluzione).
+                        val marginPx = with(density) { 80.dp.toPx() }
 
-                    // Definiamo l'area sicura (Schermo - Tastiera - 80px di margine per vedere bene la riga)
-                    val safeAreaBottom = displayMetrics.heightPixels - imeBottom - 80f
+                        // FIX 3: Usiamo l'altezza vera dell'area di disegno (containerHeightPx)
+                        val safeAreaBottom = containerHeightPx - imeBottom - marginPx
 
-                    // Se stiamo scrivendo sotto la tastiera, solleviamo il documento!
-                    if (absoluteBottomY > safeAreaBottom) {
-                        val deltaY = safeAreaBottom - absoluteBottomY // Sarà un valore negativo (spostamento verso l'alto)
-                        drawViewModel.panCanvasForKeyboard(deltaY)
+                        // Se la riga finisce sotto la tastiera, solleviamo il documento
+                        if (absoluteBottomY > safeAreaBottom) {
+                            val deltaY = safeAreaBottom - absoluteBottomY // Spostamento negativo verso l'alto
+                            drawViewModel.panCanvasForKeyboard(deltaY)
+                        }
                     }
                 }
             }

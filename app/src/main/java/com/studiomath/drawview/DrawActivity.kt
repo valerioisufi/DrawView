@@ -564,19 +564,6 @@ fun DrawActivity(
                         )
                     }
 
-                    // NUOVO: Strumento Seleziona Oggetto
-                    ToolButton(
-                        onClick = {
-                            drawViewModel.selectedTool = ToolUtilities.Tool.SELECT_OBJECT
-                        },
-                        selected = drawViewModel.selectedTool == ToolUtilities.Tool.SELECT_OBJECT
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.TouchApp,
-                            contentDescription = "Select Object",
-                        )
-                    }
-
                     VerticalDivider(
                         modifier = Modifier
                             .padding(8.dp),

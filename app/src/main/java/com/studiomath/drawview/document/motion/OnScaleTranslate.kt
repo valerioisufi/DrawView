@@ -173,20 +173,17 @@ class OnScaleTranslate(
     }
 
     /**
-     * Calculates page boundaries, applies the elastic overscroll effect if needed,
-     * and triggers a UI update with the temporary transformation matrix.
-     * * @param tempMatrix The temporary matrix representing the new viewport state.
+     * FASE 2 - TELECAMERA LIBERA: Aggiorna la telecamera virtuale seguendo il dito
+     * in modo assoluto e applica l'effetto visivo elastico (Rubber-Banding).
      */
     private fun applyMatrixAndRequestDraw(tempMatrix: Matrix) {
         drawViewModel.drawManager.apply {
-            // 1. Facciamo calcolare E MODIFICARE la tempMatrix ad applyBounds
-            // affinché "sbatta" e si fermi contro i limiti fisici del documento.
-            // Il risultato (excessX, excessY) è di quanti pixel abbiamo cercato di sfondare il muro.
-            val result = calcPage.applyBounds(tempMatrix, calcPage.contentRect, windowRect, constrainMatrix = true)
+            // 1. Calcoliamo di quanto stiamo sforzando i limiti (SENZA bloccare la matrice!)
+            val result = calcPage.calculateExcess(tempMatrix, calcPage.contentRect, windowRect)
             excessX = result.first
             excessY = result.second
 
-            // Salviamo la matrice "bloccata" come nuova posizione ufficiale della telecamera.
+            // 2. La telecamera virtuale (moveMatrix) segue il dito in modo perfetto e senza scatti
             moveMatrix = Matrix(tempMatrix)
 
             val transformedContentRect = RectF(calcPage.contentRect)
@@ -196,57 +193,53 @@ class OnScaleTranslate(
                 excessX = 0f
             }
 
-            // 2. Usiamo i pixel "in eccesso" per generare una matrice elastica temporanea.
-            // Questa matrice si occuperà di fare il disegno "tirato", mentre moveMatrix è ferma al bordo.
-            elasticMatrix = calcPage.applyElasticEffect(excessX, excessY)
+            // 3. Calcoliamo la "Frenata Visiva".
+            // Questa matrice sposterà il Canvas all'indietro per simulare la tensione dell'elastico.
+            elasticMatrix = calcPage.applyRubberBandEffect(excessX, excessY, windowRect)
 
             requestDraw(DrawAttachments(drawMode = DrawMode.SCALE_TRANSLATE))
         }
     }
 
     /**
-     * Checks if the viewport is out of bounds upon gesture release.
-     * - If it is out of bounds, it triggers an elastic bounce-back animation.
-     * - If it is within bounds, it triggers a high-quality bitmap update to finalize the gesture.
-     */
-    /**
      * Controlla se siamo oltre i bordi consentiti. Se sì, innesca l'animazione di rimbalzo.
      * Se l'utente ha tirato sufficientemente verso l'alto l'ultima pagina, crea una nuova pagina.
      */
     private fun checkBoundsAndBounceBack() {
         drawViewModel.drawManager.apply {
-            calcPage.applyBounds(moveMatrix, calcPage.contentRect, windowRect)
+            // Assicuriamoci di avere l'eccesso aggiornato
+            val result = calcPage.calculateExcess(moveMatrix, calcPage.contentRect, windowRect)
+            excessX = result.first
+            excessY = result.second
 
-            // Calcoliamo una soglia in pixel (circa 120dp) basata sullo schermo del dispositivo
+            // Calcoliamo una soglia in pixel (circa 20dp) basata sullo schermo del dispositivo
             val overscrollThresholdDp = 20f
             val addPageThresholdPx = -(overscrollThresholdDp * drawViewModel.displayMetrics.density)
 
-            // LOGICA OVERSCROLL:
-            // Se excessY è minore della soglia negativa (tirato verso l'alto)
-            // e non stiamo zoomando con due dita...
+            // LOGICA CREAZIONE PAGINA
             if (excessY < addPageThresholdPx && !isScaling) {
                 Log.d(TAG, "Overscroll threshold reached! Adding new page.")
-
-                // 1. Diciamo al ViewModel di creare la pagina
                 drawViewModel.addNewPageAtBottom()
-
-                // 2. Azzeriamo l'excessY per evitare che l'animazione di rimbalzo
-                // scatti in modo anomalo mentre la pagina viene generata
                 excessY = 0f
-
-                // 3. Usciamo dalla funzione: il ViewModel si occuperà di fare il DRAW_BITMAP
+                // Usciamo: la generazione della pagina scatenerà già un ridisegno
                 return
             }
 
-            // LOGICA NORMALE DI RIMBALZO (Se non ha tirato abbastanza, o se ha tirato ai lati/in cima)
+            // LOGICA DI RIMBALZO (BOUNCE BACK)
             if (excessX != 0f || excessY != 0f) {
                 Log.d(TAG, "Avvio animazione di rimbalzo (Bounce Back)")
-                startAnimateMatrix.set(moveMatrix)
 
                 calcPage.startBounceBackAnimation(
-                    excessX, excessY, elasticMatrix,
+                    excessX, excessY, moveMatrix,
                     updateCallback = {
-                        moveMatrix.set(startAnimateMatrix)
+                        // LA MAGIA: Mentre la moveMatrix torna indietro verso il bordo,
+                        // ricalcoliamo l'eccesso. Questo farà "rilassare" gradualmente la matrice elastica!
+                        val currentResult = calcPage.calculateExcess(moveMatrix, calcPage.contentRect, windowRect)
+                        excessX = currentResult.first
+                        excessY = currentResult.second
+
+                        elasticMatrix = calcPage.applyRubberBandEffect(excessX, excessY, windowRect)
+
                         requestDraw(
                             DrawAttachments(drawMode = DrawMode.ANIMATE).apply {
                                 animationType = DrawAttachments.AnimationType.BOUNCE_BACK
@@ -254,6 +247,10 @@ class OnScaleTranslate(
                         )
                     },
                     onEndCallback = {
+                        // Fine del rimbalzo: pulizia totale
+                        excessX = 0f
+                        excessY = 0f
+                        elasticMatrix.reset()
                         requestDraw(
                             DrawAttachments(drawMode = DrawMode.UPDATE).apply {
                                 update = DrawAttachments.Update.DRAW_BITMAP
@@ -262,6 +259,7 @@ class OnScaleTranslate(
                     }
                 )
             } else {
+                // Nessun eccesso, gesto concluso in modo pulito
                 Log.d(TAG, "Gesto terminato nei limiti, richiedo UPDATE DRAW_BITMAP")
                 requestDraw(
                     DrawAttachments(drawMode = DrawMode.UPDATE).apply {
@@ -273,14 +271,11 @@ class OnScaleTranslate(
     }
 
     /**
-     * Calculates and executes the inertial fling animation when the user swipes and releases quickly.
-     * * @param velocityX The initial X velocity of the fling.
-     * @param velocityY The initial Y velocity of the fling.
-     * @return true if the fling was successfully initiated, false otherwise.
+     * Innesca lo scorrimento inerziale (Fling) se l'utente lancia la pagina.
      */
     private fun handleFling(velocityX: Float, velocityY: Float): Boolean {
-        // Se c'è una tensione elastica in corso, blocchiamo il fling e lasciamo
-        // che l'animazione di rimbalzo (Bounce Back) riporti la pagina a riposo.
+        // Se c'è tensione elastica in corso, vietiamo il fling!
+        // Sarà il dito che si alza (ACTION_UP) a far scattare il Bounce Back.
         if (abs(excessX) > 1f || abs(excessY) > 1f) {
             Log.d(TAG, "Fling disabled: out of bounds. Falling back to Bounce Back.")
             checkBoundsAndBounceBack()
@@ -294,7 +289,7 @@ class OnScaleTranslate(
         val startPointScroller = floatArrayOf(0f, 0f)
         manager.moveMatrix.mapPoints(startPointScroller)
 
-        // Calculate horizontal fling constraints
+        // Limiti Orizzontali
         val xOffset = startPointScroller[0] - transformedContentRect.left
         var minX = (manager.windowRect.width() - transformedContentRect.width() + xOffset).coerceAtMost(xOffset).toInt()
         var maxX = xOffset.toInt()
@@ -306,7 +301,7 @@ class OnScaleTranslate(
             vX = 0
         }
 
-        // Calculate vertical fling constraints
+        // Limiti Verticali
         val yOffset = startPointScroller[1] - transformedContentRect.top
         val minY = (manager.windowRect.height() - transformedContentRect.height() + yOffset).coerceAtMost(0f).toInt()
         val maxY = yOffset.toInt()
@@ -314,13 +309,13 @@ class OnScaleTranslate(
 
         val minVelocity = drawViewModel.configuration.scaledMinimumFlingVelocity
 
-        // Initiate the fling if the velocity exceeds the minimum threshold
         if (abs(vX) > minVelocity || abs(vY) > minVelocity) {
             Log.d(TAG, "Starting Fling with velocity X: $vX, Y: $vY")
             manager.scroller.fling(
                 startPointScroller[0].toInt(), startPointScroller[1].toInt(),
                 vX, vY,
                 minX, maxX, minY, maxY,
+                // Passiamo l'overscroll limite ad Android per permettere che il fling "sfondi" un po' il muro prima di fermarsi
                 OVERSCROLL_LIMIT, OVERSCROLL_LIMIT
             )
 
@@ -333,12 +328,6 @@ class OnScaleTranslate(
             return true
         }
 
-        // Se la velocità era troppo bassa, chiediamo un aggiornamento HD
-        manager.requestDraw(
-            DrawAttachments(drawMode = DrawMode.UPDATE).apply {
-                update = DrawAttachments.Update.DRAW_BITMAP
-            }
-        )
         return false
     }
 }

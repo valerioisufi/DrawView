@@ -186,127 +186,128 @@ class CalcPage(
     }
 
     /**
-     * Enforces the viewport boundaries.
-     * If the user pans out of bounds, this function calculates the corrective translation (offset)
-     * needed to keep the content inside the window, and returns the "excess" drag amount
-     * to be used for the rubber-band (elastic) effect.
+     * FASE 1 - TELECAMERA VIRTUALE: Calcola l'eccesso di trascinamento fuori dai bordi.
+     * IMPORTANTE: Questa funzione è puramente matematica e NON altera mai la matrice.
+     * La telecamera virtuale è libera di andare dove vuole.
      *
-     * @param matrix The current viewport matrix to be constrained.
-     * @param contentRect The bounding box of the entire document.
-     * @param windowRect The physical screen bounds.
-     * @param constrainMatrix If true, physically alters the matrix to stay within bounds.
-     * If false, only calculates the excess for the elastic effect.
-     * @return A Pair representing the out-of-bounds drag (excessX, excessY).
+     * @param virtualMatrix La matrice della telecamera libera (mossa dal dito dell'utente).
+     * @return Pair(excessX, excessY) I pixel esatti di cui la telecamera è "fuori bordo".
      */
-    fun applyBounds(
-        matrix: Matrix,
-        contentRect: RectF,
-        windowRect: RectF,
-        constrainMatrix: Boolean = true // NUOVO PARAMETRO
-    ): Pair<Float, Float> {
-        val transformedContentRect = RectF(contentRect)
-        matrix.mapRect(transformedContentRect)
+    fun calculateExcess(virtualMatrix: Matrix, contentRect: RectF, windowRect: RectF): Pair<Float, Float> {
+        val transformedContent = RectF(contentRect)
+        virtualMatrix.mapRect(transformedContent)
 
-        val contentWidth = transformedContentRect.width()
-        val contentHeight = transformedContentRect.height()
+        val contentWidth = transformedContent.width()
+        val contentHeight = transformedContent.height()
         val windowWidth = windowRect.width()
         val windowHeight = windowRect.height()
 
-        var offsetX = 0f
-        var offsetY = 0f
         var excessX = 0f
         var excessY = 0f
 
-        // X-Axis logic
+        // Logica asse X
         if (contentWidth < windowWidth) {
-            // Content is smaller than window -> Center it
-            offsetX = (windowWidth - contentWidth) / 2 - transformedContentRect.left
-            excessX = -offsetX
+            // Se il contenuto è più stretto dello schermo, l'eccesso è calcolato rispetto al centro perfetto
+            val idealLeft = (windowWidth - contentWidth) / 2f
+            excessX = transformedContent.left - idealLeft
         } else {
-            // Keep content within window limits
-            if (transformedContentRect.left > 0) {
-                excessX = transformedContentRect.left
-                offsetX = -transformedContentRect.left
-            } else if (transformedContentRect.right < windowWidth) {
-                excessX = transformedContentRect.right - windowWidth
-                offsetX = windowWidth - transformedContentRect.right
+            if (transformedContent.left > 0) {
+                excessX = transformedContent.left // Tirato troppo a destra
+            } else if (transformedContent.right < windowWidth) {
+                excessX = transformedContent.right - windowWidth // Tirato troppo a sinistra
             }
         }
 
-        // Y-Axis logic
+        // Logica asse Y
         if (contentHeight < windowHeight) {
-            offsetY = -transformedContentRect.top
-            excessY = transformedContentRect.top
+            excessY = transformedContent.top // Allineato in alto (se lo vuoi centrato usa idealTop)
         } else {
-            if (transformedContentRect.top > 0) {
-                excessY = transformedContentRect.top
-                offsetY = -transformedContentRect.top
-            } else if (transformedContentRect.bottom < windowHeight) {
-                excessY = transformedContentRect.bottom - windowHeight
-                offsetY = windowHeight - transformedContentRect.bottom
+            if (transformedContent.top > 0) {
+                excessY = transformedContent.top // Tirato troppo in basso
+            } else if (transformedContent.bottom < windowHeight) {
+                excessY = transformedContent.bottom - windowHeight // Tirato troppo in alto
             }
-        }
-
-        // Modifichiamo la matrice SOLO se ci viene richiesto (es. a fine gesture)
-        if (constrainMatrix) {
-            matrix.postTranslate(offsetX, offsetY)
         }
 
         return Pair(excessX, excessY)
     }
 
     /**
-     * Calculates the matrix required to render the rubber-band overscroll effect.
-     * It uses a damping formula to make the stretch increasingly resistant.
+     * FASE 1 - FISICA PREMIUM: Applica la formula asintotica di Rubber-Banding.
+     *
+     * @param excess La distanza virtuale fuori bordo.
+     * @param dimension La dimensione dello schermo (larghezza o altezza) per calcolare la proporzione.
+     * @return I pixel "visivi" reali dopo aver applicato la resistenza.
      */
-    fun applyElasticEffect(excessX: Float, excessY: Float): Matrix {
+    private fun rubberBandFormula(excess: Float, dimension: Float): Float {
+        if (excess == 0f) return 0f
+        val sign = if (excess > 0) 1f else -1f
+        val absExcess = abs(excess)
+
+        // Costante di tensione (0.55 è lo standard industriale per un feel naturale)
+        val tension = 0.55f
+
+        // Formula asintotica: rallenta progressivamente il trascinamento visivo
+        val rubberBanded = (absExcess * dimension * tension) / (dimension + tension * absExcess)
+
+        return rubberBanded * sign
+    }
+
+    /**
+     * Calcola la matrice correttiva necessaria per applicare l'effetto visivo elastico
+     * compensando il divario tra la "Telecamera Libera" e la posizione visiva desiderata.
+     */
+    fun applyRubberBandEffect(excessX: Float, excessY: Float, windowRect: RectF): Matrix {
         val elasticMatrix = Matrix()
 
-        val elasticityFactor = 0.8f
-        val dampingFactor = 0.02f // Higher value = faster damping (harder to pull)
+        if (excessX == 0f && excessY == 0f) return elasticMatrix
 
-        fun calculateElasticEffect(excess: Float): Float {
-            return (elasticityFactor * excess) / (1 + dampingFactor * abs(excess))
-        }
+        // Calcoliamo di quanto l'elastico "cede" fisicamente rispetto al tiraggio virtuale del dito
+        val visualExcessX = rubberBandFormula(excessX, windowRect.width())
+        val visualExcessY = rubberBandFormula(excessY, windowRect.height())
 
-        if (excessX != 0f || excessY != 0f) {
-            val elasticX = calculateElasticEffect(excessX)
-            val elasticY = calculateElasticEffect(excessY)
+        // Siccome la telecamera virtuale ha GIA' incluso tutto l'"excess",
+        // dobbiamo "tirarla indietro" della differenza per frenarla visivamente.
+        val correctionX = visualExcessX - excessX
+        val correctionY = visualExcessY - excessY
 
-            Log.d("ELASTIC_EFFECT", "applyElasticEffect: X=$elasticX, Y=$elasticY")
-            elasticMatrix.postTranslate(elasticX, elasticY)
-        }
-
+        elasticMatrix.postTranslate(correctionX, correctionY)
         return elasticMatrix
     }
 
     /**
-     * Animates the elastic bounce-back effect when the user releases their finger after over-scrolling.
+     * FASE 1 - RITORNO A MOLLA (Bounce Back): Riporta fisicamente la telecamera virtuale nei limiti.
+     * Poiché la telecamera virtuale torna indietro, l'elastico si rilasserà da solo matematicamente!
      *
-     * @param excessX The horizontal out-of-bounds distance.
-     * @param excessY The vertical out-of-bounds distance.
-     * @param elasticMatrix The matrix that will be updated during the animation.
-     * @param updateCallback Lambda triggered on every animation frame to request a redraw.
-     * @param onEndCallback Lambda triggered when the animation completes.
+     * @param moveMatrix Il riferimento diretto alla telecamera virtuale da far scorrere all'indietro.
      */
     fun startBounceBackAnimation(
         excessX: Float,
         excessY: Float,
-        elasticMatrix: Matrix,
+        moveMatrix: Matrix,
         updateCallback: () -> Unit,
         onEndCallback: () -> Unit
     ) {
-        // From 1 (max stretch) to 0 (rest position)
-        val animator = ValueAnimator.ofFloat(1f, 0f)
-        animator.duration = 300
-        animator.interpolator = OvershootInterpolator() // Provides a fluid, slight bounce past the resting point
+        // Animiamo da 0 (inizio del ritorno) a 1 (arrivo al bordo esatto)
+        val animator = ValueAnimator.ofFloat(0f, 1f)
+        animator.duration = 350
+        // DecelerateInterpolator crea un morbido "atterraggio" contro il bordo (non serve Overshoot qui)
+        animator.interpolator = android.view.animation.DecelerateInterpolator(1.5f)
+
+        val startExcessX = excessX
+        val startExcessY = excessY
+        var previousProgress = 0f
 
         animator.addUpdateListener { animation ->
             val progress = animation.animatedValue as Float
-            val bounceX = excessX * progress
-            val bounceY = excessY * progress
+            val stepProgress = progress - previousProgress
+            previousProgress = progress
 
-            elasticMatrix.set(applyElasticEffect(bounceX, bounceY))
+            // Spostiamo indietro la telecamera virtuale passo dopo passo
+            val stepX = -startExcessX * stepProgress
+            val stepY = -startExcessY * stepProgress
+
+            moveMatrix.postTranslate(stepX, stepY)
             updateCallback()
         }
 

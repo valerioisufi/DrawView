@@ -478,8 +478,11 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                 )
                                 contentConstraintsOnWindow = calcPage.getContentConstraintsOnWindow(windowRect)
 
-                                // Apply constraints to the camera matrix and recalculate layout
-                                calcPage.applyBounds(moveMatrix, calcPage.contentRect, windowRect)
+                                // FASE 3: Forziamo la telecamera nei limiti SOLO in caso di ricalcolo totale del layout
+                                val excess = calcPage.calculateExcess(moveMatrix, calcPage.contentRect, windowRect)
+                                moveMatrix.postTranslate(-excess.first, -excess.second)
+                                elasticMatrix.reset()
+
                                 calcPage.calcPagesRectOnWindow(
                                     document.pages, windowRect, CalcPage.PagePositionOnWindowOption()
                                 )
@@ -729,12 +732,41 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                             moveMatrix = Matrix(startAnimateMatrix).apply {
                                 postTranslate(deltaScrollX.toFloat(), deltaScrollY.toFloat())
                             }
+
+                            // --- FASE 3: ELASTICO DINAMICO DURANTE IL FLING ---
+                            // Se l'inerzia del fling "sfonda" il bordo, calcoliamo la resistenza in tempo reale!
+                            val excess = calcPage.calculateExcess(moveMatrix, calcPage.contentRect, windowRect)
+                            elasticMatrix = calcPage.applyRubberBandEffect(excess.first, excess.second, windowRect)
+
                             needsInvalidate = true // Keep the animation loop running
                         } else {
-                            // Fling is complete. Request a high-res redraw to "commit" the new location.
-                            requestDraw(DrawAttachments(drawMode = DrawAttachments.DrawMode.UPDATE).apply {
-                                update = DrawAttachments.Update.DRAW_BITMAP
-                            })
+                            // --- FASE 3: FINE FLING E CONTROLLO RIMBALZO ---
+                            // Il Fling ha perso energia. Se si è fermato "fuori" dal foglio, lanciamo il Bounce Back!
+                            val excess = calcPage.calculateExcess(moveMatrix, calcPage.contentRect, windowRect)
+                            if (excess.first != 0f || excess.second != 0f) {
+                                startAnimateMatrix.set(moveMatrix)
+                                calcPage.startBounceBackAnimation(
+                                    excess.first, excess.second, moveMatrix,
+                                    updateCallback = {
+                                        val currentExcess = calcPage.calculateExcess(moveMatrix, calcPage.contentRect, windowRect)
+                                        elasticMatrix = calcPage.applyRubberBandEffect(currentExcess.first, currentExcess.second, windowRect)
+                                        requestDraw(DrawAttachments(drawMode = DrawAttachments.DrawMode.ANIMATE).apply {
+                                            animationType = DrawAttachments.AnimationType.BOUNCE_BACK
+                                        })
+                                    },
+                                    onEndCallback = {
+                                        elasticMatrix.reset()
+                                        requestDraw(DrawAttachments(drawMode = DrawAttachments.DrawMode.UPDATE).apply {
+                                            update = DrawAttachments.Update.DRAW_BITMAP
+                                        })
+                                    }
+                                )
+                            } else {
+                                // Fling terminato pulito dentro i limiti. Richiediamo il disegno in HD.
+                                requestDraw(DrawAttachments(drawMode = DrawAttachments.DrawMode.UPDATE).apply {
+                                    update = DrawAttachments.Update.DRAW_BITMAP
+                                })
+                            }
                         }
                     }
                     else -> {}

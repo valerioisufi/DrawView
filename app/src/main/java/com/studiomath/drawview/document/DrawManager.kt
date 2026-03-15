@@ -750,8 +750,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                             elasticMatrix = calcPage.applyRubberBandEffect(newExcess.first, newExcess.second, windowRect)
 
                             // --- AGGIUNGI QUESTO BLOCCO QUI ---
-                            // Se l'eccesso supera i 50px, fermiamo il fling per far partire subito il bounce back
-                            if (abs(newExcess.first) > 50f || abs(newExcess.second) > 50f) {
+                            // Se l'eccesso supera i 10px, fermiamo il fling per far partire subito il bounce back
+                            if (abs(newExcess.first) > 100f || abs(newExcess.second) > 100f) {
                                 scroller.forceFinished(true)
                             }
                             // ----------------------------------

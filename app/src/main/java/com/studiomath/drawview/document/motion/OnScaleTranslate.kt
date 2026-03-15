@@ -114,8 +114,10 @@ class OnScaleTranslate(
         // 2. Handler for Single-finger Pan and Fling
         gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
             override fun onDown(e: MotionEvent): Boolean {
-                // Stop any ongoing fling animation if the user touches the screen again
+                // Ferma l'inerzia del fling se tocchi lo schermo
                 drawViewModel.drawManager.scroller.forceFinished(true)
+                // --- NUOVO: Ferma l'elastico se afferri il documento mentre rimbalza! ---
+                drawViewModel.drawManager.calcPage.cancelAnimations()
                 return true
             }
 
@@ -178,23 +180,17 @@ class OnScaleTranslate(
      */
     private fun applyMatrixAndRequestDraw(tempMatrix: Matrix) {
         drawViewModel.drawManager.apply {
-            // 1. Calcoliamo di quanto stiamo sforzando i limiti (SENZA bloccare la matrice!)
             val result = calcPage.calculateExcess(tempMatrix, calcPage.contentRect, windowRect)
             excessX = result.first
             excessY = result.second
 
-            // 2. La telecamera virtuale (moveMatrix) segue il dito in modo perfetto e senza scatti
+            // La telecamera virtuale segue fedelmente il dito
             moveMatrix = Matrix(tempMatrix)
 
-            val transformedContentRect = RectF(calcPage.contentRect)
-            moveMatrix.mapRect(transformedContentRect)
+            // (RIMOSSO il blocco if sull'asse X: ora il documento manterrà
+            // l'effetto elastico verso il centro in ogni direzione in modo coerente)
 
-            if (transformedContentRect.width() < windowRect.width() && !isScaling) {
-                excessX = 0f
-            }
-
-            // 3. Calcoliamo la "Frenata Visiva".
-            // Questa matrice sposterà il Canvas all'indietro per simulare la tensione dell'elastico.
+            // Applichiamo la resistenza visiva
             elasticMatrix = calcPage.applyRubberBandEffect(excessX, excessY, windowRect)
 
             requestDraw(DrawAttachments(drawMode = DrawMode.SCALE_TRANSLATE))

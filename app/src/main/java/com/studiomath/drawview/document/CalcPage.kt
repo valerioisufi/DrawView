@@ -275,11 +275,20 @@ class CalcPage(
         return elasticMatrix
     }
 
+    // Variabile per tenere traccia dell'animazione in corso
+    private var bounceAnimator: ValueAnimator? = null
+
     /**
-     * FASE 1 - RITORNO A MOLLA (Bounce Back): Riporta fisicamente la telecamera virtuale nei limiti.
-     * Poiché la telecamera virtuale torna indietro, l'elastico si rilasserà da solo matematicamente!
-     *
-     * @param moveMatrix Il riferimento diretto alla telecamera virtuale da far scorrere all'indietro.
+     * FASE 3 - STOP ANIMAZIONI: Ferma istantaneamente il rimbalzo se l'utente
+     * tocca di nuovo lo schermo ("afferra" il documento al volo).
+     */
+    fun cancelAnimations() {
+        bounceAnimator?.cancel()
+    }
+
+    /**
+     * FASE 1 - RITORNO A MOLLA (Bounce Back) RIPROGETTATO
+     * Usa il calcolo assoluto della matrice per evitare errori di arrotondamento a fine corsa.
      */
     fun startBounceBackAnimation(
         excessX: Float,
@@ -288,33 +297,37 @@ class CalcPage(
         updateCallback: () -> Unit,
         onEndCallback: () -> Unit
     ) {
-        // Animiamo da 0 (inizio del ritorno) a 1 (arrivo al bordo esatto)
-        val animator = ValueAnimator.ofFloat(0f, 1f)
-        animator.duration = 350
-        // DecelerateInterpolator crea un morbido "atterraggio" contro il bordo (non serve Overshoot qui)
-        animator.interpolator = android.view.animation.DecelerateInterpolator(1.5f)
+        cancelAnimations() // Assicuriamoci che non ci siano altre animazioni in corso
 
-        val startExcessX = excessX
-        val startExcessY = excessY
-        var previousProgress = 0f
+        // Salviamo la fotografia esatta della matrice alla partenza
+        val startMatrix = Matrix(moveMatrix)
 
-        animator.addUpdateListener { animation ->
-            val progress = animation.animatedValue as Float
-            val stepProgress = progress - previousProgress
-            previousProgress = progress
+        bounceAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 350
+            interpolator = android.view.animation.DecelerateInterpolator(1.5f)
 
-            // Spostiamo indietro la telecamera virtuale passo dopo passo
-            val stepX = -startExcessX * stepProgress
-            val stepY = -startExcessY * stepProgress
+            addUpdateListener { animation ->
+                val progress = animation.animatedValue as Float
 
-            moveMatrix.postTranslate(stepX, stepY)
-            updateCallback()
+                // CALCOLO ASSOLUTO: Evita l'accumulo di errori dei Float!
+                // Spostiamo progressivamente dal 0% al 100% dell'eccesso totale
+                val currentTransX = -excessX * progress
+                val currentTransY = -excessY * progress
+
+                // Partiamo sempre dalla matrice originale e applichiamo lo spostamento calcolato
+                moveMatrix.apply {
+                    set(startMatrix)
+                    postTranslate(currentTransX, currentTransY)
+                }
+
+                updateCallback()
+            }
+
+            doOnEnd {
+                onEndCallback()
+            }
         }
 
-        animator.doOnEnd {
-            onEndCallback()
-        }
-
-        animator.start()
+        bounceAnimator?.start()
     }
 }

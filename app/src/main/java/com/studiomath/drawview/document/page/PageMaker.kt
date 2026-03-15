@@ -273,7 +273,8 @@ class PageMaker(
                             // 1pt = 0.3527mm. Moltiplichiamo per lo zoom (scaleX)
                             val screenFontSizePx = textItem.fontSize * 0.3527f * scaleX
 
-                            val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                            // Aggiungiamo LINEAR_TEXT_FLAG e SUBPIXEL_TEXT_FLAG per uno zoom matematicamente perfetto
+                            val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG or Paint.LINEAR_TEXT_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
                                 color = textItem.color
                                 textSize = screenFontSizePx
                                 typeface = Typeface.create(Typeface.DEFAULT,

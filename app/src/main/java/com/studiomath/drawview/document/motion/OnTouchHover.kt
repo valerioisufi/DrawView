@@ -445,7 +445,20 @@ class OnTouchHover(
 
         if (isPalmDetected(event)) {
             cancelCurrentStroke(event)
-            return@OnTouchListener true
+
+            // FASE 3 FIX: Se il dito si appiattisce uscendo dallo schermo, viene visto come un palmo.
+            // Ma se stiamo rilasciando lo schermo (UP/CANCEL/OUTSIDE) o stavamo già muovendo la telecamera,
+            // DOBBIAMO far passare l'evento per permettere all'elastico di scattare all'indietro!
+            val action = event.actionMasked
+            val isPanOrRelease = onScaleTranslate.continueScaleTranslate ||
+                    drawViewModel.selectedTool == DrawViewModel.ToolUtilities.Tool.PAN ||
+                    action == MotionEvent.ACTION_UP ||
+                    action == MotionEvent.ACTION_CANCEL ||
+                    action == MotionEvent.ACTION_OUTSIDE
+
+            if (!isPanOrRelease) {
+                return@OnTouchListener true
+            }
         }
 
         /**

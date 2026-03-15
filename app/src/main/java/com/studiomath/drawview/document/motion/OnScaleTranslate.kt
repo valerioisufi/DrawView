@@ -31,7 +31,7 @@ class OnScaleTranslate(
         private const val MIN_SCALE = 0.5f
 
         /** Maximum pixel distance allowed for over-scrolling before bounds limit the fling. */
-        private const val OVERSCROLL_LIMIT = 200
+        private const val OVERSCROLL_LIMIT = 1000
     }
 
     /** Flag indicating if the gesture interceptor should continue processing the touch event. */
@@ -163,9 +163,8 @@ class OnScaleTranslate(
         scaleDetector?.onTouchEvent(event)
         gestureDetector?.onTouchEvent(event)
 
-        // Check for bounds and bounce-back when the user lifts their finger(s),
-        // provided no fling animation was triggered.
-        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+        // FIX: Aggiungiamo ACTION_OUTSIDE nel caso il sistema perda il dito sui bordi neri
+        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL || action == MotionEvent.ACTION_OUTSIDE) {
             if (drawViewModel.drawManager.scroller.isFinished) {
                 checkBoundsAndBounceBack()
             }
@@ -270,13 +269,6 @@ class OnScaleTranslate(
      * Innesca lo scorrimento inerziale (Fling) se l'utente lancia la pagina.
      */
     private fun handleFling(velocityX: Float, velocityY: Float): Boolean {
-        // Se c'è tensione elastica in corso, vietiamo il fling!
-        // Sarà il dito che si alza (ACTION_UP) a far scattare il Bounce Back.
-        if (abs(excessX) > 1f || abs(excessY) > 1f) {
-            Log.d(TAG, "Fling disabled: out of bounds. Falling back to Bounce Back.")
-            checkBoundsAndBounceBack()
-            return true
-        }
 
         val manager = drawViewModel.drawManager
         val transformedContentRect = RectF(manager.calcPage.contentRect)

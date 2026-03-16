@@ -37,6 +37,7 @@ import com.studiomath.drawview.document.selection.LassoMode
 import com.studiomath.drawview.document.selection.SelectionGroup
 import com.studiomath.drawview.document.selection.SelectionManager
 import com.studiomath.drawview.document.tools.EraserManager
+import com.studiomath.drawview.document.tools.TextEditorManager
 import com.studiomath.drawview.document.tools.Tool
 import com.studiomath.drawview.document.tools.ToolManager
 import kotlinx.coroutines.Dispatchers
@@ -104,6 +105,43 @@ class DrawViewModel(
         val eraserThicknessPx = getActiveBrushScaled().size
         eraserManager.eraseStrokesAtLine(documentData, x1Px, y1Px, x2Px, y2Px, eraserThicknessPx)
     }
+
+    val textEditorManager = TextEditorManager(
+        repository = repository,
+        historyManager = historyManager,
+        pageMaker = pageMaker,
+        coroutineScope = viewModelScope,
+        getDrawManager = { drawManager }
+    )
+
+    // --- DELEGATI PER COMPOSE (TESTO) ---
+    var activeTextEditPosition: PointF?
+        get() = textEditorManager.activeTextEditPosition
+        set(value) { textEditorManager.activeTextEditPosition = value }
+
+    var activeTextEditItem: Text?
+        get() = textEditorManager.activeTextEditItem
+        set(value) { textEditorManager.activeTextEditItem = value }
+
+    var activeTextPageIndex: Int
+        get() = textEditorManager.activeTextPageIndex
+        set(value) { textEditorManager.activeTextPageIndex = value }
+
+    var activeTextScale: Float
+        get() = textEditorManager.activeTextScale
+        set(value) { textEditorManager.activeTextScale = value }
+
+    // --- DELEGATI FUNZIONI TESTO ---
+    fun finishTextEditing(
+        text: String, isLatex: Boolean, color: Int, fontSize: Float,
+        isBold: Boolean, isItalic: Boolean, measuredWidthMm: Float, measuredHeightMm: Float
+    ) = textEditorManager.finishTextEditing(
+        documentData, text, isLatex, color, fontSize, isBold, isItalic, measuredWidthMm, measuredHeightMm
+    )
+
+    fun cancelTextEditing() = textEditorManager.cancelTextEditing()
+    fun panCanvasForKeyboard(deltaY: Float) = textEditorManager.panCanvasForKeyboard(deltaY)
+    fun updateTextInDatabase(pageDbId: Int, textItem: Text) = textEditorManager.updateTextInDatabase(pageDbId, textItem)
 
     val selectionManager = SelectionManager(
         application = application,
@@ -451,119 +489,6 @@ class DrawViewModel(
         }
     }
 
-    // --- STATO DELL'EDITOR DI TESTO ---
-    var activeTextEditPosition by mutableStateOf<PointF?>(null)
-    var activeTextEditItem by mutableStateOf<Text?>(null)
-    var activeTextPageIndex by mutableIntStateOf(-1)
-
-    var activeTextScale by mutableFloatStateOf(1f) // Memorizza lo zoom per scalare il font in Compose
-
-    /**
-     * Chiamata da Compose quando l'utente preme "Inserisci".
-     * Salva il testo (nuovo o modificato) nella RAM e nel Database.
-     */
-    fun finishTextEditing(
-        text: String, isLatex: Boolean, color: Int, fontSize: Float,
-        isBold: Boolean, isItalic: Boolean, measuredWidthMm: Float, measuredHeightMm: Float // NUOVO
-    ) {
-        val pos = activeTextEditPosition ?: return
-        val pageIndex = activeTextPageIndex
-        if (pageIndex == -1) return
-
-        val doc = documentData ?: return
-        val page = doc.pages.getOrNull(pageIndex) ?: return
-
-        if (text.isNotBlank()) {
-            viewModelScope.launch(Dispatchers.Default) {
-                val textObj = activeTextEditItem ?: Text(page.textData.size).apply {
-                    val pageInfo = drawManager.pagesRectOnWindow.find { it.index == pageIndex }
-                    if (pageInfo != null) {
-                        val scaleX = page.width / pageInfo.rect.width()
-                        val scaleY = page.height / pageInfo.rect.height()
-                        this.x = (pos.x - pageInfo.rect.left) * scaleX
-                        this.y = (pos.y - pageInfo.rect.top) * scaleY
-                    }
-                }
-
-                // Applichiamo le dimensioni REALI calcolate da Compose
-                textObj.text = text
-                textObj.isLatex = isLatex
-                textObj.color = color
-                textObj.fontSize = fontSize
-                textObj.isBold = isBold
-                textObj.isItalic = isItalic
-
-                textObj.width = measuredWidthMm
-                textObj.height = measuredHeightMm
-
-                textObj.isDragging = false
-
-                // Salviamo nel DB
-                if (textObj.dbId == 0) {
-                    // Dobbiamo assicurarci che Room ci restituisca l'ID e lo applichi all'oggetto
-                    // (Assicurati che repository.saveNewText faccia: textObj.dbId = textDao.insert(entity).toInt())
-                    repository.saveNewText(page.dbId, textObj)
-                    page.textData.add(textObj)
-
-                    // --- FASE 3: REGISTRIAMO L'INSERIMENTO DEL TESTO ---
-                    addHistoryAction(AddTextAction(page.dbId, pageIndex, textObj))
-
-                } else {
-                    repository.updateText(page.dbId, textObj)
-                }
-
-                // Chiudiamo l'editor
-                activeTextEditPosition = null
-                activeTextEditItem = null
-                activeTextPageIndex = -1
-
-                // NOTA: Il rendering sul Canvas avverrà nella Fase 3.
-                // Per ora inviamo solo la richiesta di aggiornamento.
-                page.bitmapPage?.let { oldBitmap ->
-                    page.bitmapPage = pageMaker.makePage(
-                        android.graphics.Rect(0, 0, oldBitmap.width, oldBitmap.height), null, page, doc
-                    )
-                }
-                drawManager.requestDraw(
-                    DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                        update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
-                    }
-                )
-            }
-        } else {
-            cancelTextEditing() // Se è vuoto, annulla.
-        }
-    }
-
-    fun cancelTextEditing() {
-        activeTextEditPosition = null
-        activeTextEditItem = null
-        activeTextPageIndex = -1
-    }
-
-    /**
-     * Chiamata da Compose quando il cursore finisce sotto la tastiera.
-     * Sposta il canvas e il cursore in perfetta sincronia.
-     */
-    fun panCanvasForKeyboard(deltaY: Float) {
-        viewModelScope.launch(Dispatchers.Main) {
-            drawManager.smoothPanBy(deltaY) { stepDy ->
-                activeTextEditPosition?.let { pos ->
-                    // Muove il cursore di Compose in perfetta sincronia con il Canvas
-                    activeTextEditPosition = android.graphics.PointF(pos.x, pos.y + stepDy)
-                }
-            }
-        }
-    }
-
-    /**
-     * Salva al volo le modifiche al testo (es. quando viene ridimensionato con le maniglie laterali)
-     */
-    fun updateTextInDatabase(pageDbId: Int, textItem: Text) {
-        viewModelScope.launch(Dispatchers.IO) {
-            repository.updateText(pageDbId, textItem)
-        }
-    }
 
     /**
      * Updates an existing image's position/properties in the database

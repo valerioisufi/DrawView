@@ -60,6 +60,74 @@ class OnTouchHover(
     private var dragTouchOffsetX = 0f
     private var dragTouchOffsetY = 0f
 
+    // --- VARIABILI PER L'AUTO-SCROLL CONTINUO ---
+    private var isAutoScrolling = false
+    private var autoScrollDeltaY = 0f
+    private var attachedView: View? = null
+
+    // Questo è il "Motore" che gira a 60fps quando il dito è fermo ai bordi
+    private val autoScrollRunnable = object : java.lang.Runnable {
+        override fun run() {
+            if (!isAutoScrolling || !drawViewModel.isReorderingPages) return
+            val view = attachedView ?: return
+
+            // 1. Spinge la telecamera del documento (usa il delta calcolato)
+            drawViewModel.drawManager.cameraPhysics.onDrag(
+                0f, autoScrollDeltaY, 1f,
+                view.width / 2f, view.height / 2f
+            )
+
+            // 2. Ricalcola dove si trovano le pagine sullo schermo dopo aver mosso la telecamera
+            val renderMatrix = drawViewModel.drawManager.cameraPhysics.getRenderMatrix()
+            drawViewModel.drawManager.pagesRectOnWindow = drawViewModel.drawManager.calcPage.getPagesRectOnWindowTransformation(drawViewModel.drawManager.windowRect, renderMatrix)
+
+            // 3. Poiché il documento scorre SOTTO il dito fermo, la pagina sollevata
+            //    potrebbe aver superato una nuova pagina. Verifichiamo lo Swap!
+            performSwapLogic()
+
+            // 4. Disegniamo il nuovo fotogramma
+            drawViewModel.drawManager.requestDraw(
+                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.REFRESH)
+            )
+
+            // 5. Ordina ad Android di richiamare questo stesso blocco al prossimo fotogramma
+            view.postOnAnimation(this)
+        }
+    }
+
+    // Funzione helper per non duplicare il codice di scambio delle pagine
+    private fun performSwapLogic() {
+        val doc = drawViewModel.documentData ?: return
+        val floatingRect = drawViewModel.floatingPageRect ?: return
+        val floatCenterY = floatingRect.centerY()
+        val floatCenterX = floatingRect.centerX()
+
+        val targetInfo = drawViewModel.drawManager.pagesRectOnWindow.find {
+            it.rect.contains(floatCenterX, floatCenterY)
+        }
+
+        if (targetInfo != null && targetInfo.index != drawViewModel.draggedPageIndex) {
+            // Spostiamo la pagina nella RAM
+            val draggedPage = doc.pages.removeAt(drawViewModel.draggedPageIndex)
+            doc.pages.add(targetInfo.index, draggedPage)
+            drawViewModel.draggedPageIndex = targetInfo.index
+
+            // Ricalcoliamo le dimensioni fisiche ("i buchi")
+            drawViewModel.drawManager.calcPage.calcPagesRectOnWindow(
+                doc.pages,
+                drawViewModel.drawManager.windowRect,
+                com.studiomath.drawview.document.page.CalcPage.PagePositionOnWindowOption()
+            )
+            drawViewModel.drawManager.calcPage.needToBeUpdated = true
+        }
+
+        if (drawViewModel.drawManager.calcPage.needToBeUpdated) {
+            val renderMatrix = drawViewModel.drawManager.cameraPhysics.getRenderMatrix()
+            drawViewModel.drawManager.pagesRectOnWindow = drawViewModel.drawManager.calcPage.getPagesRectOnWindowTransformation(drawViewModel.drawManager.windowRect, renderMatrix)
+            drawViewModel.drawManager.calcPage.needToBeUpdated = false
+        }
+    }
+
     // Per calcolare l'angolo e la scala cumulativi
     private var initialDistance = 0f
     private var initialAngle = 0f
@@ -85,6 +153,9 @@ class OnTouchHover(
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_OUTSIDE -> drawViewModel.drawManager.isUserTouching = false
         }
 
+        // Salva la view per permettere al Runnable di girare
+        attachedView = view
+
         // =================================================================================
         // --- FASE 4: MOTORE DRAG & DROP PER IL RIORDINO PAGINE ---
         // =================================================================================
@@ -93,7 +164,10 @@ class OnTouchHover(
 
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    // 1. Troviamo quale pagina ha toccato l'utente
+                    // Sicurezza: fermiamo scorrimenti precedenti
+                    isAutoScrolling = false
+                    view.removeCallbacks(autoScrollRunnable)
+
                     val pageInfo = drawViewModel.drawManager.pagesRectOnWindow.find { it.rect.contains(event.x, event.y) }
                     if (pageInfo != null) {
                         drawViewModel.draggedPageIndex = pageInfo.index
@@ -118,72 +192,49 @@ class OnTouchHover(
                     if (drawViewModel.draggedPageIndex != -1) {
                         val floatingRect = drawViewModel.floatingPageRect ?: return@OnTouchListener true
 
-                        // 2. AGGIORNIAMO LA POSIZIONE DELLA PAGINA SOTTO IL DITO
+                        // 1. Sposta la pagina sotto il dito in tempo reale
                         val newLeft = event.x - dragTouchOffsetX
                         val newTop = event.y - dragTouchOffsetY
                         floatingRect.offsetTo(newLeft, newTop)
 
-                        // 3. AUTO-SCROLL DEL DOCUMENTO (Se il dito è vicino ai bordi)
-                        val edgeMargin = 150f // Area sensibile ai bordi
+                        // 2. Calcola se siamo vicini ai bordi
+                        val edgeMargin = 150f // Area di attivazione scorrimento
                         var scrollDelta = 0f
 
                         if (event.y < edgeMargin) {
-                            // Verso l'alto: il documento scende (valore positivo)
-                            scrollDelta = (edgeMargin - event.y) * 0.3f
+                            scrollDelta = (edgeMargin - event.y) * 0.4f // Verso l'alto
                         } else if (event.y > view.height - edgeMargin) {
-                            // Verso il basso: il documento sale (valore negativo)
-                            scrollDelta = -((event.y - (view.height - edgeMargin)) * 0.3f)
+                            scrollDelta = -((event.y - (view.height - edgeMargin)) * 0.4f) // Verso il basso
                         }
 
+                        // 3. Gestisci il Loop di Scorrimento
                         if (scrollDelta != 0f) {
-                            drawViewModel.drawManager.cameraPhysics.onDrag(0f, scrollDelta, 1f, view.width / 2f, view.height / 2f)
-                            drawViewModel.drawManager.calcPage.needToBeUpdated = true
-                        }
+                            autoScrollDeltaY = scrollDelta
+                            if (!isAutoScrolling) {
+                                isAutoScrolling = true
+                                // Accendi il motore! Da ora il Runnable si occupa di scrollare e disegnare a 60fps
+                                view.postOnAnimation(autoScrollRunnable)
+                            }
+                        } else {
+                            // Se il dito esce dalla zona dei bordi, spegni il motore
+                            if (isAutoScrolling) {
+                                isAutoScrolling = false
+                                view.removeCallbacks(autoScrollRunnable)
+                            }
 
-                        // 4. LOGICA DI SWAP FISICO (Usiamo il centro della pagina flottante)
-                        val floatCenterY = floatingRect.centerY()
-                        val floatCenterX = floatingRect.centerX()
-
-                        val targetInfo = drawViewModel.drawManager.pagesRectOnWindow.find {
-                            it.rect.contains(floatCenterX, floatCenterY)
-                        }
-
-                        if (targetInfo != null && targetInfo.index != drawViewModel.draggedPageIndex) {
-                            // Spostiamo fisicamente gli elementi nella lista in RAM
-                            val draggedPage = doc.pages.removeAt(drawViewModel.draggedPageIndex)
-                            doc.pages.add(targetInfo.index, draggedPage)
-
-                            drawViewModel.draggedPageIndex = targetInfo.index
-
-                            // ========================================================
-                            // FIX: IL RICALCOLO DEL LAYOUT FISICO!
-                            // Poiché l'ordine è cambiato, dobbiamo dire al motore di
-                            // ricreare i "buchi" con le larghezze/altezze corrette.
-                            // ========================================================
-                            drawViewModel.drawManager.calcPage.calcPagesRectOnWindow(
-                                doc.pages,
-                                drawViewModel.drawManager.windowRect,
-                                com.studiomath.drawview.document.page.CalcPage.PagePositionOnWindowOption()
+                            // Siccome il motore automatico è spento, calcoliamo lo swap manualmente qui
+                            performSwapLogic()
+                            drawViewModel.drawManager.requestDraw(
+                                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.REFRESH)
                             )
-
-                            drawViewModel.drawManager.calcPage.needToBeUpdated = true
                         }
-
-                        // Se abbiamo scrollato o scambiato pagine, convertiamo il nuovo layout in coordinate schermo
-                        if (drawViewModel.drawManager.calcPage.needToBeUpdated) {
-                            val renderMatrix = drawViewModel.drawManager.cameraPhysics.getRenderMatrix()
-                            drawViewModel.drawManager.pagesRectOnWindow = drawViewModel.drawManager.calcPage.getPagesRectOnWindowTransformation(drawViewModel.drawManager.windowRect, renderMatrix)
-                            drawViewModel.drawManager.calcPage.needToBeUpdated = false // Resettiamo la flag
-                        }
-
-                        // Richiediamo un aggiornamento a schermo a 60fps
-                        drawViewModel.drawManager.requestDraw(
-                            DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.REFRESH)
-                        )
                     }
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    // 5. RILASCIO DELLA PAGINA
+                    // Rilascio della pagina: spegniamo eventuali scroll in corso
+                    isAutoScrolling = false
+                    view.removeCallbacks(autoScrollRunnable)
+
                     if (drawViewModel.draggedPageIndex != -1) {
                         drawViewModel.draggedPageIndex = -1
                         drawViewModel.floatingPageRect = null

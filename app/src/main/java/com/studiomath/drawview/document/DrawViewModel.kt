@@ -50,6 +50,7 @@ import androidx.ink.strokes.StrokeInput
 import com.studiomath.drawview.document.history.AddTextAction
 import com.studiomath.drawview.document.history.DrawAction
 import com.studiomath.drawview.document.history.EraseStrokesAction
+import com.studiomath.drawview.document.history.HistoryManager
 import com.studiomath.drawview.document.page.CalcPage
 import com.studiomath.drawview.document.page.Text
 import kotlin.math.atan2
@@ -124,91 +125,7 @@ class DrawViewModel(
     var isDocumentLoaded by mutableStateOf(false)
     var isDocumentShowed by mutableStateOf(false)
 
-    // --- MOTORE UNDO / REDO (COMMAND PATTERN) ---
 
-    // Limite massimo di azioni per non esaurire la memoria RAM
-    private val MAX_HISTORY_SIZE = 50
-
-    // Le due pile della storia. Essendo StateList, Compose reagirà automaticamente ai cambiamenti
-    val undoStack = mutableStateListOf<DrawAction>()
-    val redoStack = mutableStateListOf<DrawAction>()
-
-    /**
-     * Registra una nuova azione compiuta dall'utente.
-     * Questa funzione è la chiave dell'architettura: ogni volta che l'utente fa qualcosa
-     * di nuovo, la linea temporale dei "Redo" (il futuro annullato) viene distrutta.
-     */
-    fun addHistoryAction(action: DrawAction) {
-        undoStack.add(action)
-        redoStack.clear() // Abbiamo alterato la linea temporale, il futuro precedente non esiste più
-
-        // Manteniamo la pila leggera eliminando le azioni troppo vecchie
-        if (undoStack.size > MAX_HISTORY_SIZE) {
-            undoStack.removeAt(0)
-        }
-    }
-
-    // Variabili di comodità per abilitare/disabilitare i tasti fisici nella UI
-    val canUndo: Boolean get() = undoStack.isNotEmpty()
-    val canRedo: Boolean get() = redoStack.isNotEmpty()
-
-    /**
-     * Esegue l'Undo (Annulla).
-     * Prende l'ultima azione dall'undoStack, la annulla e la sposta nel redoStack.
-     */
-    fun undo() {
-        if (undoStack.isEmpty()) return
-
-        viewModelScope.launch {
-            // Estraiamo l'ultima azione registrata (in cima alla pila)
-            val action = undoStack.removeAt(undoStack.size - 1)
-
-            // Diciamo all'azione di annullarsi (aggiornerà RAM e Database da sola)
-            action.undo(this@DrawViewModel)
-
-            // Spostiamo l'azione nella pila del Redo, così possiamo ripristinarla in futuro
-            redoStack.add(action)
-        }
-    }
-
-    /**
-     * Esegue il Redo (Ripristina).
-     * Prende l'ultima azione dal redoStack, la ripristina e la rimette nell'undoStack.
-     */
-    fun redo() {
-        if (redoStack.isEmpty()) return
-
-        viewModelScope.launch {
-            // Estraiamo l'azione dalla pila del futuro annullato
-            val action = redoStack.removeAt(redoStack.size - 1)
-
-            // Diciamo all'azione di rifare se stessa
-            action.redo(this@DrawViewModel)
-
-            // Rimettiamola nella storia normale
-            undoStack.add(action)
-        }
-    }
-
-    // --- BUFFER TEMPORANEO PER LA GOMMA ---
-    // Raggruppiamo i tratti cancellati per indice di pagina (in caso la gomma passi tra due fogli)
-    val currentlyErasedStrokes = mutableMapOf<Int, MutableList<Stroke>>()
-
-    /**
-     * Chiamata quando l'utente alza il dito dopo aver usato la gomma.
-     * Impacchetta tutti i tratti distrutti in una singola DrawAction e pulisce il buffer.
-     */
-    fun commitEraserHistory() {
-        if (currentlyErasedStrokes.isEmpty()) return
-        val doc = documentData ?: return
-
-        currentlyErasedStrokes.forEach { (pageIndex, strokes) ->
-            val page = doc.pages.getOrNull(pageIndex) ?: return@forEach
-            // Creiamo l'azione con una copia della lista (.toList()) per sicurezza
-            addHistoryAction(EraseStrokesAction(page.dbId, pageIndex, strokes.toList()))
-        }
-        currentlyErasedStrokes.clear()
-    }
 
     init {
         loadDocument()
@@ -276,6 +193,18 @@ class DrawViewModel(
             )
         }
     }
+
+    // --- MOTORE UNDO / REDO ---
+    val historyManager = HistoryManager(viewModelScope)
+
+    // Esponiamo queste proprietà/funzioni per non rompere la UI di Compose
+    val canUndo: Boolean get() = historyManager.canUndo
+    val canRedo: Boolean get() = historyManager.canRedo
+
+    fun undo() = historyManager.undo(this)
+    fun redo() = historyManager.redo(this)
+    fun addHistoryAction(action: DrawAction) = historyManager.addHistoryAction(action)
+    fun commitEraserHistory() = historyManager.commitEraserHistory(documentData)
 
     // --- GESTIONE PAGINE (AGGIUNGI, ELIMINA, RIORDINA) ---
 
@@ -1286,7 +1215,7 @@ class DrawViewModel(
             if (strokesToRemove.isNotEmpty()) {
 
                 // --- FASE 3: SALVIAMO I TRATTI NEL BUFFER DELLA STORIA ---
-                currentlyErasedStrokes.getOrPut(pageInfo.index) { mutableListOf() }.addAll(strokesToRemove)
+                historyManager.currentlyErasedStrokes.getOrPut(pageInfo.index) { mutableListOf() }.addAll(strokesToRemove)
 
                 page.strokeData.removeAll(strokesToRemove)
 

@@ -272,13 +272,13 @@ fun DrawActivity(
                         onClick = {
                             drawViewModel.undo()
                         },
-                        enabled = drawViewModel.undoStack.isNotEmpty() // Disabilita il click se non c'è nulla da annullare
+                        enabled = drawViewModel.canUndo // Disabilita il click se non c'è nulla da annullare
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.Undo,
                             contentDescription = "Undo",
                             // Ingrigisce visivamente l'icona se lo stack è vuoto
-                            tint = if (drawViewModel.undoStack.isNotEmpty()) {
+                            tint = if (drawViewModel.canUndo) {
                                 MaterialTheme.colorScheme.onSurface
                             } else {
                                 MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
@@ -290,13 +290,13 @@ fun DrawActivity(
                         onClick = {
                             drawViewModel.redo()
                         },
-                        enabled = drawViewModel.redoStack.isNotEmpty() // Disabilita il click se non c'è nulla da ripristinare
+                        enabled = drawViewModel.canRedo // Disabilita il click se non c'è nulla da ripristinare
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.Redo,
                             contentDescription = "Redo",
                             // Ingrigisce visivamente l'icona se lo stack è vuoto
-                            tint = if (drawViewModel.redoStack.isNotEmpty()) {
+                            tint = if (drawViewModel.canRedo) {
                                 MaterialTheme.colorScheme.onSurface
                             } else {
                                 MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)

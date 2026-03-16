@@ -1,7 +1,6 @@
 package com.studiomath.drawview.document.motion
 
 import android.content.Context
-import android.graphics.RectF
 import android.util.Log
 import android.view.GestureDetector
 import android.view.MotionEvent
@@ -93,9 +92,6 @@ class OnScaleTranslate(
                 handledFling = true
                 Log.d(TAG, "Avvio Fling con velocità X: $velocityX, Y: $velocityY")
 
-                // Controlliamo se serve aggiungere una pagina prima di lanciare il documento
-                checkOverscrollAndAddPage()
-
                 // Passiamo l'impulso al motore
                 drawViewModel.drawManager.cameraPhysics.onRelease(velocityX, velocityY)
 
@@ -126,8 +122,6 @@ class OnScaleTranslate(
         // Se l'utente alza il dito e NON c'è stato un Fling veloce, chiudiamo il gesto.
         if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL || action == MotionEvent.ACTION_OUTSIDE) {
             if (!handledFling) {
-                checkOverscrollAndAddPage()
-
                 // Rilasciamo con velocità zero (innesca eventuali rimbalzi ai bordi)
                 drawViewModel.drawManager.cameraPhysics.onRelease(0f, 0f)
 
@@ -146,31 +140,4 @@ class OnScaleTranslate(
         continueScaleTranslate = true
     }
 
-    /**
-     * Controlla visivamente se l'utente ha tirato troppo verso l'alto l'ultima pagina.
-     * In tal caso, istruisce il ViewModel ad aggiungere un nuovo foglio.
-     */
-    private fun checkOverscrollAndAddPage() {
-        val manager = drawViewModel.drawManager
-        val viewportRect = manager.windowRect
-        val contentRect = manager.calcPage.contentRect
-
-        // Usiamo la matrice visiva del motore per capire esattamente dove si trova il documento
-        val renderMatrix = manager.cameraPhysics.getRenderMatrix()
-        val mappedContent = RectF(contentRect)
-        renderMatrix.mapRect(mappedContent)
-
-        // Calcoliamo la distanza tra il fondo dello schermo e il fondo del documento
-        val overscrollY = mappedContent.bottom - viewportRect.bottom
-        val addPageThresholdPx = -(20f * drawViewModel.displayMetrics.density)
-
-        // Se overscrollY è negativo e supera la soglia, il bordo inferiore è entrato nello schermo
-        if (overscrollY < addPageThresholdPx && !isScaling) {
-            Log.d(TAG, "Soglia di overscroll superata! Aggiunta nuova pagina.")
-            drawViewModel.addNewPageAtBottom()
-
-            // Freno di sicurezza opzionale: fermiamo eventuali animazioni verso il vuoto
-            manager.cameraPhysics.stopAllAnimations()
-        }
-    }
 }

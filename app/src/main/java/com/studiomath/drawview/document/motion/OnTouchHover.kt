@@ -10,6 +10,7 @@ import androidx.ink.authoring.InProgressStrokeId
 import androidx.input.motionprediction.MotionEventPredictor
 import com.studiomath.drawview.document.DrawManager
 import com.studiomath.drawview.document.DrawViewModel
+import com.studiomath.drawview.document.selection.SelectionGroup
 import com.studiomath.drawview.document.tools.Tool
 import kotlin.math.atan2
 import kotlin.math.hypot
@@ -354,7 +355,7 @@ class OnTouchHover(
                                     tappedImage.x + tappedImage.width, tappedImage.y + tappedImage.height
                                 )
 
-                                drawViewModel.currentSelection = DrawViewModel.SelectionGroup(
+                                drawViewModel.currentSelection = SelectionGroup(
                                     images = mutableListOf(tappedImage),
                                     strokes = mutableListOf(),
                                     texts = mutableListOf(),

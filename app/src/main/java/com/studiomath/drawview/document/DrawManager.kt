@@ -27,6 +27,8 @@ import androidx.ink.strokes.createClosedShape
 import com.studiomath.drawview.document.motion.CameraPhysicsEngine
 import com.studiomath.drawview.document.page.CalcPage
 import com.studiomath.drawview.document.page.Measure
+import com.studiomath.drawview.document.selection.LassoMode
+import com.studiomath.drawview.document.selection.SelectionGroup
 import com.studiomath.drawview.document.tools.Tool
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -189,7 +191,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     val lassoBox = selectionRegion.computeBoundingBox()
 
                     if (lassoBox != null) {
-                        val newSelection = DrawViewModel.SelectionGroup()
+                        val newSelection = SelectionGroup()
 
                         newSelection.pageIndex = pageInfo.index
 
@@ -203,7 +205,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                         val identityTransform = AffineTransform.IDENTITY
 
                         // Intersezione Tratti (Saltiamo se la modalità è IMAGES_ONLY)
-                        if (drawViewModel.lassoMode != DrawViewModel.LassoMode.IMAGES_ONLY) {
+                        if (drawViewModel.lassoMode != LassoMode.IMAGES_ONLY) {
                             for (stroke in page.strokeData) {
                                 val nativeStroke = stroke.stroke ?: continue
                                 if (nativeStroke.shape.intersects(selectionRegion, identityTransform, identityTransform)) {

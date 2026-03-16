@@ -78,8 +78,8 @@ import androidx.lifecycle.ViewModelProvider
 import com.studiomath.drawview.document.DrawComponent
 import com.studiomath.drawview.document.DrawViewModel
 import com.studiomath.drawview.document.page.pt
+import com.studiomath.drawview.document.selection.LassoMode
 import com.studiomath.drawview.document.tools.Tool
-import com.studiomath.drawview.document.tools.ToolUtilities
 import com.studiomath.drawview.ui.composeComponents.ColorWheel
 import com.studiomath.drawview.ui.composeComponents.SizeSlider
 import com.studiomath.drawview.ui.theme.DrawViewTheme
@@ -503,13 +503,13 @@ fun DrawActivity(
                                         .fillMaxWidth()
                                         .clip(MaterialTheme.shapes.small)
                                         .combinedClickable(
-                                            onClick = { drawViewModel.lassoMode = DrawViewModel.LassoMode.ALL }
+                                            onClick = { drawViewModel.lassoMode = LassoMode.ALL }
                                         )
                                         .padding(vertical = 8.dp, horizontal = 4.dp)
                                 ) {
                                     androidx.compose.material3.RadioButton(
-                                        selected = drawViewModel.lassoMode == DrawViewModel.LassoMode.ALL,
-                                        onClick = { drawViewModel.lassoMode = DrawViewModel.LassoMode.ALL }
+                                        selected = drawViewModel.lassoMode == LassoMode.ALL,
+                                        onClick = { drawViewModel.lassoMode = LassoMode.ALL }
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(text = "Seleziona Tutto")
@@ -522,13 +522,13 @@ fun DrawActivity(
                                         .fillMaxWidth()
                                         .clip(MaterialTheme.shapes.small)
                                         .combinedClickable(
-                                            onClick = { drawViewModel.lassoMode = DrawViewModel.LassoMode.IMAGES_ONLY }
+                                            onClick = { drawViewModel.lassoMode = LassoMode.IMAGES_ONLY }
                                         )
                                         .padding(vertical = 8.dp, horizontal = 4.dp)
                                 ) {
                                     androidx.compose.material3.RadioButton(
-                                        selected = drawViewModel.lassoMode == DrawViewModel.LassoMode.IMAGES_ONLY,
-                                        onClick = { drawViewModel.lassoMode = DrawViewModel.LassoMode.IMAGES_ONLY }
+                                        selected = drawViewModel.lassoMode == LassoMode.IMAGES_ONLY,
+                                        onClick = { drawViewModel.lassoMode = LassoMode.IMAGES_ONLY }
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(text = "Solo Immagini")

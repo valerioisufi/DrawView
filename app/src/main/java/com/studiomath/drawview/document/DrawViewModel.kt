@@ -1,62 +1,50 @@
 package com.studiomath.drawview.document
 
 import android.app.Application
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Path
 import android.graphics.PointF
+import android.graphics.Rect
+import android.graphics.RectF
 import android.net.Uri
-import android.graphics.pdf.PdfRenderer
-import android.os.ParcelFileDescriptor
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.MotionEvent
 import android.view.ViewConfiguration
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.brush.Brush
+import androidx.ink.brush.InputToolType
 import androidx.ink.brush.StockBrushes
+import androidx.ink.geometry.AffineTransform
+import androidx.ink.geometry.Intersection.intersects
+import androidx.ink.strokes.MutableStrokeInputBatch
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.studiomath.drawview.document.page.PageMaker
 import com.studiomath.drawview.data.repository.DrawDocumentRepository
+import com.studiomath.drawview.document.history.AddTextAction
+import com.studiomath.drawview.document.history.DrawAction
+import com.studiomath.drawview.document.history.HistoryManager
+import com.studiomath.drawview.document.io.MediaImporter
 import com.studiomath.drawview.document.page.Document
 import com.studiomath.drawview.document.page.Image
 import com.studiomath.drawview.document.page.Measure
 import com.studiomath.drawview.document.page.Page
+import com.studiomath.drawview.document.page.PageMaker
 import com.studiomath.drawview.document.page.Stroke
-import com.studiomath.drawview.document.page.mm
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.File
-import android.graphics.Rect
-import android.graphics.RectF
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateListOf
-import androidx.ink.brush.InputToolType
-import androidx.ink.geometry.AffineTransform
-import androidx.ink.geometry.Intersection.intersects
-import androidx.ink.strokes.MutableStrokeInputBatch
-import androidx.ink.strokes.StrokeInput
-import com.studiomath.drawview.document.history.AddTextAction
-import com.studiomath.drawview.document.history.DrawAction
-import com.studiomath.drawview.document.history.EraseStrokesAction
-import com.studiomath.drawview.document.history.HistoryManager
-import com.studiomath.drawview.document.io.MediaImporter
-import com.studiomath.drawview.document.page.CalcPage
 import com.studiomath.drawview.document.page.Text
+import com.studiomath.drawview.document.selection.LassoMode
+import com.studiomath.drawview.document.selection.SelectionGroup
+import com.studiomath.drawview.document.selection.SelectionManager
 import com.studiomath.drawview.document.tools.Tool
 import com.studiomath.drawview.document.tools.ToolManager
-import kotlin.math.atan2
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
@@ -81,31 +69,6 @@ class DrawViewModel(
     // Using application.filesDir directly from the AndroidViewModel context
     val pageMaker = PageMaker(displayMetrics, application.filesDir)
 
-    // --- SELECTION & LASSO STATE ---
-    data class SelectionGroup(
-        val images: MutableList<Image> = mutableListOf(),
-        val strokes: MutableList<Stroke> = mutableListOf(),
-        val texts: MutableList<Text> = mutableListOf(),
-        var boundingBox: RectF = RectF(),
-        var pageIndex: Int = -1
-    ) {
-        fun isEmpty() = images.isEmpty() && strokes.isEmpty() && texts.isEmpty()
-        val transformMatrix = Matrix()
-
-        // --- FASE 4 (UNDO/REDO): FOTOGRAFIE DELLO STATO ---
-        var oldImageStates: List<FloatArray>? = null
-        var oldTextStates: List<FloatArray>? = null
-        var oldStrokeNative: List<androidx.ink.strokes.Stroke?>? = null
-
-        fun captureOriginalStates() {
-            oldImageStates = images.map { floatArrayOf(it.x, it.y, it.width, it.height, it.rotation) }
-            oldTextStates = texts.map { floatArrayOf(it.x, it.y, it.width, it.height, it.rotation, it.fontSize) }
-            oldStrokeNative = strokes.map { it.stroke }
-        }
-    }
-
-    var currentSelection by mutableStateOf<SelectionGroup?>(null)
-
     var contextMenuTargetPageIndex by mutableIntStateOf(-1)
     // --- STATO RIORDINO PAGINE (DRAG & DROP) ---
     var isReorderingPages by mutableStateOf(false)
@@ -114,21 +77,65 @@ class DrawViewModel(
     var draggedPageBitmap: Bitmap? = null         // La grafica della pagina sollevata
     var floatingPageRect by mutableStateOf<RectF?>(null) // Coordinate esatte sotto il dito
 
-    // --- OPZIONI DEL LAZO ---
-    enum class LassoMode { ALL, IMAGES_ONLY }
-    var lassoMode by mutableStateOf(LassoMode.ALL)
-
-    var clipboard by mutableStateOf<SelectionGroup?>(null)
-
-    // Stato per il menu a comparsa (Long Press)
-    var contextMenuPosition by mutableStateOf<PointF?>(null)
-
     // --- UI STATE ---
     var documentData by mutableStateOf<Document?>(null)
     var isDocumentLoaded by mutableStateOf(false)
     var isDocumentShowed by mutableStateOf(false)
 
+    // --- MOTORE UNDO / REDO ---
+    val historyManager = HistoryManager(viewModelScope)
 
+    // Esponiamo queste proprietà/funzioni per non rompere la UI di Compose
+    val canUndo: Boolean get() = historyManager.canUndo
+    val canRedo: Boolean get() = historyManager.canRedo
+
+    fun undo() = historyManager.undo(this)
+    fun redo() = historyManager.redo(this)
+    fun addHistoryAction(action: DrawAction) = historyManager.addHistoryAction(action)
+    fun commitEraserHistory() = historyManager.commitEraserHistory(documentData)
+
+
+    val selectionManager = SelectionManager(
+        application = application,
+        repository = repository,
+        historyManager = historyManager,
+        pageMaker = pageMaker,
+        coroutineScope = viewModelScope,
+        getDrawManager = { drawManager },
+        onExternalImagePaste = { uri, targetX, targetY ->
+            importImageFromUri(
+                uri,
+                targetX,
+                targetY
+            )
+        }
+    )
+
+    // --- DELEGATI PER COMPOSE (SELEZIONE) ---
+    var currentSelection: SelectionGroup?
+        get() = selectionManager.currentSelection
+        set(value) { selectionManager.currentSelection = value }
+
+    var lassoMode: LassoMode
+        get() = selectionManager.lassoMode
+        set(value) { selectionManager.lassoMode = value }
+
+    var contextMenuPosition: PointF?
+        get() = selectionManager.contextMenuPosition
+        set(value) { selectionManager.contextMenuPosition = value }
+
+    var clipboard: SelectionGroup?
+        get() = selectionManager.clipboard
+        set(value) { selectionManager.clipboard = value }
+
+    // --- DELEGATI FUNZIONI SELEZIONE ---
+    fun clearSelection() = selectionManager.clearSelection(documentData)
+    fun deleteSelection() = selectionManager.deleteSelection(documentData)
+    fun copySelection() = selectionManager.copySelection(documentData)
+    fun cutSelection() = selectionManager.cutSelection(documentData)
+    fun canPaste(): Boolean = selectionManager.canPaste()
+    fun pasteSelection(targetXPx: Float? = null, targetYPx: Float? = null) = selectionManager.pasteSelection(documentData, targetXPx, targetYPx)
+    fun applySelectionTransformation() = selectionManager.applySelectionTransformation(documentData)
 
     init {
         loadDocument()
@@ -196,18 +203,6 @@ class DrawViewModel(
             )
         }
     }
-
-    // --- MOTORE UNDO / REDO ---
-    val historyManager = HistoryManager(viewModelScope)
-
-    // Esponiamo queste proprietà/funzioni per non rompere la UI di Compose
-    val canUndo: Boolean get() = historyManager.canUndo
-    val canRedo: Boolean get() = historyManager.canRedo
-
-    fun undo() = historyManager.undo(this)
-    fun redo() = historyManager.redo(this)
-    fun addHistoryAction(action: DrawAction) = historyManager.addHistoryAction(action)
-    fun commitEraserHistory() = historyManager.commitEraserHistory(documentData)
 
     // --- GESTIONE PAGINE (AGGIUNGI, ELIMINA, RIORDINA) ---
 
@@ -577,459 +572,6 @@ class DrawViewModel(
                 page.bitmapPage = pageMaker.makePage(
                     Rect(0, 0, bmp.width, bmp.height), null, page, currentDoc
                 )
-            }
-        }
-    }
-
-    /**
-     * Pulisce la selezione attuale, reimpostando la flag isDragging a false per tutti
-     * gli elementi e richiedendo un aggiornamento della cache.
-     */
-    fun clearSelection() {
-        val selection = currentSelection ?: return
-        val doc = documentData ?: return
-        val page = doc.pages.getOrNull(selection.pageIndex) ?: return
-
-        // 1. Spegni la flag di trascinamento
-        selection.images.forEach { it.isDragging = false }
-        selection.strokes.forEach { it.isDragging = false }
-        selection.texts.forEach { it.isDragging = false }
-
-        // 2. Svuota il gruppo
-        currentSelection = null
-
-        // --- IL FIX DELLA CACHE ---
-        // 3. Rigenera la cache per far riapparire i vecchi elementi sullo sfondo
-        viewModelScope.launch(Dispatchers.Default) {
-            page.bitmapPage?.let { oldBitmap ->
-                page.bitmapPage = pageMaker.makePage(
-                    android.graphics.Rect(0, 0, oldBitmap.width, oldBitmap.height),
-                    null,
-                    page,
-                    doc
-                )
-            }
-
-            // Richiedi l'aggiornamento visivo
-            drawManager.requestDraw(
-                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
-                }
-            )
-        }
-    }
-
-    // --- AZIONI DEL MENU FLUTTUANTE ---
-
-    fun deleteSelection() {
-        val selection = currentSelection ?: return
-        val doc = documentData ?: return
-        val page = doc.pages.getOrNull(selection.pageIndex) ?: return
-
-        viewModelScope.launch(Dispatchers.Default) {
-            // 1. Rimuovi dai dati in RAM
-            page.imageData.removeAll(selection.images)
-            page.strokeData.removeAll(selection.strokes)
-            page.textData.removeAll(selection.texts)
-
-            // 2. Rimuovi dal Database (Nota: Assicurati di creare queste funzioni nel Repository!)
-            selection.images.forEach { repository.deleteImage(it.dbId) }
-            selection.strokes.forEach { repository.deleteStroke(it.dbId) }
-            selection.texts.forEach { repository.deleteText(it.dbId) }
-
-            // 3. Rigenera la Bitmap Cache "pulita" senza questi elementi
-            page.bitmapPage?.let { oldBitmap ->
-                page.bitmapPage = pageMaker.makePage(
-                    Rect(0, 0, oldBitmap.width, oldBitmap.height), null, page, doc
-                )
-            }
-
-            // 4. Aggiorna lo schermo e chiudi la selezione
-            drawManager.requestDraw(
-                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
-                }
-            )
-            currentSelection = null
-        }
-    }
-
-    fun copySelection() {
-        val selection = currentSelection ?: return
-
-        // Salviamo i riferimenti nella clipboard interna
-        clipboard = SelectionGroup(
-            images = selection.images.toMutableList(),
-            strokes = selection.strokes.toMutableList(),
-            texts = selection.texts.toMutableList(),
-            boundingBox = RectF(selection.boundingBox),
-            pageIndex = selection.pageIndex
-        )
-
-        // --- FIX PRIVACY: Segnaliamo al sistema che abbiamo copiato qualcosa! ---
-        val clipMgr = getApplication<Application>().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val clip = ClipData.newPlainText("DrawViewInternal", "internal_data")
-        clipMgr.setPrimaryClip(clip)
-
-        clearSelection()
-    }
-
-    fun cutSelection() {
-        val selection = currentSelection ?: return
-        clipboard = SelectionGroup(
-            images = selection.images.toMutableList(),
-            strokes = selection.strokes.toMutableList(),
-            texts = selection.texts.toMutableList(),
-            boundingBox = RectF(selection.boundingBox),
-            pageIndex = selection.pageIndex
-        )
-
-        // --- FIX PRIVACY ---
-        val clipMgr = getApplication<Application>().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val clip = ClipData.newPlainText("DrawViewInternal", "internal_data")
-        clipMgr.setPrimaryClip(clip)
-
-        deleteSelection()
-    }
-
-    /**
-     * Verifica se ci sono elementi pronti per essere incollati.
-     */
-    fun canPaste(): Boolean {
-        val clipMgr = getApplication<Application>().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val description = clipMgr.primaryClipDescription ?: return false
-
-        // Se l'ultima cosa copiata nel telefono è il nostro bigliettino "DrawViewInternal"
-        if (description.label == "DrawViewInternal" && clipboard != null) {
-            return true
-        }
-
-        // Altrimenti, verifichiamo se l'ultima cosa copiata è un'immagine esterna
-        return description.hasMimeType("image/*") ||
-                description.hasMimeType("image/jpeg") ||
-                description.hasMimeType("image/png")
-    }
-
-    /**
-     * Incolla gli appunti.
-     */
-    fun pasteSelection(targetXPx: Float? = null, targetYPx: Float? = null) {
-        val clipMgr = getApplication<Application>().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val description = clipMgr.primaryClipDescription ?: return
-
-        // 1. L'utente vuole incollare i TRATTI INTERNI
-        if (description.label == "DrawViewInternal" && clipboard != null) {
-            val copiedGroup = clipboard!!
-            val doc = documentData ?: return
-
-            var targetPageInfo: CalcPage.PageRectWithIndex? = null
-            if (targetXPx != null && targetYPx != null) {
-                targetPageInfo = drawManager.pagesRectOnWindow.find { it.rect.contains(targetXPx, targetYPx) }
-            }
-            if (targetPageInfo == null) {
-                targetPageInfo = drawManager.pagesRectOnWindow.firstOrNull()
-            }
-
-            val targetPageIndex = targetPageInfo?.index ?: copiedGroup.pageIndex
-            val targetPage = doc.pages.getOrNull(targetPageIndex) ?: return
-
-            viewModelScope.launch(Dispatchers.Default) {
-                var offsetXMm = 10f
-                var offsetYMm = 10f
-
-                if (targetXPx != null && targetYPx != null && targetPageInfo != null) {
-                    val scaleX = targetPage.width / targetPageInfo.rect.width()
-                    val scaleY = targetPage.height / targetPageInfo.rect.height()
-                    val clickMmX = (targetXPx - targetPageInfo.rect.left) * scaleX
-                    val clickMmY = (targetYPx - targetPageInfo.rect.top) * scaleY
-
-                    val groupCenterX = copiedGroup.boundingBox.centerX()
-                    val groupCenterY = copiedGroup.boundingBox.centerY()
-
-                    offsetXMm = clickMmX - groupCenterX
-                    offsetYMm = clickMmY - groupCenterY
-                }
-
-                val pastedStrokes = mutableListOf<Stroke>()
-                val pastedImages = mutableListOf<Image>()
-
-                copiedGroup.images.forEach { originalImg ->
-                    val newImg = Image(zIndex = targetPage.imageData.size + pastedImages.size).apply {
-                        id = originalImg.id
-                        dbId = 0
-                        x = originalImg.x + offsetXMm
-                        y = originalImg.y + offsetYMm
-                        width = originalImg.width
-                        height = originalImg.height
-                        rotation = originalImg.rotation
-                    }
-                    repository.addImageToPage(targetPage.dbId, newImg)
-                    pastedImages.add(newImg)
-                }
-
-                val offsetMatrix = Matrix().apply { postTranslate(offsetXMm, offsetYMm) }
-
-                copiedGroup.strokes.forEach { originalStroke ->
-                    val newStroke = Stroke(zIndex = targetPage.strokeData.size + pastedStrokes.size).apply {
-                        dbId = 0
-                        color = originalStroke.color
-                        size = originalStroke.size
-                        toolType = originalStroke.toolType
-                        brush = originalStroke.brush
-                        stroke = originalStroke.stroke
-                    }
-                    newStroke.applyTransform(offsetMatrix)
-                    repository.saveNewStroke(targetPage.dbId, newStroke)
-                    pastedStrokes.add(newStroke)
-                }
-
-                val pastedTexts = mutableListOf<Text>()
-                copiedGroup.texts.forEach { originalText ->
-                    val newText = Text(zIndex = targetPage.textData.size + pastedTexts.size).apply {
-                        dbId = 0
-                        text = originalText.text
-                        isLatex = originalText.isLatex
-                        x = originalText.x + offsetXMm
-                        y = originalText.y + offsetYMm
-                        width = originalText.width
-                        height = originalText.height
-                        rotation = originalText.rotation
-                        color = originalText.color
-                        fontSize = originalText.fontSize
-                        isBold = originalText.isBold
-                        isItalic = originalText.isItalic
-                        isDragging = true
-                        bitmapCache = originalText.bitmapCache // Manteniamo la cache del LaTeX se c'è
-                    }
-                    repository.saveNewText(targetPage.dbId, newText)
-                    pastedTexts.add(newText)
-                }
-
-                targetPage.imageData.addAll(pastedImages)
-                targetPage.strokeData.addAll(pastedStrokes)
-                targetPage.textData.addAll(pastedTexts)
-
-                targetPage.bitmapPage?.let { oldBitmap ->
-                    targetPage.bitmapPage = pageMaker.makePage(
-                        Rect(0, 0, oldBitmap.width, oldBitmap.height), null, targetPage, doc
-                    )
-                }
-
-                drawManager.requestDraw(
-                    DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                        update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
-                    }
-                )
-
-                val newBoundingBox = RectF(copiedGroup.boundingBox)
-                newBoundingBox.offset(offsetXMm, offsetYMm)
-
-                currentSelection = SelectionGroup(
-                    images = pastedImages,
-                    strokes = pastedStrokes,
-                    texts = pastedTexts,
-                    boundingBox = newBoundingBox,
-                    pageIndex = targetPageIndex
-                ).apply {
-                    images.forEach { it.isDragging = true }
-                    strokes.forEach { it.isDragging = true }
-                }
-            }
-
-        }
-        // 2. L'utente vuole incollare un'IMMAGINE ESTERNA (es. Chrome)
-        else {
-            val clip = clipMgr.primaryClip
-            if (clip != null && clip.itemCount > 0) {
-                val uri = clip.getItemAt(0).uri
-                if (uri != null) {
-                    val mimeType = getApplication<Application>().contentResolver.getType(uri)
-                    if (mimeType?.startsWith("image/") == true || description.hasMimeType("image/*")) {
-                        importImageFromUri(uri, targetXPx, targetYPx)
-                    }
-                }
-            }
-        }
-
-        // Chiudiamo il menu contestuale in ogni caso
-        contextMenuPosition = null
-    }
-
-    /**
-     * Fissa la trasformazione temporanea applicandola definitivamente alle
-     * coordinate fisiche di immagini e tratti, per poi salvarli nel DB.
-     */
-    fun applySelectionTransformation() {
-        val selection = currentSelection ?: return
-        val doc = documentData ?: return
-
-        val oldPageIndex = selection.pageIndex
-        val oldPageInfo = drawManager.pagesRectOnWindow.find { it.index == oldPageIndex } ?: return
-        val oldPage = doc.pages.getOrNull(oldPageIndex) ?: return
-
-        // --- GESTIONE DRAG & DROP MULTIPAGINA ---
-        // 1. Troviamo dove si trova attualmente il centro della selezione sullo schermo (in pixel)
-        val oldMmToScreenMatrix = Matrix().apply {
-            setRectToRect(oldPage.rect(), oldPageInfo.rect, Matrix.ScaleToFit.CENTER)
-        }
-        val screenBoundingBox = RectF()
-        oldMmToScreenMatrix.mapRect(screenBoundingBox, selection.boundingBox)
-
-        val screenCenterX = screenBoundingBox.centerX()
-        val screenCenterY = screenBoundingBox.centerY()
-
-        // 2. Cerchiamo la pagina che si trova sotto al centro della selezione
-        // Se cadiamo nel "vuoto" tra due pagine, il fallback (?:) lo tiene ancorato alla pagina vecchia
-        val targetPageInfo = drawManager.pagesRectOnWindow.find { it.rect.contains(screenCenterX, screenCenterY) } ?: oldPageInfo
-        val targetPageIndex = targetPageInfo.index
-        val targetPage = doc.pages.getOrNull(targetPageIndex) ?: return
-
-        val isPageChanged = oldPageIndex != targetPageIndex
-
-        // La matrice base di trasformazione (che contiene lo spostamento/zoom dell'utente)
-        val finalTransform = Matrix(selection.transformMatrix)
-
-        if (isPageChanged) {
-            // Se abbiamo trascinato gli elementi su una nuova pagina, dobbiamo convertire
-            // le loro coordinate fisiche: Millimetri Vecchia Pagina -> Pixel Schermo -> Millimetri Nuova Pagina
-            val screenToNewMmMatrix = Matrix()
-            val newMmToScreenMatrix = Matrix().apply {
-                setRectToRect(targetPage.rect(), targetPageInfo.rect, Matrix.ScaleToFit.CENTER)
-            }
-            newMmToScreenMatrix.invert(screenToNewMmMatrix)
-
-            val oldMmToNewMmMatrix = Matrix()
-            oldMmToNewMmMatrix.postConcat(oldMmToScreenMatrix)
-            oldMmToNewMmMatrix.postConcat(screenToNewMmMatrix)
-
-            // Aggiungiamo questa "migrazione di pagina" alla trasformazione finale
-            finalTransform.postConcat(oldMmToNewMmMatrix)
-
-            // Aggiorniamo il Bounding Box e l'indice per ancorare la UI alla nuova pagina!
-            oldMmToNewMmMatrix.mapRect(selection.boundingBox)
-            selection.pageIndex = targetPageIndex
-
-            // Trasferiamo fisicamente gli oggetti nelle liste in RAM
-            oldPage.imageData.removeAll(selection.images)
-            oldPage.strokeData.removeAll(selection.strokes)
-            oldPage.textData.removeAll(selection.texts)
-
-            targetPage.imageData.addAll(selection.images)
-            targetPage.strokeData.addAll(selection.strokes)
-            targetPage.textData.addAll(selection.texts)
-
-            // --- FIX EFFETTO FANTASMA ---
-            // Rigeneriamo immediatamente la cache della VECCHIA pagina in background.
-            // Dato che gli elementi sono stati rimossi dalle sue liste, la nuova "fotografia"
-            // della vecchia pagina sarà pulita e senza fantasmi.
-            viewModelScope.launch(Dispatchers.Default) {
-                oldPage.bitmapPage?.let { oldBitmap ->
-                    oldPage.bitmapPage = pageMaker.makePage(
-                        android.graphics.Rect(0, 0, oldBitmap.width, oldBitmap.height), null, oldPage, doc
-                    )
-                }
-
-                // Diciamo al DrawManager di stampare a schermo la vecchia pagina pulita
-                drawManager.requestDraw(
-                    DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                        update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
-                    }
-                )
-            }
-        }
-
-        // --- APPLICAZIONE DELLE TRASFORMAZIONI FISICHE ---
-
-        // 3. Applica la matrice nativa (C++) ai tratti
-        selection.strokes.forEach { stroke ->
-            stroke.applyTransform(finalTransform)
-        }
-
-        // 4. Estraiamo i valori matematici di Scala e Rotazione per le immagini
-        val values = FloatArray(9)
-        finalTransform.getValues(values)
-
-        val scale = hypot(values[Matrix.MSCALE_X].toDouble(), values[Matrix.MSKEW_Y].toDouble()).toFloat()
-        val angle = Math.toDegrees(atan2(values[Matrix.MSKEW_Y].toDouble(), values[Matrix.MSCALE_X].toDouble())).toFloat()
-
-        // 5. Calcola le nuove coordinate, dimensioni e rotazione
-        val pts = FloatArray(2)
-        selection.images.forEach { img ->
-            val centerX = img.x + (img.width / 2f)
-            val centerY = img.y + (img.height / 2f)
-
-            pts[0] = centerX
-            pts[1] = centerY
-            finalTransform.mapPoints(pts)
-            val newCenterX = pts[0]
-            val newCenterY = pts[1]
-
-            img.width *= scale
-            img.height *= scale
-            img.rotation = (img.rotation + angle) % 360f
-
-            img.x = newCenterX - (img.width / 2f)
-            img.y = newCenterY - (img.height / 2f)
-        }
-
-        // 5.5 Calcola le nuove coordinate, dimensioni, rotazione e FONT SIZE per i testi
-        selection.texts.forEach { txt ->
-            val centerX = txt.x + (txt.width / 2f)
-            val centerY = txt.y + (txt.height / 2f)
-
-            pts[0] = centerX
-            pts[1] = centerY
-            finalTransform.mapPoints(pts)
-
-            txt.width *= scale
-            txt.height *= scale
-            txt.fontSize *= scale // MAGIA: Il testo vettoriale non si distorce, cambia dimensione del font!
-            txt.rotation = (txt.rotation + angle) % 360f
-
-            txt.x = pts[0] - (txt.width / 2f)
-            txt.y = pts[1] - (txt.height / 2f)
-        }
-
-        // 6. Resetta la matrice temporanea perché ora i dati base sono aggiornati in RAM
-        selection.transformMatrix.reset()
-
-        // --- UNDO/REDO: SALVIAMO L'AZIONE NELLA STORIA ---
-        if (selection.oldImageStates != null) {
-            val newImageStates = selection.images.map { floatArrayOf(it.x, it.y, it.width, it.height, it.rotation) }
-            val newTextStates = selection.texts.map { floatArrayOf(it.x, it.y, it.width, it.height, it.rotation, it.fontSize) }
-            val newStrokeNative = selection.strokes.map { it.stroke }
-
-            addHistoryAction(
-                com.studiomath.drawview.document.history.TransformSelectionAction(
-                    oldPageDbId = oldPage.dbId,
-                    oldPageIndex = oldPageIndex,
-                    newPageDbId = targetPage.dbId,
-                    newPageIndex = targetPageIndex,
-                    images = selection.images.toList(),
-                    texts = selection.texts.toList(),
-                    strokes = selection.strokes.toList(),
-                    oldImageStates = selection.oldImageStates!!,
-                    newImageStates = newImageStates,
-                    oldTextStates = selection.oldTextStates!!,
-                    newTextStates = newTextStates,
-                    oldStrokeNative = selection.oldStrokeNative!!,
-                    newStrokeNative = newStrokeNative
-                )
-            )
-        }
-
-        // 7. Salva in Background nel Database (e migra di pagina automaticamente!)
-        viewModelScope.launch(Dispatchers.IO) {
-            selection.images.forEach { img ->
-                // NOTA: Passando targetPage.dbId, Room capisce da solo che deve aggiornare il "pageId"
-                // trasferendo ufficialmente l'elemento nel Database!
-                repository.updateImage(targetPage.dbId, img)
-            }
-            selection.strokes.forEach { stroke ->
-                repository.updateStroke(targetPage.dbId, stroke)
-            }
-            selection.texts.forEach { txt ->
-                repository.updateText(targetPage.dbId, txt)
             }
         }
     }

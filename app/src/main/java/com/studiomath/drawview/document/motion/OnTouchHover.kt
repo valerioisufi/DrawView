@@ -147,6 +147,9 @@ class OnTouchHover(
         // Ignore touches if the document is not fully loaded and displayed
         if (!drawViewModel.isDocumentLoaded || !drawViewModel.isDocumentShowed) return@OnTouchListener false
 
+        // --- NUOVO: Blocca tutti i tocchi se la pagina sta "volando" verso la sua posizione ---
+        if (drawViewModel.isDropAnimating) return@OnTouchListener true
+
         // --- FIX BUG CATTURA: Tracciamo costantemente se il dito è fisicamente sullo schermo ---
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> drawViewModel.drawManager.isUserTouching = true
@@ -235,13 +238,61 @@ class OnTouchHover(
                     isAutoScrolling = false
                     view.removeCallbacks(autoScrollRunnable)
 
-                    if (drawViewModel.draggedPageIndex != -1) {
-                        drawViewModel.draggedPageIndex = -1
-                        drawViewModel.floatingPageRect = null
-                        drawViewModel.draggedPageBitmap = null
+                    if (drawViewModel.draggedPageIndex != -1 && !drawViewModel.isDropAnimating) {
 
-                        // Sincronizza l'ordine col Database
-                        drawViewModel.finishPageReorderMode()
+                        // Troviamo il rettangolo finale in cui la pagina DEVE atterrare
+                        val targetPageInfo = drawViewModel.drawManager.pagesRectOnWindow.find {
+                            it.index == drawViewModel.draggedPageIndex
+                        }
+
+                        if (targetPageInfo != null && drawViewModel.floatingPageRect != null) {
+                            drawViewModel.isDropAnimating = true // Blocchiamo la UI
+
+                            val targetRect = targetPageInfo.rect
+                            val startRect = RectF(drawViewModel.floatingPageRect)
+
+                            // Creiamo un'animazione fluida di 250ms
+                            val animator = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+                                duration = 250
+                                // DecelerateInterpolator dà l'effetto "magnete" (veloce all'inizio, rallenta alla fine)
+                                interpolator = android.view.animation.DecelerateInterpolator(1.5f)
+
+                                addUpdateListener { anim ->
+                                    val fraction = anim.animatedFraction
+                                    // Calcoliamo la nuova posizione lungo la traiettoria
+                                    val newLeft = startRect.left + (targetRect.left - startRect.left) * fraction
+                                    val newTop = startRect.top + (targetRect.top - startRect.top) * fraction
+
+                                    // Spostiamo la pagina
+                                    drawViewModel.floatingPageRect?.offsetTo(newLeft, newTop)
+
+                                    // Diciamo al DrawManager di disegnare questo frame dell'animazione
+                                    drawViewModel.drawManager.requestDraw(
+                                        DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.REFRESH)
+                                    )
+                                }
+
+                                addListener(object : android.animation.AnimatorListenerAdapter() {
+                                    override fun onAnimationEnd(animation: android.animation.Animator) {
+                                        // Animazione conclusa: puliamo lo stato e salviamo nel DB!
+                                        drawViewModel.isDropAnimating = false
+                                        drawViewModel.draggedPageIndex = -1
+                                        drawViewModel.floatingPageRect = null
+                                        drawViewModel.draggedPageBitmap = null
+
+                                        drawViewModel.finishPageReorderMode()
+                                    }
+                                })
+                            }
+                            animator.start()
+
+                        } else {
+                            // Fallback di sicurezza: se per caso il targetRect non esiste, spegniamo subito
+                            drawViewModel.draggedPageIndex = -1
+                            drawViewModel.floatingPageRect = null
+                            drawViewModel.draggedPageBitmap = null
+                            drawViewModel.finishPageReorderMode()
+                        }
                     }
                 }
             }

@@ -1,12 +1,10 @@
-package com.studiomath.drawview.document
+package com.studiomath.drawview.document.page
 
 import android.animation.ValueAnimator
 import android.graphics.Matrix
 import android.graphics.RectF
 import android.util.DisplayMetrics
 import androidx.core.util.TypedValueCompat
-import com.studiomath.drawview.document.page.Page
-import com.studiomath.drawview.document.page.px
 
 /**
  * Handles the mathematical layout, positioning, and constraint calculations

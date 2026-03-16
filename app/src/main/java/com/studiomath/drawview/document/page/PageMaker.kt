@@ -23,7 +23,7 @@ import androidx.core.graphics.createBitmap
 import androidx.core.graphics.toColorInt
 import androidx.core.graphics.withMatrix
 import androidx.ink.rendering.android.canvas.CanvasStrokeRenderer
-import com.studiomath.drawview.document.CalcPage
+import com.studiomath.drawview.document.page.CalcPage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File

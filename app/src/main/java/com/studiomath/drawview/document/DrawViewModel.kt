@@ -49,6 +49,7 @@ import androidx.ink.strokes.StrokeInput
 import com.studiomath.drawview.document.history.AddTextAction
 import com.studiomath.drawview.document.history.DrawAction
 import com.studiomath.drawview.document.history.EraseStrokesAction
+import com.studiomath.drawview.document.page.CalcPage
 import com.studiomath.drawview.document.page.Text
 import kotlin.math.atan2
 import kotlin.math.hypot

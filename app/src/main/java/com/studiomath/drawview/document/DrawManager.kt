@@ -25,6 +25,7 @@ import androidx.ink.strokes.MutableStrokeInputBatch
 import androidx.ink.strokes.StrokeInput
 import androidx.ink.strokes.createClosedShape
 import com.studiomath.drawview.document.motion.CameraPhysicsEngine
+import com.studiomath.drawview.document.page.CalcPage
 import com.studiomath.drawview.document.page.Measure
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

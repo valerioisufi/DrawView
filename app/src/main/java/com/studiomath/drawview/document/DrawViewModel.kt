@@ -259,7 +259,7 @@ class DrawViewModel(
                 height = dimension!!.height.mm
             }
 
-            newPage.dbId = repository.addPage(actualDocId, newPage)
+            newPage.dbId = repository.insertPageAt(actualDocId, newPage)
             newPage.prepare()
             currentDoc.pages.add(newPage)
 
@@ -436,7 +436,7 @@ class DrawViewModel(
                         height = heightMm
                     }
 
-                    newPage.dbId = repository.addPage(actualDocId, newPage)
+                    newPage.dbId = repository.insertPageAt(actualDocId, newPage)
 
                     val pdfObj = com.studiomath.drawview.document.page.Pdf(
                         zIndex = 0,

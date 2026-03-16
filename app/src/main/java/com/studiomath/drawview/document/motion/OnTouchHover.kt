@@ -55,8 +55,10 @@ class OnTouchHover(
     // --- VARIABLES FOR OBJECT SELECTION AND MANIPULATION ---
     enum class DragState { NONE, PANNING, SCALING, ROTATING, TEXT_RESIZE_LEFT, TEXT_RESIZE_RIGHT }
     private var currentDragState = DragState.NONE
-    // --- VARIABILE PER IL RIORDINO DELLE PAGINE ---
-    private var draggedPageIndex: Int = -1
+
+    // (In cima alla classe, sotto a currentDragState)
+    private var dragTouchOffsetX = 0f
+    private var dragTouchOffsetY = 0f
 
     // Per calcolare l'angolo e la scala cumulativi
     private var initialDistance = 0f
@@ -91,49 +93,94 @@ class OnTouchHover(
 
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    // 1. Troviamo quale pagina ha toccato l'utente per iniziare a trascinarla
+                    // 1. Troviamo quale pagina ha toccato l'utente
                     val pageInfo = drawViewModel.drawManager.pagesRectOnWindow.find { it.rect.contains(event.x, event.y) }
                     if (pageInfo != null) {
-                        draggedPageIndex = pageInfo.index
+                        drawViewModel.draggedPageIndex = pageInfo.index
+                        val page = doc.pages[pageInfo.index]
+                        drawViewModel.draggedPageBitmap = page.bitmapPage
+
+                        // Calcoliamo la distanza tra il tocco e l'angolo in alto a sinistra della pagina
+                        dragTouchOffsetX = event.x - pageInfo.rect.left
+                        dragTouchOffsetY = event.y - pageInfo.rect.top
+
+                        // Creiamo il rettangolo flottante
+                        drawViewModel.floatingPageRect = RectF(pageInfo.rect)
                         drawViewModel.drawManager.cameraPhysics.stopAllAnimations()
+
+                        // Forza un refresh immediato per mostrare l'ombra del sollevamento
+                        drawViewModel.drawManager.requestDraw(
+                            DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.REFRESH)
+                        )
                     }
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    if (draggedPageIndex != -1) {
-                        // 2. Controlliamo su quale pagina si trova il dito in questo preciso istante
-                        val targetInfo = drawViewModel.drawManager.pagesRectOnWindow.find { it.rect.contains(event.x, event.y) }
+                    if (drawViewModel.draggedPageIndex != -1) {
+                        val floatingRect = drawViewModel.floatingPageRect ?: return@OnTouchListener true
 
-                        // Se il dito è entrato nel territorio di un'altra pagina, facciamo lo Swap!
-                        if (targetInfo != null && targetInfo.index != draggedPageIndex) {
+                        // 2. AGGIORNIAMO LA POSIZIONE DELLA PAGINA SOTTO IL DITO
+                        val newLeft = event.x - dragTouchOffsetX
+                        val newTop = event.y - dragTouchOffsetY
+                        floatingRect.offsetTo(newLeft, newTop)
 
-                            // A. Rimuoviamo la pagina dalla sua vecchia posizione
-                            val draggedPage = doc.pages.removeAt(draggedPageIndex)
-                            // B. La inseriamo nella nuova posizione
-                            doc.pages.add(targetInfo.index, draggedPage)
+                        // 3. AUTO-SCROLL DEL DOCUMENTO (Se il dito è vicino ai bordi)
+                        val edgeMargin = 150f // Area sensibile ai bordi
+                        var scrollDelta = 0f
 
-                            // C. Aggiorniamo l'indice che stiamo tracciando
-                            draggedPageIndex = targetInfo.index
+                        if (event.y < edgeMargin) {
+                            // Verso l'alto: il documento scende (valore positivo)
+                            scrollDelta = (edgeMargin - event.y) * 0.3f
+                        } else if (event.y > view.height - edgeMargin) {
+                            // Verso il basso: il documento sale (valore negativo)
+                            scrollDelta = -((event.y - (view.height - edgeMargin)) * 0.3f)
+                        }
 
-                            // D. Diciamo al motore grafico che la geometria è cambiata
+                        if (scrollDelta != 0f) {
+                            drawViewModel.drawManager.cameraPhysics.onDrag(0f, scrollDelta, 1f, view.width / 2f, view.height / 2f)
                             drawViewModel.drawManager.calcPage.needToBeUpdated = true
                         }
 
-                        // Richiediamo un aggiornamento dello schermo a 60fps per vedere le pagine muoversi
+                        // Se abbiamo scrollato, ricalcoliamo le posizioni in RAM delle pagine di sfondo
+                        if (drawViewModel.drawManager.calcPage.needToBeUpdated) {
+                            val renderMatrix = drawViewModel.drawManager.cameraPhysics.getRenderMatrix()
+                            drawViewModel.drawManager.pagesRectOnWindow = drawViewModel.drawManager.calcPage.getPagesRectOnWindowTransformation(drawViewModel.drawManager.windowRect, renderMatrix)
+                        }
+
+                        // 4. LOGICA DI SWAP FISICO (Usiamo il centro della pagina flottante)
+                        val floatCenterY = floatingRect.centerY()
+                        val floatCenterX = floatingRect.centerX()
+
+                        val targetInfo = drawViewModel.drawManager.pagesRectOnWindow.find {
+                            it.rect.contains(floatCenterX, floatCenterY)
+                        }
+
+                        if (targetInfo != null && targetInfo.index != drawViewModel.draggedPageIndex) {
+                            // Spostiamo fisicamente gli elementi nella lista in RAM
+                            val draggedPage = doc.pages.removeAt(drawViewModel.draggedPageIndex)
+                            doc.pages.add(targetInfo.index, draggedPage)
+
+                            drawViewModel.draggedPageIndex = targetInfo.index
+                            drawViewModel.drawManager.calcPage.needToBeUpdated = true
+                        }
+
+                        // Richiediamo un aggiornamento a schermo a 60fps
                         drawViewModel.drawManager.requestDraw(
                             DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.REFRESH)
                         )
                     }
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    // 3. L'utente ha rilasciato la pagina
-                    if (draggedPageIndex != -1) {
-                        draggedPageIndex = -1
-                        // Chiama il ViewModel per salvare il nuovo ordine definitivo nel Database
+                    // 5. RILASCIO DELLA PAGINA
+                    if (drawViewModel.draggedPageIndex != -1) {
+                        drawViewModel.draggedPageIndex = -1
+                        drawViewModel.floatingPageRect = null
+                        drawViewModel.draggedPageBitmap = null
+
+                        // Sincronizza l'ordine col Database
                         drawViewModel.finishPageReorderMode()
                     }
                 }
             }
-            // Blocchiamo l'evento qui: niente zoom, pan o disegno mentre riordiniamo le pagine!
             return@OnTouchListener true
         }
         // =================================================================================

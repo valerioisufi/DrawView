@@ -635,21 +635,60 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             }
             DrawAttachments.DrawMode.REFRESH -> {
                 drawViewModel.pageMaker.makeWindowBackground(canvas, pagesRectOnWindow, currentRenderMatrix)
-                for (pageRectWithIndex in pagesRectOnWindow){
+
+                // 1. Disegna le pagine di sfondo
+                for (pageRectWithIndex in pagesRectOnWindow) {
                     drawViewModel.pageMaker.makePageBackground(canvas, pageRectWithIndex.rect, windowRect)
 
-                    // --- NOVITÀ: Disegna le singole pagine "Bassa Risoluzione" se stiamo riordinando ---
                     if (drawViewModel.isReorderingPages) {
-                        val page = document?.pages?.getOrNull(pageRectWithIndex.index) ?: continue
-                        page.bitmapPage?.let { bmp ->
-                            canvas.drawBitmap(bmp, null, pageRectWithIndex.rect, null)
+                        // Se stiamo riordinando, lasciamo un SEGNAPOSTO nel punto in cui si dovrebbe trovare la pagina
+                        if (pageRectWithIndex.index == drawViewModel.draggedPageIndex) {
+                            val placeholderPaint = Paint().apply {
+                                color = android.graphics.Color.argb(30, 0, 0, 0) // Grigio semi-trasparente
+                                style = Paint.Style.FILL
+                            }
+                            canvas.drawRect(pageRectWithIndex.rect, placeholderPaint)
+                        } else {
+                            // Disegna la bitmap a bassa risoluzione delle altre pagine per capire l'ordine
+                            val page = document?.pages?.getOrNull(pageRectWithIndex.index) ?: continue
+                            page.bitmapPage?.let { bmp ->
+                                canvas.drawBitmap(bmp, null, pageRectWithIndex.rect, null)
+                            }
                         }
                     }
                 }
 
-                // --- NOVITÀ: Nascondi il blocco HD se stiamo mischiando le pagine ---
+                // Nascondi il livello ad alta risoluzione durante il riordino per evitare l'effetto fantasma
                 if (!drawViewModel.isReorderingPages) {
                     onDrawBitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
+                }
+
+                // 2. Disegna la PAGINA FLOTTANTE sopra a tutto!
+                if (drawViewModel.isReorderingPages && drawViewModel.floatingPageRect != null && drawViewModel.draggedPageBitmap != null) {
+                    canvas.withSave {
+                        val floatingRect = drawViewModel.floatingPageRect!!
+                        val floatingBmp = drawViewModel.draggedPageBitmap!!
+
+                        // Disegniamo una bella ombra per farla sembrare sollevata
+                        val shadowPaint = Paint().apply {
+                            color = android.graphics.Color.argb(80, 0, 0, 0)
+                            setShadowLayer(20f, 0f, 15f, android.graphics.Color.argb(120, 0, 0, 0))
+                        }
+                        // L'ombra funziona meglio se il background è solido
+                        canvas.drawRect(floatingRect, shadowPaint)
+
+                        drawViewModel.pageMaker.makePageBackground(canvas, floatingRect, windowRect)
+                        // Disegniamo la bitmap della pagina che sta seguendo il dito
+                        canvas.drawBitmap(floatingBmp, null, floatingRect, null)
+
+                        // Mettiamo un contorno azzurro acceso per dare feedback
+                        val borderPaint = Paint().apply {
+                            color = android.graphics.Color.argb(255, 0, 150, 255) // Azzurro Android
+                            style = Paint.Style.STROKE
+                            strokeWidth = 6f
+                        }
+                        canvas.drawRect(floatingRect, borderPaint)
+                    }
                 }
 
                 // Notify the view model to remove ink library strokes that are now baked into the bitmap
@@ -962,30 +1001,6 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     }
 
                 } // Fine del canvas.withSave
-            }
-        }
-
-        // --- FASE 4: EVIDENZIAMO LA PAGINA TRASCINATA ---
-        if (drawViewModel.isReorderingPages) {
-            // Troviamo il rettangolo della pagina che l'utente sta attualmente tenendo premuto
-            // Usiamo lo stesso indice "target" registrato dal Long Press
-            val draggedPageInfo = pagesRectOnWindow.find { it.index == drawViewModel.contextMenuTargetPageIndex }
-
-            if (draggedPageInfo != null) {
-                canvas.withSave {
-                    val highlightPaint = Paint().apply {
-                        color = android.graphics.Color.argb(40, 0, 150, 255) // Azzurrino semitrasparente
-                        style = Paint.Style.FILL
-                    }
-                    val borderPaint = Paint().apply {
-                        color = android.graphics.Color.argb(255, 0, 150, 255)
-                        style = Paint.Style.STROKE
-                        strokeWidth = 8f
-                    }
-
-                    canvas.drawRect(draggedPageInfo.rect, highlightPaint)
-                    canvas.drawRect(draggedPageInfo.rect, borderPaint)
-                }
             }
         }
 

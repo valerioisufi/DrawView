@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Matrix
@@ -104,6 +105,9 @@ class DrawViewModel(
     var contextMenuTargetPageIndex by mutableIntStateOf(-1)
     // --- STATO RIORDINO PAGINE (DRAG & DROP) ---
     var isReorderingPages by mutableStateOf(false)
+    var draggedPageIndex by mutableIntStateOf(-1) // Indice della pagina sollevata
+    var draggedPageBitmap: Bitmap? = null         // La grafica della pagina sollevata
+    var floatingPageRect by mutableStateOf<RectF?>(null) // Coordinate esatte sotto il dito
 
     // --- OPZIONI DEL LAZO ---
     enum class LassoMode { ALL, IMAGES_ONLY }

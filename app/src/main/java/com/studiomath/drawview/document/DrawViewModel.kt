@@ -51,6 +51,7 @@ import com.studiomath.drawview.document.history.AddTextAction
 import com.studiomath.drawview.document.history.DrawAction
 import com.studiomath.drawview.document.history.EraseStrokesAction
 import com.studiomath.drawview.document.history.HistoryManager
+import com.studiomath.drawview.document.io.MediaImporter
 import com.studiomath.drawview.document.page.CalcPage
 import com.studiomath.drawview.document.page.Text
 import com.studiomath.drawview.document.tools.Tool
@@ -322,91 +323,33 @@ class DrawViewModel(
         }
     }
 
+    // --- I/O MEDIA IMPORTER ---
+    val mediaImporter = MediaImporter(application, repository, pageMaker)
+
     /**
      * Imports a PDF from a given URI, creates a Resource, and generates
      * a new app Page for every page in the PDF document.
      */
     fun importPdfFromUri(uri: Uri) {
         val currentDoc = documentData ?: return
-        val actualDocId = currentDoc.dbId
 
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch {
             try {
-                val context = getApplication<Application>()
+                // 1. Il MediaImporter fa tutto il lavoro su un thread separato
+                val newPages = mediaImporter.importPdf(uri, currentDoc)
 
-                // 1. Copy the PDF to internal storage
-                val fileName = "pdf_${System.currentTimeMillis()}.pdf"
-                val destFile = File(context.filesDir, fileName)
+                // 2. Aggiorniamo la RAM
+                currentDoc.pages.addAll(newPages)
 
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    destFile.outputStream().use { output ->
-                        input.copyTo(output)
+                // 3. Aggiorniamo la UI
+                drawManager.calcPage.needToBeUpdated = true
+                drawManager.requestDraw(
+                    DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                        update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
                     }
-                }
-
-                // 2. Register the Resource in the Database
-                val resourceIdStr = repository.addResource(actualDocId, "PDF", fileName).toString()
-                val resource = com.studiomath.drawview.document.page.Resource(
-                    id = resourceIdStr,
-                    type = com.studiomath.drawview.document.page.Resource.ResourceType.PDF
-                ).apply { content = fileName }
-
-                currentDoc.resources.add(resource)
-
-                // 3. Open the PDF to extract pages
-                val fd = ParcelFileDescriptor.open(destFile, ParcelFileDescriptor.MODE_READ_ONLY)
-                val renderer = PdfRenderer(fd)
-                val pageCount = renderer.pageCount
-                val startIndex = currentDoc.pages.size
-
-                for (i in 0 until pageCount) {
-                    val pdfPage = renderer.openPage(i)
-
-                    val widthMm = (pdfPage.width / 72f) * 25.4f
-                    val heightMm = (pdfPage.height / 72f) * 25.4f
-                    pdfPage.close()
-
-                    val newPage = Page(startIndex + i).apply {
-                        dimension = com.studiomath.drawview.document.page.Dimension(widthMm.mm, heightMm.mm)
-                        width = widthMm
-                        height = heightMm
-                    }
-
-                    newPage.dbId = repository.insertPageAt(actualDocId, newPage)
-
-                    val pdfObj = com.studiomath.drawview.document.page.Pdf(
-                        zIndex = 0,
-                        pdfPageIndex = i
-                    ).apply { id = resourceIdStr }
-
-                    newPage.pdfData.add(pdfObj)
-                    repository.addPdfToPage(newPage.dbId, pdfObj)
-
-                    newPage.prepare()
-                    // Disegna immediatamente il PDF sulla cache della pagina
-                    newPage.bitmapPage?.let { bmp ->
-                        newPage.bitmapPage = pageMaker.makePage(
-                            Rect(0, 0, bmp.width, bmp.height), null, newPage, currentDoc
-                        )
-                    }
-
-                    currentDoc.pages.add(newPage)
-                }
-
-                renderer.close()
-                fd.close()
-
-                withContext(Dispatchers.Main) {
-                    drawManager.calcPage.needToBeUpdated = true
-                    drawManager.requestDraw(
-                        DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                            update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
-                        }
-                    )
-                }
-
+                )
             } catch (e: Exception) {
-                e.printStackTrace()
+                e.printStackTrace() // Gestione base degli errori
             }
         }
     }
@@ -417,59 +360,23 @@ class DrawViewModel(
      */
     fun importImageFromUri(uri: Uri, targetXPx: Float? = null, targetYPx: Float? = null) {
         val currentDoc = documentData ?: return
-        val actualDocId = currentDoc.dbId
 
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch {
             try {
-                val context = getApplication<Application>()
+                // 1. Calcoliamo DOVE inserire l'immagine (Logica UI/Schermo che DEVE stare nel ViewModel)
+                var targetPageInfo = targetXPx?.let { x -> targetYPx?.let { y ->
+                    drawManager.pagesRectOnWindow.find { it.rect.contains(x, y) }
+                }}
 
-                val fileName = "img_${System.currentTimeMillis()}.png"
-                val destFile = File(context.filesDir, fileName)
-
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    destFile.outputStream().use { output ->
-                        input.copyTo(output)
-                    }
-                }
-
-                // FIX 1: Carichiamo subito l'immagine REALE in RAM per farla vedere in overlay
-                val decodedBitmap = BitmapFactory.decodeFile(destFile.absolutePath)
-                val pxWidth = decodedBitmap?.width?.toFloat() ?: 100f
-                val pxHeight = decodedBitmap?.height?.toFloat() ?: 100f
-
-                val defaultPhysicalWidthMm = 100f
-                val ratio = if (pxWidth > 0) pxHeight / pxWidth else 1f
-                val imgWidthMm = defaultPhysicalWidthMm
-                val imgHeightMm = defaultPhysicalWidthMm * ratio
-
-                val resourceIdStr = repository.addResource(actualDocId, "IMAGE", fileName).toString()
-                val resource = com.studiomath.drawview.document.page.Resource(
-                    id = resourceIdStr,
-                    type = com.studiomath.drawview.document.page.Resource.ResourceType.IMAGE
-                ).apply { content = fileName }
-
-                currentDoc.resources.add(resource)
-
-                // 4. Determiniamo la pagina e le coordinate di inserimento
-                var targetPageInfo: CalcPage.PageRectWithIndex? = null
-                if (targetXPx != null && targetYPx != null) {
-                    // Se abbiamo le coordinate del dito (Long Press)
-                    targetPageInfo = drawManager.pagesRectOnWindow.find { it.rect.contains(targetXPx, targetYPx) }
-                }
-
-                // FIX FANTASMA: Cerchiamo la pagina sotto al centro dello schermo
                 if (targetPageInfo == null) {
                     val screenCenterX = drawManager.windowRect.centerX()
                     val screenCenterY = drawManager.windowRect.centerY()
-
                     targetPageInfo = drawManager.pagesRectOnWindow.find {
                         it.rect.contains(screenCenterX, screenCenterY)
-                    } ?: drawManager.pagesRectOnWindow.minByOrNull { pageInfo ->
-                        // Fallback intelligente: Se cadiamo nello spazio vuoto tra due pagine,
-                        // scegliamo la pagina il cui centro è più vicino al centro dello schermo.
+                    } ?: drawManager.pagesRectOnWindow.minByOrNull {
                         hypot(
-                            (pageInfo.rect.centerX() - screenCenterX).toDouble(),
-                            (pageInfo.rect.centerY() - screenCenterY).toDouble()
+                            (it.rect.centerX() - screenCenterX).toDouble(),
+                            (it.rect.centerY() - screenCenterY).toDouble()
                         )
                     }
                 }
@@ -477,77 +384,51 @@ class DrawViewModel(
                 val targetPageIndex = targetPageInfo?.index ?: 0
                 val targetPage = currentDoc.pages.getOrNull(targetPageIndex) ?: return@launch
 
-                var imgX = (targetPage.width / 2f) - (imgWidthMm / 2f)
-                var imgY = (targetPage.height / 2f) - (imgHeightMm / 2f)
+                var imgX = (targetPage.width / 2f) - 50f // Fallback (100mm/2)
+                var imgY = (targetPage.height / 2f) - 50f
 
                 if (targetPageInfo != null) {
                     val screenToPageMatrix = Matrix()
                     screenToPageMatrix.setRectToRect(targetPageInfo.rect, targetPage.rect(), Matrix.ScaleToFit.FILL)
-
-                    if (targetXPx != null && targetYPx != null) {
-                        val clickPoint = floatArrayOf(targetXPx, targetYPx)
-                        screenToPageMatrix.mapPoints(clickPoint)
-                        imgX = clickPoint[0] - (imgWidthMm / 2f)
-                        imgY = clickPoint[1] - (imgHeightMm / 2f)
-                    } else {
-                        val centerPoint = floatArrayOf(drawManager.windowRect.centerX(), drawManager.windowRect.centerY())
-                        screenToPageMatrix.mapPoints(centerPoint)
-                        imgX = centerPoint[0] - (imgWidthMm / 2f)
-                        imgY = centerPoint[1] - (imgHeightMm / 2f)
-                    }
+                    val pt = floatArrayOf(
+                        targetXPx ?: drawManager.windowRect.centerX(),
+                        targetYPx ?: drawManager.windowRect.centerY()
+                    )
+                    screenToPageMatrix.mapPoints(pt)
+                    imgX = pt[0] - 50f
+                    imgY = pt[1] - 50f // Nota: l'altezza reale verrà corretta nell'importer in base al ratio
                 }
 
-                // Creiamo l'oggetto Immagine
-                val newImage = Image(zIndex = targetPage.imageData.size).apply {
-                    id = resourceIdStr
-                    x = imgX
-                    y = imgY
-                    width = imgWidthMm
-                    height = imgHeightMm
-                    rotation = 0f
-                    isDragging = true
-                    bitmapCache = decodedBitmap // FIX 2: Assegniamo subito la cache grafica!
-                }
+                // 2. Deleghiamo il lavoro pesante di I/O (su thread IO automatico)
+                val newImage = mediaImporter.importImage(uri, currentDoc, targetPage, imgX, imgY)
 
-                repository.addImageToPage(targetPage.dbId, newImage)
-                targetPage.imageData.add(newImage)
+                if (newImage != null) {
+                    // 3. Aggiorniamo lo stato in RAM e la Selezione
+                    targetPage.imageData.add(newImage)
 
-                val newBoundingBox = RectF(
-                    newImage.x,
-                    newImage.y,
-                    newImage.x + newImage.width,
-                    newImage.y + newImage.height
-                )
-
-                withContext(Dispatchers.Main) {
-                    // Spegniamo eventuali altre selezioni aperte
                     currentSelection?.let { oldSel ->
                         oldSel.images.forEach { it.isDragging = false }
                         oldSel.strokes.forEach { it.isDragging = false }
                     }
 
-                    // Inseriamo l'immagine nel gruppo di selezione attivo
                     currentSelection = SelectionGroup(
                         images = mutableListOf(newImage),
-                        strokes = mutableListOf(),
-                        boundingBox = newBoundingBox,
+                        boundingBox = android.graphics.RectF(newImage.x, newImage.y, newImage.x + newImage.width, newImage.y + newImage.height),
                         pageIndex = targetPageIndex
                     )
 
-                    // --- NUOVO: REGISTRIAMO L'INSERIMENTO NELLA STORIA ---
-                    addHistoryAction(
-                        com.studiomath.drawview.document.history.AddImageAction(
-                            targetPage.dbId, targetPageIndex, newImage
-                        )
+                    // 4. Salviamo nella History
+                    historyManager.addHistoryAction(
+                        com.studiomath.drawview.document.history.AddImageAction(targetPage.dbId, targetPageIndex, newImage)
                     )
 
+                    // 5. Aggiorniamo il Canvas
                     drawManager.requestDraw(
                         DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
                             update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
                         }
                     )
                 }
-
             } catch (e: Exception) {
                 Log.e("DrawViewModel", "Error importing image", e)
             }

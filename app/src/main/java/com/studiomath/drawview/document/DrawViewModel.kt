@@ -31,6 +31,7 @@ import com.studiomath.drawview.document.page.Image
 import com.studiomath.drawview.document.page.Measure
 import com.studiomath.drawview.document.page.Page
 import com.studiomath.drawview.document.page.PageMaker
+import com.studiomath.drawview.document.page.PageManager
 import com.studiomath.drawview.document.page.Stroke
 import com.studiomath.drawview.document.page.Text
 import com.studiomath.drawview.document.selection.LassoMode
@@ -64,13 +65,6 @@ class DrawViewModel(
     // Using application.filesDir directly from the AndroidViewModel context
     val pageMaker = PageMaker(displayMetrics, application.filesDir)
 
-    var contextMenuTargetPageIndex by mutableIntStateOf(-1)
-    // --- STATO RIORDINO PAGINE (DRAG & DROP) ---
-    var isReorderingPages by mutableStateOf(false)
-    var isDropAnimating = false
-    var draggedPageIndex by mutableIntStateOf(-1) // Indice della pagina sollevata
-    var draggedPageBitmap: Bitmap? = null         // La grafica della pagina sollevata
-    var floatingPageRect by mutableStateOf<RectF?>(null) // Coordinate esatte sotto il dito
 
     // --- UI STATE ---
     var documentData by mutableStateOf<Document?>(null)
@@ -142,6 +136,55 @@ class DrawViewModel(
     fun cancelTextEditing() = textEditorManager.cancelTextEditing()
     fun panCanvasForKeyboard(deltaY: Float) = textEditorManager.panCanvasForKeyboard(deltaY)
     fun updateTextInDatabase(pageDbId: Int, textItem: Text) = textEditorManager.updateTextInDatabase(pageDbId, textItem)
+
+    val pageManager = PageManager(
+        repository = repository,
+        coroutineScope = viewModelScope,
+        getDrawManager = { drawManager },
+        clearSelectionCallback = { clearSelection() }
+    )
+
+    // --- DELEGATI PER COMPOSE E DRAWMANAGER (PAGINE) ---
+    var contextMenuTargetPageIndex: Int
+        get() = pageManager.contextMenuTargetPageIndex
+        set(value) { pageManager.contextMenuTargetPageIndex = value }
+
+    var isReorderingPages: Boolean
+        get() = pageManager.isReorderingPages
+        set(value) { pageManager.isReorderingPages = value }
+
+    var isDropAnimating: Boolean
+        get() = pageManager.isDropAnimating
+        set(value) { pageManager.isDropAnimating = value }
+
+    var draggedPageIndex: Int
+        get() = pageManager.draggedPageIndex
+        set(value) { pageManager.draggedPageIndex = value }
+
+    var draggedPageBitmap: Bitmap?
+        get() = pageManager.draggedPageBitmap
+        set(value) { pageManager.draggedPageBitmap = value }
+
+    var floatingPageRect: RectF?
+        get() = pageManager.floatingPageRect
+        set(value) { pageManager.floatingPageRect = value }
+
+    // --- DELEGATI FUNZIONI PAGINE ---
+    fun addNewPageAtBottom() = pageManager.addNewPageAtBottom(documentData)
+
+    fun addNewPageAfterTarget() = pageManager.addNewPageAfterTarget(documentData) {
+        contextMenuPosition = null
+    }
+
+    fun deleteTargetPage() = pageManager.deleteTargetPage(documentData) {
+        contextMenuPosition = null
+    }
+
+    fun startPageReorderMode() = pageManager.startPageReorderMode {
+        contextMenuPosition = null
+    }
+
+    fun finishPageReorderMode() = pageManager.finishPageReorderMode(documentData)
 
     val selectionManager = SelectionManager(
         application = application,
@@ -221,148 +264,6 @@ class DrawViewModel(
                 // Failsafe in caso di errori critici nel DB
                 finishActivity?.invoke()
             }
-        }
-    }
-
-    /**
-     * Aggiunge una nuova pagina di default (A4) alla fine del documento.
-     */
-    fun addNewPageAtBottom() {
-        val currentDoc = documentData ?: return
-        val nextIndex = currentDoc.pages.size
-        val actualDocId = currentDoc.dbId
-
-        viewModelScope.launch {
-            val newPage = Page(nextIndex).apply {
-                dimension = com.studiomath.drawview.document.page.Dimension.A4()
-                width = dimension!!.width.mm
-                height = dimension!!.height.mm
-            }
-
-            newPage.dbId = repository.insertPageAt(actualDocId, newPage)
-            newPage.prepare()
-            currentDoc.pages.add(newPage)
-
-            drawManager.calcPage.needToBeUpdated = true
-            drawManager.requestDraw(
-                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
-                }
-            )
-        }
-    }
-
-    // --- GESTIONE PAGINE (AGGIUNGI, ELIMINA, RIORDINA) ---
-
-    /**
-     * Inserisce una nuova pagina esattamente DOPO la pagina su cui l'utente ha fatto Long Press.
-     */
-    fun addNewPageAfterTarget() {
-        val currentDoc = documentData ?: return
-        val targetIndex = contextMenuTargetPageIndex
-
-        // Se non c'è un target valido, aggiungiamo in fondo
-        val newPageIndex = if (targetIndex != -1) targetIndex + 1 else currentDoc.pages.size
-        val actualDocId = currentDoc.dbId
-
-        viewModelScope.launch {
-            val newPage = Page(newPageIndex).apply {
-                dimension = com.studiomath.drawview.document.page.Dimension.A4()
-                width = dimension!!.width.mm
-                height = dimension!!.height.mm
-            }
-
-            // 1. Salva nel DB facendo scorrere gli indici (chiama la nuova API del Repository)
-            newPage.dbId = repository.insertPageAt(actualDocId, newPage)
-            newPage.prepare()
-
-            // 2. Aggiorna la lista in RAM
-            currentDoc.pages.add(newPageIndex, newPage)
-
-            // 3. Sistema gli indici (index) in RAM per le pagine successive
-            for (i in newPageIndex + 1 until currentDoc.pages.size) {
-                currentDoc.pages[i].index = i
-            }
-
-            // 4. Aggiorna la UI e la geometria del DrawManager
-            contextMenuPosition = null
-            contextMenuTargetPageIndex = -1
-            drawManager.calcPage.needToBeUpdated = true
-            drawManager.requestDraw(
-                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
-                }
-            )
-        }
-    }
-
-    /**
-     * Elimina la pagina su cui l'utente ha fatto Long Press.
-     */
-    fun deleteTargetPage() {
-        val currentDoc = documentData ?: return
-        val targetIndex = contextMenuTargetPageIndex
-
-        // Controllo di sicurezza: non eliminare se l'indice non è valido o se è l'ultima pagina rimasta!
-        if (targetIndex < 0 || targetIndex >= currentDoc.pages.size) return
-        if (currentDoc.pages.size <= 1) return // Evitiamo di rimanere con un documento a 0 pagine
-
-        val pageToDelete = currentDoc.pages[targetIndex]
-
-        viewModelScope.launch {
-            // 1. Elimina dal DB e fai scalare all'indietro gli indici
-            repository.deletePageAtIndex(currentDoc.dbId, pageToDelete.dbId, targetIndex)
-
-            // 2. Rimuovi dalla lista in RAM
-            currentDoc.pages.removeAt(targetIndex)
-
-            // 3. Sistema gli indici (index) in RAM per le pagine che si sono spostate indietro
-            for (i in targetIndex until currentDoc.pages.size) {
-                currentDoc.pages[i].index = i
-            }
-
-            // 4. Aggiorna la UI
-            contextMenuPosition = null
-            contextMenuTargetPageIndex = -1
-            drawManager.calcPage.needToBeUpdated = true
-            drawManager.requestDraw(
-                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
-                }
-            )
-        }
-    }
-
-    /**
-     * Attiva la modalità di riordino visivo.
-     * Blocca il disegno e permette ad OnTouchHover di intercettare il trascinamento delle pagine.
-     */
-    fun startPageReorderMode() {
-        isReorderingPages = true
-        contextMenuPosition = null
-        clearSelection() // Togliamo selezioni di immagini/testi per evitare conflitti
-    }
-
-    /**
-     * Viene chiamata da OnTouchHover quando l'utente alza il dito (ACTION_UP)
-     * dopo aver finito di trascinare una pagina in un nuovo punto.
-     */
-    fun finishPageReorderMode() {
-        isReorderingPages = false
-        contextMenuTargetPageIndex = -1
-
-        val currentDoc = documentData ?: return
-
-        viewModelScope.launch {
-            // Sincronizza il nuovo ordine massivamente nel database
-            repository.updatePagesOrder(currentDoc.pages)
-
-            drawManager.calcPage.needToBeUpdated = true
-            drawManager.requestDraw(
-                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
-                }
-            )
         }
     }
 

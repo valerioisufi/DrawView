@@ -140,12 +140,6 @@ class OnTouchHover(
                             drawViewModel.drawManager.calcPage.needToBeUpdated = true
                         }
 
-                        // Se abbiamo scrollato, ricalcoliamo le posizioni in RAM delle pagine di sfondo
-                        if (drawViewModel.drawManager.calcPage.needToBeUpdated) {
-                            val renderMatrix = drawViewModel.drawManager.cameraPhysics.getRenderMatrix()
-                            drawViewModel.drawManager.pagesRectOnWindow = drawViewModel.drawManager.calcPage.getPagesRectOnWindowTransformation(drawViewModel.drawManager.windowRect, renderMatrix)
-                        }
-
                         // 4. LOGICA DI SWAP FISICO (Usiamo il centro della pagina flottante)
                         val floatCenterY = floatingRect.centerY()
                         val floatCenterX = floatingRect.centerX()
@@ -160,7 +154,26 @@ class OnTouchHover(
                             doc.pages.add(targetInfo.index, draggedPage)
 
                             drawViewModel.draggedPageIndex = targetInfo.index
+
+                            // ========================================================
+                            // FIX: IL RICALCOLO DEL LAYOUT FISICO!
+                            // Poiché l'ordine è cambiato, dobbiamo dire al motore di
+                            // ricreare i "buchi" con le larghezze/altezze corrette.
+                            // ========================================================
+                            drawViewModel.drawManager.calcPage.calcPagesRectOnWindow(
+                                doc.pages,
+                                drawViewModel.drawManager.windowRect,
+                                com.studiomath.drawview.document.page.CalcPage.PagePositionOnWindowOption()
+                            )
+
                             drawViewModel.drawManager.calcPage.needToBeUpdated = true
+                        }
+
+                        // Se abbiamo scrollato o scambiato pagine, convertiamo il nuovo layout in coordinate schermo
+                        if (drawViewModel.drawManager.calcPage.needToBeUpdated) {
+                            val renderMatrix = drawViewModel.drawManager.cameraPhysics.getRenderMatrix()
+                            drawViewModel.drawManager.pagesRectOnWindow = drawViewModel.drawManager.calcPage.getPagesRectOnWindowTransformation(drawViewModel.drawManager.windowRect, renderMatrix)
+                            drawViewModel.drawManager.calcPage.needToBeUpdated = false // Resettiamo la flag
                         }
 
                         // Richiediamo un aggiornamento a schermo a 60fps

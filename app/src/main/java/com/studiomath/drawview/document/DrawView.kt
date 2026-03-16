@@ -16,11 +16,6 @@ private const val TAG = "DrawView"
 @SuppressLint("ViewConstructor")
 class DrawView(context: Context, val drawViewModel: DrawViewModel) : View(context) {
 
-    init {
-        drawViewModel.drawManager.scroller = OverScroller(context)
-//        drawViewModel.drawManager.zoomer = Zoomer(context)
-    }
-
     /**
      * Funzioni per impostare il DrawView
      */

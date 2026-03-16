@@ -24,6 +24,7 @@ import androidx.ink.geometry.Intersection.intersects
 import androidx.ink.strokes.MutableStrokeInputBatch
 import androidx.ink.strokes.StrokeInput
 import androidx.ink.strokes.createClosedShape
+import com.studiomath.drawview.document.motion.CameraPhysicsEngine
 import com.studiomath.drawview.document.page.Measure
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -52,38 +53,28 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     /** Helper class for calculating page boundaries, positioning, and elastic effects. */
     val calcPage = CalcPage(displayMetrics)
 
-    /** Scroller used to calculate inertial fling animations after a quick pan gesture. */
-    lateinit var scroller: OverScroller
-
-    // --- Memoria per l'integrazione fluida del Fling ---
-    var lastFlingX = 0
-    var lastFlingY = 0
-
     /** The calculated bounding box representing the limits of the document on the screen. */
     var contentConstraintsOnWindow = RectF()
 
     /**
      * Core application transformation matrices:
      * - [onDrawBitmapMatrix]: The exact camera state (matrix) when the current high-res cache was generated.
-     * - [moveMatrix]: The continuous, mathematical camera state updated by pan and zoom gestures.
      */
     var onDrawBitmapMatrix = Matrix()
-    var moveMatrix: Matrix = Matrix()
-
-    /** Flag indicating that the moveMatrix needs to be adapted due to layout/size changes. */
-    var moveMatrixNeedsUpdate = false
-
-    /** Snapshot of the moveMatrix at the start of an animation (e.g., fling or bounce-back). */
-    var startAnimateMatrix = Matrix()
-
-    /** The temporary matrix representing the out-of-bounds elastic stretch. Applied only during rendering. */
-    var elasticMatrix = Matrix()
 
     /** The physical boundaries of the drawing view on the screen. */
     var windowRect = RectF()
 
     /** Set containing the currently visible pages and their mapped screen coordinates. */
     var pagesRectOnWindow = mutableSetOf<CalcPage.PageRectWithIndex>()
+
+
+    val cameraPhysics = CameraPhysicsEngine(displayMetrics) {
+        // Restituisce il rettangolo totale di tutte le pagine in millimetri/pt
+        calcPage.contentRect
+    }
+    // Variabile per tenere traccia del tempo per la fisica
+    private var lastFrameTime = 0L
 
     /**
      * Converts a physical dimension (Measure) into screen pixels relative to the current zoom level.
@@ -473,46 +464,21 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
                         jobOnDrawBitmap?.cancel()
 
-                        // Spawns a background job to redraw the high-resolution viewport cache
                         jobOnDrawBitmap = scope.launch {
                             if (calcPage.needToBeUpdated){
-                                val oldContentRect = RectF(calcPage.contentRect)
-
                                 calcPage.calcPagesRectOnWindow(
                                     document.pages, windowRect, CalcPage.PagePositionOnWindowOption()
                                 )
                                 contentConstraintsOnWindow = calcPage.getContentConstraintsOnWindow(windowRect)
-
-                                // FASE 3: Forziamo la telecamera nei limiti SOLO in caso di ricalcolo totale del layout
-                                val excess = calcPage.calculateExcess(moveMatrix, calcPage.contentRect, windowRect)
-                                moveMatrix.postTranslate(-excess.first, -excess.second)
-                                elasticMatrix.reset()
-
-                                calcPage.calcPagesRectOnWindow(
-                                    document.pages, windowRect, CalcPage.PagePositionOnWindowOption()
-                                )
                                 calcPage.needToBeUpdated = false
-
-                                // Adjust translation to keep the view stable if the window size changed
-                                if (moveMatrixNeedsUpdate) {
-                                    val values = FloatArray(9)
-                                    moveMatrix.getValues(values)
-
-                                    val transX = values[Matrix.MTRANS_X]
-                                    val transY = values[Matrix.MTRANS_Y]
-                                    val scaleX = calcPage.contentRect.width() / oldContentRect.width()
-                                    val scaleY = calcPage.contentRect.height() / oldContentRect.height()
-
-                                    moveMatrix.postTranslate((transX * scaleX) - transX, (transY * scaleY) - transY)
-                                    moveMatrixNeedsUpdate = false
-                                }
                             }
 
-                            // Determine the pure mathematical projection (without temporary elasticity)
-                            pagesRectOnWindow = calcPage.getPagesRectOnWindowTransformation(windowRect, moveMatrix)
+                            // CHIEDIAMO LA MATRICE AL MOTORE FISICO
+                            val renderMatrix = cameraPhysics.getRenderMatrix()
+
+                            pagesRectOnWindow = calcPage.getPagesRectOnWindowTransformation(windowRect, renderMatrix)
                             drawViewModel.maskPath?.invoke(getMaskPath())
 
-                            // Render the physical pages onto the temporary high-res bitmap
                             onDrawBitmap?.let { bitmap ->
                                 val tempBitmap = drawViewModel.pageMaker.makePagesOnBitmap(
                                     Rect(0, 0, bitmap.width, bitmap.height),
@@ -520,9 +486,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                     document
                                 )
                                 onDrawBitmap = tempBitmap
-
-                                // Save the exact camera state used to generate this bitmap
-                                onDrawBitmapMatrix = Matrix(moveMatrix)
+                                onDrawBitmapMatrix = Matrix(renderMatrix) // Salviamo la matrice esatta usata
                             }
                             updateDrawView(drawAttachments)
                         }
@@ -550,9 +514,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 if (onDrawBitmap == null) return
                 jobOnDrawBitmap?.cancel()
 
-                // IMPORTANT: We calculate the visual transformation by combining moveMatrix with elasticMatrix,
-                // BUT we DO NOT permanently alter moveMatrix. This prevents exponential math corruption.
-                val renderMatrix = Matrix(moveMatrix).apply { postConcat(elasticMatrix) }
+                // USA DIRETTAMENTE IL MOTORE, niente più unione di moveMatrix ed elasticMatrix
+                val renderMatrix = cameraPhysics.getRenderMatrix()
                 pagesRectOnWindow = calcPage.getPagesRectOnWindowTransformation(windowRect, renderMatrix)
 
                 updateDrawView(drawAttachments)
@@ -655,10 +618,11 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     private fun executeRender(canvas: Canvas, drawAttachments: DrawAttachments) {
         var needsInvalidate = false
         val document = drawViewModel.documentData
+        val currentRenderMatrix = cameraPhysics.getRenderMatrix()
 
         when (drawAttachments.drawMode) {
             DrawAttachments.DrawMode.UPDATE -> {
-                drawViewModel.pageMaker.makeWindowBackground(canvas, pagesRectOnWindow, moveMatrix)
+                drawViewModel.pageMaker.makeWindowBackground(canvas, pagesRectOnWindow, currentRenderMatrix)
                 for (pageRectWithIndex in pagesRectOnWindow){
                     drawViewModel.pageMaker.makePageBackground(canvas, pageRectWithIndex.rect, windowRect)
                 }
@@ -669,7 +633,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 drawViewModel.isDocumentShowed = true
             }
             DrawAttachments.DrawMode.REFRESH -> {
-                drawViewModel.pageMaker.makeWindowBackground(canvas, pagesRectOnWindow, moveMatrix)
+                drawViewModel.pageMaker.makeWindowBackground(canvas, pagesRectOnWindow, currentRenderMatrix)
                 for (pageRectWithIndex in pagesRectOnWindow){
                     drawViewModel.pageMaker.makePageBackground(canvas, pageRectWithIndex.rect, windowRect)
                 }
@@ -685,7 +649,6 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
                 if (onDrawBitmapMatrix.invert(inverseDrawMatrix)) {
                     relativeTransform = Matrix(inverseDrawMatrix)
-                    val currentRenderMatrix = Matrix(moveMatrix).apply { postConcat(elasticMatrix) }
                     relativeTransform.postConcat(currentRenderMatrix)
 
                     // Find EXACTLY where the onDrawBitmap will be located on the screen in this frame
@@ -694,7 +657,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 }
 
                 // 2. Render view and pages background
-                drawViewModel.pageMaker.makeWindowBackground(canvas, pagesRectOnWindow, moveMatrix)
+                drawViewModel.pageMaker.makeWindowBackground(canvas, pagesRectOnWindow, currentRenderMatrix)
                 for (pageRectWithIndex in pagesRectOnWindow){
                     drawViewModel.pageMaker.makePageBackground(canvas, pageRectWithIndex.rect, windowRect)
                 }
@@ -725,82 +688,19 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 }
             }
             DrawAttachments.DrawMode.ANIMATE -> {
-                when (drawAttachments.animationType) {
-                    DrawAttachments.AnimationType.FLING -> {
-                        // Calculate the next step of the inertial scroll animation
-                        if (scroller.computeScrollOffset()) {
-                            // 1. Calcolo del Delta
-                            var dx = (scroller.currX - lastFlingX).toFloat()
-                            var dy = (scroller.currY - lastFlingY).toFloat()
-                            lastFlingX = scroller.currX
-                            lastFlingY = scroller.currY
-
-                            // 2. Verifica eccesso pre-movimento
-                            val excess = calcPage.calculateExcess(moveMatrix, calcPage.contentRect, windowRect)
-
-                            // 3. Attrito del muro di gomma
-                            if (excess.first != 0f) dx *= 0.15f
-                            if (excess.second != 0f) dy *= 0.15f
-
-                            // 4. Applichiamo lo spostamento
-                            moveMatrix.postTranslate(dx, dy)
-
-                            // 5. Ricalcoliamo l'eccesso DOPO lo spostamento
-                            val newExcess = calcPage.calculateExcess(moveMatrix, calcPage.contentRect, windowRect)
-                            elasticMatrix = calcPage.applyRubberBandEffect(newExcess.first, newExcess.second, windowRect)
-
-                            // --- AGGIUNGI QUESTO BLOCCO QUI ---
-                            // Se l'eccesso supera i 10px, fermiamo il fling per far partire subito il bounce back
-                            if (abs(newExcess.first) > 100f || abs(newExcess.second) > 100f) {
-                                scroller.forceFinished(true)
-                            }
-                            // ----------------------------------
-
-                            needsInvalidate = true
-                        } else {
-                            // --- FASE 3: FINE FLING E CONTROLLO RIMBALZO ---
-
-                            // FIX BUG CATTURA: Se l'utente ha il dito sullo schermo,
-                            // NON facciamo partire il rimbalzo. Lo lasciamo gestire al Pan manuale!
-                            if (isUserTouching) {
-                                requestDraw(DrawAttachments(drawMode = DrawAttachments.DrawMode.UPDATE).apply {
-                                    update = DrawAttachments.Update.DRAW_BITMAP
-                                })
-                            } else {
-                                // Il Fling ha perso energia naturalmente. Lanciamo il Bounce Back se fuori limiti!
-                                val excess = calcPage.calculateExcess(moveMatrix, calcPage.contentRect, windowRect)
-                                if (excess.first != 0f || excess.second != 0f) {
-                                    startAnimateMatrix.set(moveMatrix)
-                                    calcPage.startBounceBackAnimation(
-                                        excess.first, excess.second, moveMatrix,
-                                        updateCallback = {
-                                            val currentExcess = calcPage.calculateExcess(moveMatrix, calcPage.contentRect, windowRect)
-                                            elasticMatrix = calcPage.applyRubberBandEffect(currentExcess.first, currentExcess.second, windowRect)
-                                            requestDraw(DrawAttachments(drawMode = DrawAttachments.DrawMode.ANIMATE).apply {
-                                                animationType = DrawAttachments.AnimationType.BOUNCE_BACK
-                                            })
-                                        },
-                                        onEndCallback = {
-                                            elasticMatrix.reset()
-                                            requestDraw(DrawAttachments(drawMode = DrawAttachments.DrawMode.UPDATE).apply {
-                                                update = DrawAttachments.Update.DRAW_BITMAP
-                                            })
-                                        }
-                                    )
-                                } else {
-                                    // Fling terminato pulito dentro i limiti.
-                                    requestDraw(DrawAttachments(drawMode = DrawAttachments.DrawMode.UPDATE).apply {
-                                        update = DrawAttachments.Update.DRAW_BITMAP
-                                    })
-                                }
-                            }
-                        }
-                    }
-                    else -> {}
+                // 1. Aggiorna il delta time per la fisica
+                val currentTime = System.currentTimeMillis()
+                if (lastFrameTime != 0L) {
+                    val deltaTime = currentTime - lastFrameTime
+                    cameraPhysics.update(deltaTime)
                 }
+                lastFrameTime = currentTime
 
-                val currentRenderMatrix = Matrix(moveMatrix).apply { postConcat(elasticMatrix) }
-                drawViewModel.pageMaker.makeWindowBackground(canvas, pagesRectOnWindow, currentRenderMatrix)
+                // 2. Ottieni la matrice visiva calcolata (include Fling, Elastico, Bounce)
+                val renderMatrix = cameraPhysics.getRenderMatrix()
+
+                // 3. Disegna gli sfondi delle finestre e le pagine
+                drawViewModel.pageMaker.makeWindowBackground(canvas, pagesRectOnWindow, renderMatrix)
 
                 for (pageRectWithIndex in pagesRectOnWindow){
                     drawViewModel.pageMaker.makePageBackground(canvas, pageRectWithIndex.rect, windowRect)
@@ -810,6 +710,17 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     page.bitmapPage?.let {
                         canvas.drawBitmap(it, null, pageRectWithIndex.rect, null)
                     }
+                }
+
+                // 4. Controlla se l'animazione deve continuare
+                if (cameraPhysics.isAnimating()) {
+                    needsInvalidate = true
+                } else {
+                    // L'animazione è conclusa dolcemente: scateniamo il render HD
+                    lastFrameTime = 0L
+                    requestDraw(DrawAttachments(drawMode = DrawAttachments.DrawMode.UPDATE).apply {
+                        update = DrawAttachments.Update.DRAW_BITMAP
+                    })
                 }
             }
             else -> {}
@@ -1056,12 +967,15 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         onDrawBitmap?.recycle()
         onDrawBitmap = createBitmap(width, height)
 
-        if (oldWidth != 0 && oldHeight != 0) {
-            moveMatrixNeedsUpdate = true
-        }
-
         windowRect = RectF(0f, 0f, width.toFloat(), height.toFloat())
         calcPage.needToBeUpdated = true
+
+        // ---> INFORMA IL MOTORE FISICO <---
+        cameraPhysics.setViewport(width, height)
+
+        // Forza il documento a rimanere nei limiti (es. se stringi la finestra)
+        // Usiamo animated = false per fare uno snap istantaneo durante la rotazione
+        cameraPhysics.restoreToBounds(animated = false)
 
         if (drawViewModel.isDocumentLoaded){
             requestDraw(DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
@@ -1078,7 +992,6 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
      */
     fun smoothPanBy(deltaY: Float, onUpdate: (stepDy: Float) -> Unit) {
         panAnimator?.cancel()
-        val startMatrix = Matrix(moveMatrix)
         var previousDy = 0f
 
         panAnimator = ValueAnimator.ofFloat(0f, deltaY).apply {
@@ -1088,13 +1001,13 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 val stepDy = currentDy - previousDy
                 previousDy = currentDy
 
-                // Spostiamo la matrice della telecamera
-                moveMatrix = Matrix(startMatrix).apply {
-                    postTranslate(0f, currentDy)
-                }
+                // Spostiamo la telecamera tramite il motore fisico!
+                // I valori sono negativi per far muovere la telecamera nella direzione corretta
+                cameraPhysics.onDrag(0f, -stepDy, 1f, windowRect.centerX(), windowRect.centerY())
 
-                // Ricalcoliamo le posizioni delle pagine sullo schermo
-                pagesRectOnWindow = calcPage.getPagesRectOnWindowTransformation(windowRect, moveMatrix)
+                // Ricalcoliamo le posizioni delle pagine
+                val renderMatrix = cameraPhysics.getRenderMatrix()
+                pagesRectOnWindow = calcPage.getPagesRectOnWindowTransformation(windowRect, renderMatrix)
 
                 // Diciamo a Compose di muovere il cursore degli stessi esatti pixel
                 onUpdate(stepDy)

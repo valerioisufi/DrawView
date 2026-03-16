@@ -153,7 +153,7 @@ class OnTouchHover(
                         // 4. Mostriamo il menu fluttuante in entrambi i casi
                         // (Sull'immagine per tagliarla/cancellarla, o sul vuoto per incollare!)
                         drawViewModel.contextMenuPosition = android.graphics.PointF(e.x, e.y)
-                        drawViewModel.drawManager.scroller.forceFinished(true)
+                        drawViewModel.drawManager.cameraPhysics.stopAllAnimations()
                     }
                 }
 
@@ -209,7 +209,7 @@ class OnTouchHover(
                                 drawViewModel.activeTextEditItem = null
                             }
 
-                            drawViewModel.drawManager.scroller.forceFinished(true)
+                            drawViewModel.drawManager.cameraPhysics.stopAllAnimations()
                             return true // Abbiamo gestito il tocco!
                         }
                     }
@@ -314,7 +314,7 @@ class OnTouchHover(
                                 (xMm - initialCenterX).toDouble(),
                                 (yMm - initialCenterY).toDouble()
                             ).toFloat()
-                            drawViewModel.drawManager.scroller.forceFinished(true)
+                            drawViewModel.drawManager.cameraPhysics.stopAllAnimations()
                             return@OnTouchListener true
                         } else if (hitRotHandle) {
                             currentDragState = DragState.ROTATING
@@ -325,22 +325,22 @@ class OnTouchHover(
                                     (xMm - initialCenterX).toDouble()
                                 )
                             ).toFloat()
-                            drawViewModel.drawManager.scroller.forceFinished(true)
+                            drawViewModel.drawManager.cameraPhysics.stopAllAnimations()
                             return@OnTouchListener true
                         } else if (hitTextLeft) {
                             currentDragState = DragState.TEXT_RESIZE_LEFT
-                            drawViewModel.drawManager.scroller.forceFinished(true)
+                            drawViewModel.drawManager.cameraPhysics.stopAllAnimations()
                             return@OnTouchListener true
                         } else if (hitTextRight) {
                             currentDragState = DragState.TEXT_RESIZE_RIGHT
-                            drawViewModel.drawManager.scroller.forceFinished(true)
+                            drawViewModel.drawManager.cameraPhysics.stopAllAnimations()
                             return@OnTouchListener true
                         } else if (hitBody) {
                             currentDragState = DragState.PANNING
                             lastTouchX = event.x
                             lastTouchY = event.y
                             dragScaleMmPerPx = scaleX
-                            drawViewModel.drawManager.scroller.forceFinished(true)
+                            drawViewModel.drawManager.cameraPhysics.stopAllAnimations()
                             return@OnTouchListener true
                         } else if (isSelectObjectMode || isLassoMode) {
                             drawViewModel.clearSelection()
@@ -521,7 +521,7 @@ class OnTouchHover(
     private fun handleStrokeEvent(view: View, event: MotionEvent) {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                drawViewModel.drawManager.scroller.forceFinished(true)
+                drawViewModel.drawManager.cameraPhysics.stopAllAnimations()
                 view.requestUnbufferedDispatch(event)
                 drawViewModel.clearSelection()
 

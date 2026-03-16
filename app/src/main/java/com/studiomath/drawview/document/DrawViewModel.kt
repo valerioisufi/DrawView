@@ -53,6 +53,8 @@ import com.studiomath.drawview.document.history.EraseStrokesAction
 import com.studiomath.drawview.document.history.HistoryManager
 import com.studiomath.drawview.document.page.CalcPage
 import com.studiomath.drawview.document.page.Text
+import com.studiomath.drawview.document.tools.Tool
+import com.studiomath.drawview.document.tools.ToolManager
 import kotlin.math.atan2
 import kotlin.math.hypot
 import kotlin.math.max
@@ -1241,51 +1243,17 @@ class DrawViewModel(
     }
 
 
-    // --- TOOL UTILITIES ---
-    data class ToolUtilities(val toolType: Tool){
-        enum class Tool {
-            INK_PEN, INK_HIGHLIGHTER, ERASER, TEXT, LAZO, PAN, SELECT_OBJECT // Added SELECT_OBJECT
-        }
+    // --- GESTIONE STRUMENTI (TOOLS) ---
+    val toolManager = ToolManager()
 
-        data class BrushSettings(
-            val size: Float,
-            val color: Int
-        )
+    // Esponiamo lo stato per la UI in modo trasparente
+    var selectedTool: Tool
+        get() = toolManager.selectedTool
+        set(value) { toolManager.selectTool(value) }
 
-        private var brushList = mutableListOf<BrushSettings>()
-
-        fun getBrush(index: Int): Brush{
-            if (index >= brushList.size) {
-                when(toolType){
-                    Tool.INK_PEN -> brushList.add(BrushSettings(3f, Color.BLUE))
-                    Tool.INK_HIGHLIGHTER -> brushList.add(BrushSettings(15f, Color.argb(0.25f, 1f, 1f, 0f)))
-                    Tool.ERASER -> brushList.add(BrushSettings(20f, Color.argb(0.8f, 1f, 1f, 1f)))
-                    Tool.LAZO -> brushList.add(BrushSettings(2f, Color.argb(1f, 0.53f, 0.6f, 0.7f)))
-                    else -> brushList.add(BrushSettings(4f, Color.BLACK))
-                }
-            }
-            val family = when(toolType){
-                Tool.INK_PEN -> StockBrushes.pressurePen()
-                Tool.INK_HIGHLIGHTER -> StockBrushes.highlighter()
-                Tool.LAZO -> StockBrushes.dashedLine()
-                else -> StockBrushes.marker()
-            }
-            return Brush.createWithColorIntArgb(
-                family = family,
-                colorIntArgb = brushList[index].color,
-                size = brushList[index].size,
-                epsilon = 0.1F
-            )
-        }
-    }
-
-    val penTool = ToolUtilities(ToolUtilities.Tool.INK_PEN)
-    val highlighterTool = ToolUtilities(ToolUtilities.Tool.INK_HIGHLIGHTER)
-    val eraserTool = ToolUtilities(ToolUtilities.Tool.ERASER)
-    val lazoTool = ToolUtilities(ToolUtilities.Tool.LAZO)
-
-    var selectedTool by mutableStateOf(ToolUtilities.Tool.INK_PEN)
-    var activeBrush = penTool.getBrush(0)
+    var activeBrush: Brush
+        get() = toolManager.activeBrush
+        set(value) { toolManager.activeBrush = value }
 
     fun getActiveBrushScaled() = activeBrush.copy(
         size = drawManager.dimToPx(Measure(activeBrush.size, Measure.Unit.DOT))

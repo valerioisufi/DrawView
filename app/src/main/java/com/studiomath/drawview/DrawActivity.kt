@@ -35,19 +35,16 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Redo
 import androidx.compose.material.icons.automirrored.outlined.Undo
-import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.outlined.Draw
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.MoreHoriz
-import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -80,10 +77,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.studiomath.drawview.document.DrawComponent
 import com.studiomath.drawview.document.DrawViewModel
-import com.studiomath.drawview.document.DrawViewModel.ToolUtilities
-import com.studiomath.drawview.document.page.Dimension
-import com.studiomath.drawview.document.page.Page
 import com.studiomath.drawview.document.page.pt
+import com.studiomath.drawview.document.tools.Tool
+import com.studiomath.drawview.document.tools.ToolUtilities
 import com.studiomath.drawview.ui.composeComponents.ColorWheel
 import com.studiomath.drawview.ui.composeComponents.SizeSlider
 import com.studiomath.drawview.ui.theme.DrawViewTheme
@@ -313,19 +309,17 @@ fun DrawActivity(
                     var penSettingsExpanded by remember { mutableStateOf(false) }
                     ToolButton(
                         onClick = {
-                            if (drawViewModel.selectedTool == ToolUtilities.Tool.INK_PEN) {
+                            if (drawViewModel.selectedTool == Tool.INK_PEN) {
                                 penSettingsExpanded = true
                             } else {
-                                drawViewModel.activeBrush = drawViewModel.penTool.getBrush(0)
-                                drawViewModel.selectedTool = ToolUtilities.Tool.INK_PEN
+                                drawViewModel.selectedTool = Tool.INK_PEN
                             }
                         },
                         onLongClick = {
-                            drawViewModel.activeBrush = drawViewModel.penTool.getBrush(0)
-                            drawViewModel.selectedTool = ToolUtilities.Tool.INK_PEN
+                            drawViewModel.selectedTool = Tool.INK_PEN
                             penSettingsExpanded = true
                         },
-                        selected = drawViewModel.selectedTool == ToolUtilities.Tool.INK_PEN,
+                        selected = drawViewModel.selectedTool == Tool.INK_PEN,
                         dropDownMenu = {
                             var size by remember { mutableFloatStateOf(drawViewModel.activeBrush.size) }
 
@@ -374,19 +368,17 @@ fun DrawActivity(
                     var highlighterSettingsExpanded by remember { mutableStateOf(false) }
                     ToolButton(
                         onClick = {
-                            if (drawViewModel.selectedTool == ToolUtilities.Tool.INK_HIGHLIGHTER) {
+                            if (drawViewModel.selectedTool == Tool.INK_HIGHLIGHTER) {
                                 highlighterSettingsExpanded = true
                             } else {
-                                drawViewModel.activeBrush = drawViewModel.highlighterTool.getBrush(0)
-                                drawViewModel.selectedTool = ToolUtilities.Tool.INK_HIGHLIGHTER
+                                drawViewModel.selectedTool = Tool.INK_HIGHLIGHTER
                             }
                         },
                         onLongClick = {
-                            drawViewModel.activeBrush = drawViewModel.highlighterTool.getBrush(0)
-                            drawViewModel.selectedTool = ToolUtilities.Tool.INK_HIGHLIGHTER
+                            drawViewModel.selectedTool = Tool.INK_HIGHLIGHTER
                             highlighterSettingsExpanded = true
                         },
-                        selected = drawViewModel.selectedTool == ToolUtilities.Tool.INK_HIGHLIGHTER,
+                        selected = drawViewModel.selectedTool == Tool.INK_HIGHLIGHTER,
                         dropDownMenu = {
                             var size by remember { mutableFloatStateOf(drawViewModel.activeBrush.size) }
 
@@ -435,19 +427,17 @@ fun DrawActivity(
                     var eraserSettingsExpanded by remember { mutableStateOf(false) }
                     ToolButton(
                         onClick = {
-                            if (drawViewModel.selectedTool == ToolUtilities.Tool.ERASER) {
+                            if (drawViewModel.selectedTool == Tool.ERASER) {
                                 eraserSettingsExpanded = true
                             } else {
-                                drawViewModel.activeBrush = drawViewModel.eraserTool.getBrush(0)
-                                drawViewModel.selectedTool = ToolUtilities.Tool.ERASER
+                                drawViewModel.selectedTool = Tool.ERASER
                             }
                         },
                         onLongClick = {
-                            drawViewModel.activeBrush = drawViewModel.eraserTool.getBrush(0)
-                            drawViewModel.selectedTool = ToolUtilities.Tool.ERASER
+                            drawViewModel.selectedTool = Tool.ERASER
                             eraserSettingsExpanded = true
                         },
-                        selected = drawViewModel.selectedTool == ToolUtilities.Tool.ERASER,
+                        selected = drawViewModel.selectedTool == Tool.ERASER,
                         dropDownMenu = {
                             var size by remember { mutableFloatStateOf(drawViewModel.activeBrush.size) }
 
@@ -483,19 +473,17 @@ fun DrawActivity(
 
                     ToolButton(
                         onClick = {
-                            if (drawViewModel.selectedTool == ToolUtilities.Tool.LAZO) {
+                            if (drawViewModel.selectedTool == Tool.LAZO) {
                                 lazoSettingsExpanded = true
                             } else {
-                                drawViewModel.activeBrush = drawViewModel.lazoTool.getBrush(0)
-                                drawViewModel.selectedTool = ToolUtilities.Tool.LAZO
+                                drawViewModel.selectedTool = Tool.LAZO
                             }
                         },
                         onLongClick = {
-                            drawViewModel.activeBrush = drawViewModel.lazoTool.getBrush(0)
-                            drawViewModel.selectedTool = ToolUtilities.Tool.LAZO
+                            drawViewModel.selectedTool = Tool.LAZO
                             lazoSettingsExpanded = true
                         },
-                        selected = drawViewModel.selectedTool == ToolUtilities.Tool.LAZO,
+                        selected = drawViewModel.selectedTool == Tool.LAZO,
                         dropDownMenu = {
                             Column(
                                 modifier = Modifier.padding(16.dp),
@@ -558,9 +546,9 @@ fun DrawActivity(
 
                     ToolButton(
                         onClick = {
-                            drawViewModel.selectedTool = ToolUtilities.Tool.TEXT
+                            drawViewModel.selectedTool = Tool.TEXT
                         },
-                        selected = drawViewModel.selectedTool == ToolUtilities.Tool.TEXT
+                        selected = drawViewModel.selectedTool == Tool.TEXT
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.icon_text_fields),
@@ -570,9 +558,9 @@ fun DrawActivity(
 
                     ToolButton(
                         onClick = {
-                            drawViewModel.selectedTool = ToolUtilities.Tool.PAN
+                            drawViewModel.selectedTool = Tool.PAN
                         },
-                        selected = drawViewModel.selectedTool == ToolUtilities.Tool.PAN
+                        selected = drawViewModel.selectedTool == Tool.PAN
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.icon_pan_tool),

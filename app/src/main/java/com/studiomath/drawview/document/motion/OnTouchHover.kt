@@ -10,6 +10,7 @@ import androidx.ink.authoring.InProgressStrokeId
 import androidx.input.motionprediction.MotionEventPredictor
 import com.studiomath.drawview.document.DrawManager
 import com.studiomath.drawview.document.DrawViewModel
+import com.studiomath.drawview.document.tools.Tool
 import kotlin.math.atan2
 import kotlin.math.hypot
 import kotlin.math.max
@@ -380,7 +381,7 @@ class OnTouchHover(
                 // --- NUOVO: RILEVAMENTO TAP PULITO TRAMITE GESTURE DETECTOR ---
                 override fun onSingleTapUp(e: MotionEvent): Boolean {
                     // Funziona SOLO se lo strumento selezionato è il Testo!
-                    val isTextTool = drawViewModel.selectedTool == DrawViewModel.ToolUtilities.Tool.TEXT
+                    val isTextTool = drawViewModel.selectedTool == Tool.TEXT
 
                     if (isTextTool && currentDragState == DragState.NONE) {
                         val pageInfo = drawViewModel.drawManager.pagesRectOnWindow.find { it.rect.contains(e.x, e.y) }
@@ -457,8 +458,8 @@ class OnTouchHover(
             isStylusActive = true
         }
 
-        val isSelectObjectMode = drawViewModel.selectedTool == DrawViewModel.ToolUtilities.Tool.SELECT_OBJECT
-        val isLassoMode = drawViewModel.selectedTool == DrawViewModel.ToolUtilities.Tool.LAZO
+        val isSelectObjectMode = drawViewModel.selectedTool == Tool.SELECT_OBJECT
+        val isLassoMode = drawViewModel.selectedTool == Tool.LAZO
 
         // --- FASE 4: SPOSTAMENTO E TRASFORMAZIONE DEL GRUPPO SELEZIONATO ---
         val selection = drawViewModel.currentSelection
@@ -677,7 +678,7 @@ class OnTouchHover(
             // DOBBIAMO far passare l'evento per permettere all'elastico di scattare all'indietro!
             val action = event.actionMasked
             val isPanOrRelease = onScaleTranslate.continueScaleTranslate ||
-                    drawViewModel.selectedTool == DrawViewModel.ToolUtilities.Tool.PAN ||
+                    drawViewModel.selectedTool == Tool.PAN ||
                     action == MotionEvent.ACTION_UP ||
                     action == MotionEvent.ACTION_CANCEL ||
                     action == MotionEvent.ACTION_OUTSIDE
@@ -692,9 +693,9 @@ class OnTouchHover(
          */
         val isDrawingInput = (event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS ||
                 (event.pointerCount == 1 && !isStylusActive && !onScaleTranslate.continueScaleTranslate)) &&
-                drawViewModel.selectedTool != DrawViewModel.ToolUtilities.Tool.PAN
+                drawViewModel.selectedTool != Tool.PAN
 
-        val isTextTool = drawViewModel.selectedTool == DrawViewModel.ToolUtilities.Tool.TEXT
+        val isTextTool = drawViewModel.selectedTool == Tool.TEXT
 
         // Consumiamo tutti gli eventi di trascinamento/tocco dello strumento testo
         // in modo che non passino alla libreria di disegno o al pan/zoom della pagina.
@@ -715,7 +716,7 @@ class OnTouchHover(
          */
         val isScalePanInput = (event.pointerCount == 1 || event.pointerCount == 2) &&
                 event.getToolType(0) != MotionEvent.TOOL_TYPE_STYLUS ||
-                drawViewModel.selectedTool == DrawViewModel.ToolUtilities.Tool.PAN ||
+                drawViewModel.selectedTool == Tool.PAN ||
                 currentDragState == DragState.NONE
 
         if (isScalePanInput) {
@@ -768,7 +769,7 @@ class OnTouchHover(
                 )
 
                 // Se stiamo usando la gomma, distruggiamo in tempo reale i tratti che tocchiamo!
-                if (drawViewModel.selectedTool == DrawViewModel.ToolUtilities.Tool.ERASER) {
+                if (drawViewModel.selectedTool == Tool.ERASER) {
                     // Controlliamo anche la "history" dell'evento per non perdere punti se muovi il dito velocissimo
                     for (i in 0 until event.historySize) {
                         val hx = event.getHistoricalX(i)
@@ -795,7 +796,7 @@ class OnTouchHover(
                     }
 
                     // --- FASE 3: CHIUDIAMO LA REGISTRAZIONE DELLA GOMMA ---
-                    if (drawViewModel.selectedTool == DrawViewModel.ToolUtilities.Tool.ERASER) {
+                    if (drawViewModel.selectedTool == Tool.ERASER) {
                         drawViewModel.commitEraserHistory()
                     }
                 }

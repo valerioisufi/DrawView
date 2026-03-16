@@ -27,6 +27,7 @@ import androidx.ink.strokes.createClosedShape
 import com.studiomath.drawview.document.motion.CameraPhysicsEngine
 import com.studiomath.drawview.document.page.CalcPage
 import com.studiomath.drawview.document.page.Measure
+import com.studiomath.drawview.document.tools.Tool
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -117,8 +118,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     @UiThread
     override fun onStrokesFinished(strokes: Map<InProgressStrokeId, InkStroke>) {
         val document = drawViewModel.documentData ?: return
-        val isLasso = drawViewModel.selectedTool == DrawViewModel.ToolUtilities.Tool.LAZO
-        val isEraser = drawViewModel.selectedTool == DrawViewModel.ToolUtilities.Tool.ERASER
+        val isLasso = drawViewModel.selectedTool == Tool.LAZO
+        val isEraser = drawViewModel.selectedTool == Tool.ERASER
 
         // --- FASE 2: HIT TESTING DEL LAZO ---
         if (isLasso) {
@@ -398,8 +399,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
             // --- REGISTRAZIONE NELLA STORIA (Un solo click Undo per più pagine!) ---
             if (historyGroups.isNotEmpty() &&
-                drawViewModel.selectedTool != DrawViewModel.ToolUtilities.Tool.LAZO &&
-                drawViewModel.selectedTool != DrawViewModel.ToolUtilities.Tool.ERASER) {
+                drawViewModel.selectedTool != Tool.LAZO &&
+                drawViewModel.selectedTool != Tool.ERASER) {
 
                 drawViewModel.addHistoryAction(
                     com.studiomath.drawview.document.history.AddStrokesAction(historyGroups)

@@ -1,18 +1,12 @@
 package com.studiomath.drawview.document
 
-import android.animation.Animator
-import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.graphics.Matrix
 import android.graphics.RectF
 import android.util.DisplayMetrics
-import android.util.Log
-import android.view.animation.OvershootInterpolator
-import androidx.core.animation.doOnEnd
 import androidx.core.util.TypedValueCompat
 import com.studiomath.drawview.document.page.Page
 import com.studiomath.drawview.document.page.px
-import kotlin.math.abs
 
 /**
  * Handles the mathematical layout, positioning, and constraint calculations
@@ -187,96 +181,6 @@ class CalcPage(
         return visiblePages
     }
 
-    /**
-     * FASE 1 - TELECAMERA VIRTUALE: Calcola l'eccesso di trascinamento fuori dai bordi.
-     * IMPORTANTE: Questa funzione è puramente matematica e NON altera mai la matrice.
-     * La telecamera virtuale è libera di andare dove vuole.
-     *
-     * @param virtualMatrix La matrice della telecamera libera (mossa dal dito dell'utente).
-     * @return Pair(excessX, excessY) I pixel esatti di cui la telecamera è "fuori bordo".
-     */
-    fun calculateExcess(virtualMatrix: Matrix, contentRect: RectF, windowRect: RectF): Pair<Float, Float> {
-        val transformedContent = RectF(contentRect)
-        virtualMatrix.mapRect(transformedContent)
-
-        val contentWidth = transformedContent.width()
-        val contentHeight = transformedContent.height()
-        val windowWidth = windowRect.width()
-        val windowHeight = windowRect.height()
-
-        var excessX = 0f
-        var excessY = 0f
-
-        // Logica asse X
-        if (contentWidth < windowWidth) {
-            // Se il contenuto è più stretto dello schermo, l'eccesso è calcolato rispetto al centro perfetto
-            val idealLeft = (windowWidth - contentWidth) / 2f
-            excessX = transformedContent.left - idealLeft
-        } else {
-            if (transformedContent.left > 0) {
-                excessX = transformedContent.left // Tirato troppo a destra
-            } else if (transformedContent.right < windowWidth) {
-                excessX = transformedContent.right - windowWidth // Tirato troppo a sinistra
-            }
-        }
-
-        // Logica asse Y
-        if (contentHeight < windowHeight) {
-            excessY = transformedContent.top // Allineato in alto (se lo vuoi centrato usa idealTop)
-        } else {
-            if (transformedContent.top > 0) {
-                excessY = transformedContent.top // Tirato troppo in basso
-            } else if (transformedContent.bottom < windowHeight) {
-                excessY = transformedContent.bottom - windowHeight // Tirato troppo in alto
-            }
-        }
-
-        return Pair(excessX, excessY)
-    }
-
-    /**
-     * FASE 1 - FISICA PREMIUM: Applica la formula asintotica di Rubber-Banding.
-     *
-     * @param excess La distanza virtuale fuori bordo.
-     * @param dimension La dimensione dello schermo (larghezza o altezza) per calcolare la proporzione.
-     * @return I pixel "visivi" reali dopo aver applicato la resistenza.
-     */
-    private fun rubberBandFormula(excess: Float, dimension: Float): Float {
-        if (excess == 0f) return 0f
-        val sign = if (excess > 0) 1f else -1f
-        val absExcess = abs(excess)
-
-        // Costante di tensione (0.55 è lo standard industriale per un feel naturale)
-        val tension = 0.55f
-
-        // Formula asintotica: rallenta progressivamente il trascinamento visivo
-        val rubberBanded = (absExcess * dimension * tension) / (dimension + tension * absExcess)
-
-        return rubberBanded * sign
-    }
-
-    /**
-     * Calcola la matrice correttiva necessaria per applicare l'effetto visivo elastico
-     * compensando il divario tra la "Telecamera Libera" e la posizione visiva desiderata.
-     */
-    fun applyRubberBandEffect(excessX: Float, excessY: Float, windowRect: RectF): Matrix {
-        val elasticMatrix = Matrix()
-
-        if (excessX == 0f && excessY == 0f) return elasticMatrix
-
-        // Calcoliamo di quanto l'elastico "cede" fisicamente rispetto al tiraggio virtuale del dito
-        val visualExcessX = rubberBandFormula(excessX, windowRect.width())
-        val visualExcessY = rubberBandFormula(excessY, windowRect.height())
-
-        // Siccome la telecamera virtuale ha GIA' incluso tutto l'"excess",
-        // dobbiamo "tirarla indietro" della differenza per frenarla visivamente.
-        val correctionX = visualExcessX - excessX
-        val correctionY = visualExcessY - excessY
-
-        elasticMatrix.postTranslate(correctionX, correctionY)
-        return elasticMatrix
-    }
-
     // Variabile per tenere traccia dell'animazione in corso
     private var bounceAnimator: ValueAnimator? = null
 
@@ -284,54 +188,4 @@ class CalcPage(
         bounceAnimator?.cancel()
     }
 
-    /**
-     * FASE 1 - RITORNO A MOLLA (Bounce Back) RIPROGETTATO
-     * Usa il calcolo assoluto e protegge dai falsi trigger se l'animazione viene interrotta.
-     */
-    fun startBounceBackAnimation(
-        excessX: Float,
-        excessY: Float,
-        moveMatrix: Matrix,
-        updateCallback: () -> Unit,
-        onEndCallback: () -> Unit
-    ) {
-        cancelAnimations()
-
-        val startMatrix = Matrix(moveMatrix)
-        var isCanceled = false // Flag per capire se il dito dell'utente ha interrotto l'animazione
-
-        bounceAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 350
-            interpolator = android.view.animation.DecelerateInterpolator(1.5f)
-
-            addUpdateListener { animation ->
-                val progress = animation.animatedValue as Float
-
-                val currentTransX = -excessX * progress
-                val currentTransY = -excessY * progress
-
-                // Sintassi corretta per il reset assoluto della matrice
-                moveMatrix.set(startMatrix)
-                moveMatrix.postTranslate(currentTransX, currentTransY)
-
-                updateCallback()
-            }
-
-            // Usiamo il Listener nativo per separare CANCELLAZIONE e FINE NATURALE
-            addListener(object : AnimatorListenerAdapter() {
-                override fun onAnimationCancel(animation: Animator) {
-                    isCanceled = true
-                }
-
-                override fun onAnimationEnd(animation: Animator) {
-                    // Eseguiamo il ricalcolo HD SOLO se il rimbalzo si è concluso dolcemente
-                    if (!isCanceled) {
-                        onEndCallback()
-                    }
-                }
-            })
-        }
-
-        bounceAnimator?.start()
-    }
 }

@@ -91,11 +91,14 @@ class CameraPhysicsEngine(
         // 1. Applica lo Zoom basato sul punto focale (le dita dell'utente)
         if (scaleFactor != 1f) {
             val oldScale = scaleAxis.position
-            scaleAxis.position *= scaleFactor
-            val currentScale = scaleAxis.position
 
+            // MOLTIPLICA E BLOCCA: Impediamo alla scala di uscire dai limiti min e max
+            scaleAxis.position = (oldScale * scaleFactor).coerceIn(minScale, maxScale)
+
+            val currentScale = scaleAxis.position
             val scaleRatio = currentScale / oldScale
-            // Aggiusta X e Y affinché l'ingrandimento avvenga sotto le dita
+
+            // Se la scala era già al limite, scaleRatio sarà 1.0 e X/Y non verranno alterati per errore
             axisX.position = focusX - (focusX - axisX.position) * scaleRatio
             axisY.position = focusY - (focusY - axisY.position) * scaleRatio
         }
@@ -129,10 +132,6 @@ class CameraPhysicsEngine(
             axisY.startFling(velocityY)
         }
 
-        // Asse Zoom: Controlla l'over-zoom
-        if (scaleAxis.calculateExcess() != 0f) {
-            scaleAxis.startBounce()
-        }
     }
 
     // =========================================================================
@@ -184,17 +183,7 @@ class CameraPhysicsEngine(
         updateDynamicBoundaries()
 
         // 1. Aggiorna lo Zoom
-        val oldScale = scaleAxis.position
         scaleAxis.update(dt)
-        val newScale = scaleAxis.position
-
-        // Se lo zoom sta rimbalzando, dobbiamo aggiustare X e Y per mantenere il centro del rimbalzo corretto
-        if (scaleAxis.state == PhysicsState.BOUNCING && oldScale != newScale) {
-            val scaleRatio = newScale / oldScale
-            axisX.position = lastFocusX - (lastFocusX - axisX.position) * scaleRatio
-            axisY.position = lastFocusY - (lastFocusY - axisY.position) * scaleRatio
-            updateDynamicBoundaries() // Ricalcola i limiti con la nuova scala
-        }
 
         // 2. Aggiorna X e Y
         axisX.update(dt)
@@ -208,10 +197,10 @@ class CameraPhysicsEngine(
     fun getRenderMatrix(): Matrix {
         val matrix = Matrix()
 
-        // Calcola la scala visiva (con effetto rubber-band sull'over-zoom)
-        val renderScale = scaleAxis.getRubberBandScale()
+        // Usiamo direttamente la scala reale, dato che non c'è più overzoom
+        val renderScale = scaleAxis.position
 
-        // Calcola la posizione visiva (con effetto rubber-band ai bordi)
+        // X e Y mantengono il loro elastico se trascinati fuori dai bordi
         val renderX = axisX.getRubberBandPosition(viewportRect.width(), rubberBandTension)
         val renderY = axisY.getRubberBandPosition(viewportRect.height(), rubberBandTension)
 

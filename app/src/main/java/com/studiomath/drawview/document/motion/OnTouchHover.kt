@@ -52,10 +52,11 @@ class OnTouchHover(
     /** The ID of the stroke currently being rendered by the Ink library. */
     private var currentStrokeId: InProgressStrokeId? = null
 
-    // --- VARIABLES FOR OBJECT SELECTION AND DRAGGING ---
     // --- VARIABLES FOR OBJECT SELECTION AND MANIPULATION ---
     enum class DragState { NONE, PANNING, SCALING, ROTATING, TEXT_RESIZE_LEFT, TEXT_RESIZE_RIGHT }
     private var currentDragState = DragState.NONE
+    // --- VARIABILE PER IL RIORDINO DELLE PAGINE ---
+    private var draggedPageIndex: Int = -1
 
     // Per calcolare l'angolo e la scala cumulativi
     private var initialDistance = 0f
@@ -82,6 +83,61 @@ class OnTouchHover(
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_OUTSIDE -> drawViewModel.drawManager.isUserTouching = false
         }
 
+        // =================================================================================
+        // --- FASE 4: MOTORE DRAG & DROP PER IL RIORDINO PAGINE ---
+        // =================================================================================
+        if (drawViewModel.isReorderingPages) {
+            val doc = drawViewModel.documentData ?: return@OnTouchListener true
+
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    // 1. Troviamo quale pagina ha toccato l'utente per iniziare a trascinarla
+                    val pageInfo = drawViewModel.drawManager.pagesRectOnWindow.find { it.rect.contains(event.x, event.y) }
+                    if (pageInfo != null) {
+                        draggedPageIndex = pageInfo.index
+                        drawViewModel.drawManager.cameraPhysics.stopAllAnimations()
+                    }
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (draggedPageIndex != -1) {
+                        // 2. Controlliamo su quale pagina si trova il dito in questo preciso istante
+                        val targetInfo = drawViewModel.drawManager.pagesRectOnWindow.find { it.rect.contains(event.x, event.y) }
+
+                        // Se il dito è entrato nel territorio di un'altra pagina, facciamo lo Swap!
+                        if (targetInfo != null && targetInfo.index != draggedPageIndex) {
+
+                            // A. Rimuoviamo la pagina dalla sua vecchia posizione
+                            val draggedPage = doc.pages.removeAt(draggedPageIndex)
+                            // B. La inseriamo nella nuova posizione
+                            doc.pages.add(targetInfo.index, draggedPage)
+
+                            // C. Aggiorniamo l'indice che stiamo tracciando
+                            draggedPageIndex = targetInfo.index
+
+                            // D. Diciamo al motore grafico che la geometria è cambiata
+                            drawViewModel.drawManager.calcPage.needToBeUpdated = true
+                        }
+
+                        // Richiediamo un aggiornamento dello schermo a 60fps per vedere le pagine muoversi
+                        drawViewModel.drawManager.requestDraw(
+                            DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.REFRESH)
+                        )
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    // 3. L'utente ha rilasciato la pagina
+                    if (draggedPageIndex != -1) {
+                        draggedPageIndex = -1
+                        // Chiama il ViewModel per salvare il nuovo ordine definitivo nel Database
+                        drawViewModel.finishPageReorderMode()
+                    }
+                }
+            }
+            // Blocchiamo l'evento qui: niente zoom, pan o disegno mentre riordiniamo le pagine!
+            return@OnTouchListener true
+        }
+        // =================================================================================
+
         // Inizializza il detector la prima volta che tocchiamo lo schermo
         if (gestureDetector == null) {
             gestureDetector = GestureDetector(view.context, object : GestureDetector.SimpleOnGestureListener() {
@@ -106,6 +162,8 @@ class OnTouchHover(
                         val pageInfo = drawViewModel.drawManager.pagesRectOnWindow.find { it.rect.contains(e.x, e.y) }
 
                         if (pageInfo != null) {
+                            drawViewModel.contextMenuTargetPageIndex = pageInfo.index
+
                             val page = drawViewModel.documentData!!.pages[pageInfo.index]
 
                             // 1. Convertiamo il tocco in millimetri

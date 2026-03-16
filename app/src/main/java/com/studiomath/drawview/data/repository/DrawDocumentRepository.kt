@@ -303,10 +303,53 @@ class DrawDocumentRepository(context: Context) {
     }
 
     /**
-     * Removes a page and CASCADE deletes all its associated strokes, images, and PDFs.
+     * Inserisce una nuova pagina in un punto specifico (o alla fine).
+     * Fa scorrere automaticamente in avanti le pagine successive.
      */
-    suspend fun deletePage(pageDbId: Int) = withContext(Dispatchers.IO) {
+    suspend fun insertPageAt(documentId: Int, page: Page): Int = withContext(Dispatchers.IO) {
+        // 1. Fai spazio: sposta in avanti (+1) gli indici delle pagine successive
+        pageDao.shiftPagesUp(documentId, page.index)
+
+        // 2. Inserisci la nuova pagina nel buco appena creato
+        val dbPage = PageEntity(
+            documentId = documentId,
+            pageNumber = page.index,
+            width = page.width,
+            height = page.height
+        )
+        val newPageId = pageDao.insert(dbPage).toInt()
+        page.dbId = newPageId
+
+        return@withContext newPageId
+    }
+
+    /**
+     * Rimuove una pagina e fa scalare all'indietro gli indici di quelle successive
+     * per non lasciare "buchi" nella numerazione.
+     * CASCADE eliminerà automaticamente tratti, immagini e testi associati.
+     */
+    suspend fun deletePageAtIndex(documentId: Int, pageDbId: Int, deletedIndex: Int) = withContext(Dispatchers.IO) {
+        // 1. Elimina fisicamente la pagina
         pageDao.deleteById(pageDbId)
+
+        // 2. Ricompatta il documento scalando all'indietro (-1) le pagine successive
+        pageDao.shiftPagesDown(documentId, deletedIndex)
+    }
+
+    /**
+     * Riceve la lista delle pagine già riordinata in RAM (dopo il drag & drop)
+     * e sincronizza i nuovi indici massivamente nel Database.
+     */
+    suspend fun updatePagesOrder(pages: List<Page>) = withContext(Dispatchers.IO) {
+        // Cicliamo la lista: la posizione nella lista (newIndex) diventa il nuovo pageNumber ufficiale
+        pages.forEachIndexed { newIndex, page ->
+            if (page.index != newIndex) {
+                // Aggiorniamo prima il valore in memoria
+                page.index = newIndex
+                // E poi lo sincronizziamo nel DB
+                pageDao.updatePageNumber(page.dbId, newIndex)
+            }
+        }
     }
 
     /**

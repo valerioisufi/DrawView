@@ -149,7 +149,7 @@ data class Image(val zIndex: Int) {
 
 data class Pdf(val zIndex: Int, var pdfPageIndex: Int = 0) { var id: String = "" }
 
-data class Page(val index: Int) {
+data class Page(var index: Int) {
     var dbId: Int = 0 // Room Database ID
     var width = 0f // mm
     var height = 0f // mm

@@ -637,8 +637,21 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 drawViewModel.pageMaker.makeWindowBackground(canvas, pagesRectOnWindow, currentRenderMatrix)
                 for (pageRectWithIndex in pagesRectOnWindow){
                     drawViewModel.pageMaker.makePageBackground(canvas, pageRectWithIndex.rect, windowRect)
+
+                    // --- NOVITÀ: Disegna le singole pagine "Bassa Risoluzione" se stiamo riordinando ---
+                    if (drawViewModel.isReorderingPages) {
+                        val page = document?.pages?.getOrNull(pageRectWithIndex.index) ?: continue
+                        page.bitmapPage?.let { bmp ->
+                            canvas.drawBitmap(bmp, null, pageRectWithIndex.rect, null)
+                        }
+                    }
                 }
-                onDrawBitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
+
+                // --- NOVITÀ: Nascondi il blocco HD se stiamo mischiando le pagine ---
+                if (!drawViewModel.isReorderingPages) {
+                    onDrawBitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
+                }
+
                 // Notify the view model to remove ink library strokes that are now baked into the bitmap
                 drawViewModel.removeFinishedStrokes?.let { it(drawAttachments.strokesIdToRemove ?: emptySet()) }
             }
@@ -949,6 +962,30 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     }
 
                 } // Fine del canvas.withSave
+            }
+        }
+
+        // --- FASE 4: EVIDENZIAMO LA PAGINA TRASCINATA ---
+        if (drawViewModel.isReorderingPages) {
+            // Troviamo il rettangolo della pagina che l'utente sta attualmente tenendo premuto
+            // Usiamo lo stesso indice "target" registrato dal Long Press
+            val draggedPageInfo = pagesRectOnWindow.find { it.index == drawViewModel.contextMenuTargetPageIndex }
+
+            if (draggedPageInfo != null) {
+                canvas.withSave {
+                    val highlightPaint = Paint().apply {
+                        color = android.graphics.Color.argb(40, 0, 150, 255) // Azzurrino semitrasparente
+                        style = Paint.Style.FILL
+                    }
+                    val borderPaint = Paint().apply {
+                        color = android.graphics.Color.argb(255, 0, 150, 255)
+                        style = Paint.Style.STROKE
+                        strokeWidth = 8f
+                    }
+
+                    canvas.drawRect(draggedPageInfo.rect, highlightPaint)
+                    canvas.drawRect(draggedPageInfo.rect, borderPaint)
+                }
             }
         }
 

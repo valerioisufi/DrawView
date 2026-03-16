@@ -111,6 +111,26 @@ interface PageDao {
 
     @Query("DELETE FROM pages WHERE id = :pageId")
     suspend fun deleteById(pageId: Int)
+
+    /**
+     * Sposta in avanti (indice + 1) tutte le pagine che si trovano
+     * dopo o in corrispondenza del punto di inserimento.
+     */
+    @Query("UPDATE pages SET pageNumber = pageNumber + 1 WHERE documentId = :docId AND pageNumber >= :startIndex")
+    suspend fun shiftPagesUp(docId: Int, startIndex: Int)
+
+    /**
+     * Sposta all'indietro (indice - 1) tutte le pagine successive a quella eliminata
+     * per non lasciare "buchi" nella numerazione.
+     */
+    @Query("UPDATE pages SET pageNumber = pageNumber - 1 WHERE documentId = :docId AND pageNumber > :deletedIndex")
+    suspend fun shiftPagesDown(docId: Int, deletedIndex: Int)
+
+    /**
+     * Aggiorna l'indice di una singola pagina (utile per fissare il nuovo ordine dopo il Drag & Drop)
+     */
+    @Query("UPDATE pages SET pageNumber = :newIndex WHERE id = :pageDbId")
+    suspend fun updatePageNumber(pageDbId: Int, newIndex: Int)
 }
 
 /**

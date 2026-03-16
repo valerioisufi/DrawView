@@ -25,11 +25,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
@@ -198,6 +200,16 @@ fun DrawComponent(
 
                         // Qui potrai aggiungere altri tasti contestuali in futuro!
                         // Es: "Aggiungi Immagine", "Aggiungi Testo", ecc.
+                        // Pulsanti Gestione Pagina
+                        IconButton(onClick = { drawViewModel.addNewPageAfterTarget() }) {
+                            Icon(Icons.Default.Add, contentDescription = "Aggiungi Pagina")
+                        }
+                        IconButton(onClick = { drawViewModel.deleteTargetPage() }) {
+                            Icon(Icons.Default.Delete, contentDescription = "Elimina Pagina", tint = MaterialTheme.colorScheme.error)
+                        }
+                        IconButton(onClick = { drawViewModel.startPageReorderMode() }) {
+                            Icon(Icons.Default.SwapVert, contentDescription = "Sposta Pagina")
+                        }
                     }
                 }
             }

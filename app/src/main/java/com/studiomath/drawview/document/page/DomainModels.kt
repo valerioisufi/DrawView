@@ -26,7 +26,7 @@ enum class DataType(val value: Int) {
     STROKE(0), IMAGE(1), TEXT(2), PDF(3)
 }
 
-data class Stroke(val zIndex: Int) {
+class Stroke(var zIndex: Int) {
     var dbId: Int = 0
     var toolType = ToolType.UNKNOWN
     var brush: BrushFamily = BrushFamily.PRESSURE_PEN
@@ -129,7 +129,7 @@ class Text(var zIndex: Int) {
  * Represents an image placed on a document page.
  * Stores physical coordinates (in millimeters) to remain resolution-independent.
  */
-data class Image(val zIndex: Int) {
+class Image(var zIndex: Int) {
     var id: String = ""
     var dbId: Int = 0 // Room database ID for easy updates
     var x: Float = 0f // X coordinate in mm
@@ -147,9 +147,9 @@ data class Image(val zIndex: Int) {
     var isDragging: Boolean = false
 }
 
-data class Pdf(val zIndex: Int, var pdfPageIndex: Int = 0) { var id: String = "" }
+class Pdf(var zIndex: Int, var pdfPageIndex: Int = 0) { var id: String = "" }
 
-data class Page(var index: Int) {
+class Page(var index: Int) {
     var dbId: Int = 0 // Room Database ID
     var width = 0f // mm
     var height = 0f // mm

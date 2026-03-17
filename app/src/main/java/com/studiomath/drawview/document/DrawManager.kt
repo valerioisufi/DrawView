@@ -389,189 +389,174 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         isDrawing = false
     }
 
-    /**
-     * Executes the actual Canvas painting instructions based on the provided DrawAttachments.
-     *
-     * @param canvas The View's canvas.
-     * @param drawAttachments The instructions for the current frame.
-     */
+    val shadowPaint = Paint().apply {
+        color = android.graphics.Color.argb(80, 0, 0, 0)
+        setShadowLayer(20f, 0f, 15f, android.graphics.Color.argb(120, 0, 0, 0))
+    }
+    val borderPaint = Paint().apply {
+        color = android.graphics.Color.argb(255, 0, 150, 255) // Azzurro Android
+        style = Paint.Style.STROKE
+        strokeWidth = 6f
+    }
+    val placeholderPaint = Paint().apply {
+        color = android.graphics.Color.argb(30, 0, 0, 0) // Grigio semi-trasparente
+        style = Paint.Style.FILL
+    }
+    // Aggiungi questa piccola classe di supporto dentro DrawManager (o fuori, come preferisci)
+    private data class RenderSnapshot(
+        val bitmap: Bitmap?,
+        val matrix: Matrix,
+        val pagesRect: Set<CalcPage.PageRectWithIndex>,
+        val currentRenderMatrix: Matrix
+    )
+
     private fun executeRender(canvas: Canvas, drawAttachments: DrawAttachments) {
-        var needsInvalidate = false
-        val document = drawViewModel.documentData
-        val currentRenderMatrix = cameraPhysics.getRenderMatrix()
-
-        // 1. CATTURA DELLO STATO SICURO PER QUESTO FRAME
-        val currentBitmap: Bitmap?
-        val currentBitmapMatrix: Matrix
-        val currentPagesRect: Set<CalcPage.PageRectWithIndex>
-
+        // 1. CATTURA DELLO STATO SICURO E DELLA FISICA PER QUESTO FRAME
+        val snapshot: RenderSnapshot
         synchronized(renderLock) {
-            currentBitmap = frontState.bitmap
-            currentBitmapMatrix = Matrix(frontState.matrix) // Copia difensiva della matrice
-            currentPagesRect = frontState.pagesRect
+            snapshot = RenderSnapshot(
+                bitmap = frontState.bitmap,
+                matrix = Matrix(frontState.matrix), // Copia profonda della matrice
+                pagesRect = frontState.pagesRect,   // Riferimento al set immutabile attuale
+                currentRenderMatrix = cameraPhysics.getRenderMatrix() // Fisica aggiornata
+            )
         }
 
+        // 2. SMISTAMENTO DELLA LOGICA DI RENDER
         when (drawAttachments.drawMode) {
-            DrawAttachments.DrawMode.UPDATE -> {
-                drawViewModel.pageMaker.makeWindowBackground(canvas, currentPagesRect, currentRenderMatrix)
-                for (pageRectWithIndex in currentPagesRect){
-                    drawViewModel.pageMaker.makePageBackground(canvas, pageRectWithIndex.rect, windowRect)
-                }
-                // Usa il currentBitmap sicuro!
-                currentBitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
-
-                drawViewModel.removeFinishedStrokes?.let { it(drawAttachments.strokesIdToRemove ?: emptySet()) }
-                drawViewModel.isDocumentShowed = true
-            }
-            DrawAttachments.DrawMode.REFRESH -> {
-                drawViewModel.pageMaker.makeWindowBackground(canvas, currentPagesRect, currentRenderMatrix)
-
-                // 1. Disegna le pagine di sfondo
-                for (pageRectWithIndex in currentPagesRect) {
-                    drawViewModel.pageMaker.makePageBackground(canvas, pageRectWithIndex.rect, windowRect)
-
-                    if (drawViewModel.isReorderingPages) {
-                        // Se stiamo riordinando, lasciamo un SEGNAPOSTO nel punto in cui si dovrebbe trovare la pagina
-                        if (pageRectWithIndex.index == drawViewModel.draggedPageIndex) {
-                            val placeholderPaint = Paint().apply {
-                                color = android.graphics.Color.argb(30, 0, 0, 0) // Grigio semi-trasparente
-                                style = Paint.Style.FILL
-                            }
-                            canvas.drawRect(pageRectWithIndex.rect, placeholderPaint)
-                        } else {
-                            // Disegna la bitmap a bassa risoluzione delle altre pagine per capire l'ordine
-                            val page = document?.pages?.getOrNull(pageRectWithIndex.index) ?: continue
-                            page.bitmapPage?.let { bmp ->
-                                canvas.drawBitmap(bmp, null, pageRectWithIndex.rect, null)
-                            }
-                        }
-                    }
-                }
-
-                // Nascondi il livello ad alta risoluzione durante il riordino per evitare l'effetto fantasma
-                if (!drawViewModel.isReorderingPages) {
-                    onDrawBitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
-                }
-
-                // 2. Disegna la PAGINA FLOTTANTE sopra a tutto!
-                if (drawViewModel.isReorderingPages && drawViewModel.floatingPageRect != null && drawViewModel.draggedPageBitmap != null) {
-                    canvas.withSave {
-                        val floatingRect = drawViewModel.floatingPageRect!!
-                        val floatingBmp = drawViewModel.draggedPageBitmap!!
-
-                        // Disegniamo una bella ombra per farla sembrare sollevata
-                        val shadowPaint = Paint().apply {
-                            color = android.graphics.Color.argb(80, 0, 0, 0)
-                            setShadowLayer(20f, 0f, 15f, android.graphics.Color.argb(120, 0, 0, 0))
-                        }
-                        // L'ombra funziona meglio se il background è solido
-                        canvas.drawRect(floatingRect, shadowPaint)
-
-                        drawViewModel.pageMaker.makePageBackground(canvas, floatingRect, windowRect)
-                        // Disegniamo la bitmap della pagina che sta seguendo il dito
-                        canvas.drawBitmap(floatingBmp, null, floatingRect, null)
-
-                        // Mettiamo un contorno azzurro acceso per dare feedback
-                        val borderPaint = Paint().apply {
-                            color = android.graphics.Color.argb(255, 0, 150, 255) // Azzurro Android
-                            style = Paint.Style.STROKE
-                            strokeWidth = 6f
-                        }
-                        canvas.drawRect(floatingRect, borderPaint)
-                    }
-                }
-
-                // Notify the view model to remove ink library strokes that are now baked into the bitmap
-                drawViewModel.removeFinishedStrokes?.let { it(drawAttachments.strokesIdToRemove ?: emptySet()) }
-            }
-            DrawAttachments.DrawMode.SCALE_TRANSLATE -> {
-                val inverseDrawMatrix = Matrix()
-                var relativeTransform: Matrix? = null
-                val onDrawBitmapBounds = RectF()
-
-                // Usa la matrice congelata!
-                if (currentBitmapMatrix.invert(inverseDrawMatrix)) {
-                    relativeTransform = Matrix(inverseDrawMatrix)
-                    relativeTransform.postConcat(currentRenderMatrix)
-
-                    onDrawBitmapBounds.set(windowRect)
-                    relativeTransform.mapRect(onDrawBitmapBounds)
-                }
-
-                drawViewModel.pageMaker.makeWindowBackground(canvas, currentPagesRect, currentRenderMatrix)
-                for (pageRectWithIndex in currentPagesRect){
-                    drawViewModel.pageMaker.makePageBackground(canvas, pageRectWithIndex.rect, windowRect)
-                }
-
-                canvas.withSave {
-                    if (relativeTransform != null && !onDrawBitmapBounds.isEmpty) {
-                        clipOutRect(onDrawBitmapBounds)
-                    }
-
-                    for (pageRectWithIndex in currentPagesRect) {
-                        val page = document?.pages?.getOrNull(pageRectWithIndex.index) ?: continue
-                        if (!page.isPrepared) page.prepare()
-
-                        page.bitmapPage?.let {
-                            drawBitmap(it, null, pageRectWithIndex.rect, null)
-                        }
-                    }
-                }
-
-                // Usa il currentBitmap sicuro!
-                if (relativeTransform != null && currentBitmap != null) {
-                    canvas.withClip(windowRect) {
-                        drawBitmap(currentBitmap, relativeTransform, null)
-                    }
-                }
-            }
-            DrawAttachments.DrawMode.ANIMATE -> {
-                // 1. Aggiorna il delta time per la fisica
-                val currentTime = System.currentTimeMillis()
-                if (lastFrameTime != 0L) {
-                    val deltaTime = currentTime - lastFrameTime
-                    cameraPhysics.update(deltaTime)
-                }
-                lastFrameTime = currentTime
-
-                // 2. Ottieni la matrice visiva calcolata (include Fling, Elastico, Bounce)
-                val renderMatrix = cameraPhysics.getRenderMatrix()
-
-                // 3. Disegna gli sfondi delle finestre e le pagine
-                drawViewModel.pageMaker.makeWindowBackground(canvas, currentPagesRect, renderMatrix)
-
-                for (pageRectWithIndex in currentPagesRect){
-                    drawViewModel.pageMaker.makePageBackground(canvas, pageRectWithIndex.rect, windowRect)
-                    val page = document?.pages?.getOrNull(pageRectWithIndex.index) ?: continue
-                    if (!page.isPrepared) page.prepare()
-
-                    page.bitmapPage?.let {
-                        canvas.drawBitmap(it, null, pageRectWithIndex.rect, null)
-                    }
-                }
-
-                // 4. Controlla se l'animazione deve continuare
-                if (cameraPhysics.isAnimating()) {
-                    needsInvalidate = true
-                } else {
-                    // L'animazione è conclusa dolcemente: scateniamo il render HD
-                    lastFrameTime = 0L
-                    requestDraw(DrawAttachments(drawMode = DrawAttachments.DrawMode.UPDATE).apply {
-                        update = DrawAttachments.Update.DRAW_BITMAP
-                    })
-                }
-            }
+            DrawAttachments.DrawMode.UPDATE -> renderUpdateMode(canvas, snapshot, drawAttachments)
+            DrawAttachments.DrawMode.REFRESH -> renderRefreshMode(canvas, snapshot, drawAttachments)
+            DrawAttachments.DrawMode.SCALE_TRANSLATE -> renderScaleTranslateMode(canvas, snapshot)
+            DrawAttachments.DrawMode.ANIMATE -> renderAnimateMode(canvas, snapshot)
             else -> {}
         }
 
-        // --- FASE 3: DISEGNO IN OVERLAY DEL GRUPPO SELEZIONATO E DEL BOUNDING BOX ---
-        selectionOverlayRenderer.draw(canvas, currentPagesRect, windowRect)
+        // 3. DISEGNO OVERLAY E OVERRIDE
+        selectionOverlayRenderer.draw(canvas, snapshot.pagesRect, windowRect)
 
-        // If the animation is still ongoing, request another frame
-        if (needsInvalidate) {
+        // 4. CHECK ANIMAZIONI CONTINUE
+        if (cameraPhysics.isAnimating()) {
             requestDraw(DrawAttachments(drawMode = DrawAttachments.DrawMode.ANIMATE).apply {
                 animationType = DrawAttachments.AnimationType.FLING
             })
+        }
+    }
+
+    // --- METODI PRIVATI DI RENDERING ESTRATTI ---
+
+    private fun renderUpdateMode(canvas: Canvas, snapshot: RenderSnapshot, attachments: DrawAttachments) {
+        drawViewModel.pageMaker.makeWindowBackground(canvas, snapshot.pagesRect, snapshot.currentRenderMatrix)
+        for (page in snapshot.pagesRect) {
+            drawViewModel.pageMaker.makePageBackground(canvas, page.rect, windowRect)
+        }
+
+        snapshot.bitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
+
+        drawViewModel.removeFinishedStrokes?.let { it(attachments.strokesIdToRemove ?: emptySet()) }
+        drawViewModel.isDocumentShowed = true
+    }
+
+    private fun renderRefreshMode(canvas: Canvas, snapshot: RenderSnapshot, attachments: DrawAttachments) {
+        drawViewModel.pageMaker.makeWindowBackground(canvas, snapshot.pagesRect, snapshot.currentRenderMatrix)
+        val document = drawViewModel.documentData
+
+        for (page in snapshot.pagesRect) {
+            drawViewModel.pageMaker.makePageBackground(canvas, page.rect, windowRect)
+
+            if (drawViewModel.isReorderingPages) {
+                if (page.index == drawViewModel.draggedPageIndex) {
+                    canvas.drawRect(page.rect, placeholderPaint) // Usa la variabile pre-allocata!
+                } else {
+                    document?.pages?.getOrNull(page.index)?.bitmapPage?.let { bmp ->
+                        canvas.drawBitmap(bmp, null, page.rect, null)
+                    }
+                }
+            }
+        }
+
+        if (!drawViewModel.isReorderingPages) {
+            snapshot.bitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
+        }
+
+        renderFloatingPage(canvas) // Metodo separato per pulizia
+        drawViewModel.removeFinishedStrokes?.let { it(attachments.strokesIdToRemove ?: emptySet()) }
+    }
+
+    private fun renderScaleTranslateMode(canvas: Canvas, snapshot: RenderSnapshot) {
+        val inverseDrawMatrix = Matrix()
+        var relativeTransform: Matrix? = null
+        val onDrawBitmapBounds = RectF()
+
+        if (snapshot.matrix.invert(inverseDrawMatrix)) {
+            relativeTransform = Matrix(inverseDrawMatrix)
+            relativeTransform.postConcat(snapshot.currentRenderMatrix)
+
+            onDrawBitmapBounds.set(windowRect)
+            relativeTransform.mapRect(onDrawBitmapBounds)
+        }
+
+        drawViewModel.pageMaker.makeWindowBackground(canvas, snapshot.pagesRect, snapshot.currentRenderMatrix)
+        for (page in snapshot.pagesRect) {
+            drawViewModel.pageMaker.makePageBackground(canvas, page.rect, windowRect)
+        }
+
+        val document = drawViewModel.documentData
+        canvas.withSave {
+            if (relativeTransform != null && !onDrawBitmapBounds.isEmpty) {
+                clipOutRect(onDrawBitmapBounds)
+            }
+
+            for (page in snapshot.pagesRect) {
+                val docPage = document?.pages?.getOrNull(page.index) ?: continue
+                if (!docPage.isPrepared) docPage.prepare()
+                docPage.bitmapPage?.let { drawBitmap(it, null, page.rect, null) }
+            }
+        }
+
+        if (relativeTransform != null && snapshot.bitmap != null) {
+            canvas.withClip(windowRect) {
+                drawBitmap(snapshot.bitmap, relativeTransform, null)
+            }
+        }
+    }
+
+    private fun renderAnimateMode(canvas: Canvas, snapshot: RenderSnapshot) {
+        val currentTime = System.currentTimeMillis()
+        if (lastFrameTime != 0L) {
+            cameraPhysics.update(currentTime - lastFrameTime)
+        }
+        lastFrameTime = currentTime
+
+        // Nota: Ricalcoliamo la matrice post-update fisico
+        val updatedRenderMatrix = cameraPhysics.getRenderMatrix()
+
+        drawViewModel.pageMaker.makeWindowBackground(canvas, snapshot.pagesRect, updatedRenderMatrix)
+        val document = drawViewModel.documentData
+
+        for (page in snapshot.pagesRect) {
+            drawViewModel.pageMaker.makePageBackground(canvas, page.rect, windowRect)
+            val docPage = document?.pages?.getOrNull(page.index) ?: continue
+            if (!docPage.isPrepared) docPage.prepare()
+            docPage.bitmapPage?.let { canvas.drawBitmap(it, null, page.rect, null) }
+        }
+
+        if (!cameraPhysics.isAnimating()) {
+            lastFrameTime = 0L
+            requestDraw(DrawAttachments(drawMode = DrawAttachments.DrawMode.UPDATE).apply {
+                update = DrawAttachments.Update.DRAW_BITMAP
+            })
+        }
+    }
+
+    private fun renderFloatingPage(canvas: Canvas) {
+        if (!drawViewModel.isReorderingPages || drawViewModel.floatingPageRect == null || drawViewModel.draggedPageBitmap == null) return
+
+        canvas.withSave {
+            val floatingRect = drawViewModel.floatingPageRect!!
+            canvas.drawRect(floatingRect, shadowPaint) // Usa la variabile pre-allocata!
+            drawViewModel.pageMaker.makePageBackground(canvas, floatingRect, windowRect)
+            canvas.drawBitmap(drawViewModel.draggedPageBitmap!!, null, floatingRect, null)
+            canvas.drawRect(floatingRect, borderPaint) // Usa la variabile pre-allocata!
         }
     }
 

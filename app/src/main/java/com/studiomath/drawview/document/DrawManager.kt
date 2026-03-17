@@ -345,6 +345,11 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     fun renderFrame(canvas: Canvas) {
         isInitialized = true
 
+        // --- FIX 1: PULISCI LA SURFACE VIEW ---
+        // Sostituisci questo colore con il colore effettivo di sfondo della tua app
+        // (es. bianco o il colore del tema scuro). È cruciale per evitare l'effetto scia.
+        canvas.drawColor(android.graphics.Color.LTGRAY) // Usa il tuo colore qui!
+
         if (drawStack.isEmpty()) {
             lastDrawAttachments?.let { executeRender(canvas, it) }
             return
@@ -414,11 +419,26 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         // 1. CATTURA DELLO STATO SICURO E DELLA FISICA PER QUESTO FRAME
         val snapshot: RenderSnapshot
         synchronized(renderLock) {
+
+            // --- FIX 2: Usa le coordinate in tempo reale, non quelle congelate del frontState ---
+            // Quando fai pan/zoom, tu aggiorni 'pagesRectOnWindow' (es. in smoothPanBy o negli onTouchEvent).
+            // Dobbiamo usare QUESTI rettangoli per disegnare le pagine di cache nel posto giusto.
+            val currentRenderMatrix = cameraPhysics.getRenderMatrix()
+
+            // Se le pagine non sono ancora calcolate, usa quelle del frontState,
+            // altrimenti calcola dinamicamente le posizioni per questo frame.
+            val currentPagesRect = if (drawAttachments.drawMode == DrawAttachments.DrawMode.SCALE_TRANSLATE ||
+                drawAttachments.drawMode == DrawAttachments.DrawMode.ANIMATE) {
+                calcPage.getPagesRectOnWindowTransformation(windowRect, currentRenderMatrix)
+            } else {
+                frontState.pagesRect
+            }
+
             snapshot = RenderSnapshot(
                 bitmap = frontState.bitmap,
-                matrix = Matrix(frontState.matrix), // Copia profonda della matrice
-                pagesRect = frontState.pagesRect,   // Riferimento al set immutabile attuale
-                currentRenderMatrix = cameraPhysics.getRenderMatrix() // Fisica aggiornata
+                matrix = Matrix(frontState.matrix),
+                pagesRect = currentPagesRect, // Usiamo i rettangoli aggiornati!
+                currentRenderMatrix = currentRenderMatrix
             )
         }
 

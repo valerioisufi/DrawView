@@ -719,16 +719,17 @@ class OnTouchHover(
                 currentDragState == DragState.NONE
 
         if (isScalePanInput) {
+
+            // --- FIX 2: CANCELLAZIONE TRATTO FANTASMA ---
+            // Se stavamo disegnando con 1 dito, ma poi appoggiamo il 2° dito per spostarci,
+            // dobbiamo eliminare il tratto iniziato per sbaglio.
+            if (!isStylusActive && event.pointerCount > 1 && currentStrokeId != null) {
+                cancelCurrentStroke(event)
+            }
+
             onScaleTranslate.onScaleTranslate(view.context, event)
 
-            if (!isStylusActive) {
-                val pointerIndex = event.actionIndex
-                val pointerId = event.getPointerId(pointerIndex)
-
-                if (pointerId == currentPointerId && currentStrokeId != null) {
-                    cancelCurrentStroke(event)
-                }
-            }
+            // (Abbiamo rimosso il vecchio controllo contorto su pointerId che non funzionava)
         }
 
         return@OnTouchListener true

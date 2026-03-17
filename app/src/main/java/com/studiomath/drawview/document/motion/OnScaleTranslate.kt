@@ -112,7 +112,12 @@ class OnScaleTranslate(
         initDetectors(context)
 
         val action = event.actionMasked
-        if (action == MotionEvent.ACTION_DOWN) {
+
+        // --- FIX 1: SBLOCCO PAGINA ---
+        // Resetta handledFling anche quando tocca il secondo dito (POINTER_DOWN).
+        // Questo sblocca il rilascio elastico quando l'ACTION_DOWN iniziale
+        // è stato "rubato" dal motore di disegno.
+        if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN) {
             handledFling = false
         }
 

@@ -46,7 +46,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         var pagesRect: Set<CalcPage.PageRectWithIndex> = mutableSetOf()
     )
 
-    private val renderLock = Any() // Oggetto usato per sincronizzare i thread
+    val renderLock = Any() // Oggetto usato per sincronizzare i thread
     var frontState = RenderState() // Quello che il Main Thread disegna
     var backState = RenderState()  // Quello su cui la Coroutine lavora in background
 
@@ -424,15 +424,16 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         val snapshot: RenderSnapshot
         synchronized(renderLock) {
 
-            // --- FIX 2: Usa le coordinate in tempo reale, non quelle congelate del frontState ---
-            // Quando fai pan/zoom, tu aggiorni 'pagesRectOnWindow' (es. in smoothPanBy o negli onTouchEvent).
-            // Dobbiamo usare QUESTI rettangoli per disegnare le pagine di cache nel posto giusto.
             val currentRenderMatrix = cameraPhysics.getRenderMatrix()
 
-            // Se le pagine non sono ancora calcolate, usa quelle del frontState,
-            // altrimenti calcola dinamicamente le posizioni per questo frame.
-            val currentPagesRect = if (drawAttachments.drawMode == DrawAttachments.DrawMode.SCALE_TRANSLATE ||
-                drawAttachments.drawMode == DrawAttachments.DrawMode.ANIMATE) {
+            // --- FIX 3: NIENTE PIÙ SNAP-BACK! ---
+            // Se stiamo riordinando le pagine, la telecamera potrebbe essersi mossa
+            // via auto-scroll, quindi forziamo SEMPRE l'uso delle coordinate dal vivo.
+            val useLiveRects = drawAttachments.drawMode == DrawAttachments.DrawMode.SCALE_TRANSLATE ||
+                    drawAttachments.drawMode == DrawAttachments.DrawMode.ANIMATE ||
+                    drawViewModel.isReorderingPages // <--- Aggiunta fondamentale
+
+            val currentPagesRect = if (useLiveRects) {
                 calcPage.getPagesRectOnWindowTransformation(windowRect, currentRenderMatrix)
             } else {
                 frontState.pagesRect
@@ -441,7 +442,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             snapshot = RenderSnapshot(
                 bitmap = frontState.bitmap,
                 matrix = Matrix(frontState.matrix),
-                pagesRect = currentPagesRect, // Usiamo i rettangoli aggiornati!
+                pagesRect = currentPagesRect,
                 currentRenderMatrix = currentRenderMatrix
             )
         }
@@ -520,28 +521,42 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         }
 
         drawViewModel.pageMaker.makeWindowBackground(canvas, snapshot.pagesRect, snapshot.currentRenderMatrix)
-        for (page in snapshot.pagesRect) {
-            drawViewModel.pageMaker.makePageBackground(canvas, page.rect, windowRect)
-        }
 
         val document = drawViewModel.documentData
+
         canvas.withSave {
-            if (relativeTransform != null && !onDrawBitmapBounds.isEmpty) {
+            // FIX 2: Se stiamo riordinando, NON clippiamo lo schermo perché non useremo
+            // il livello ad alta risoluzione. Disegneremo tutte le pagine a bassa risoluzione.
+            if (!drawViewModel.isReorderingPages && relativeTransform != null && !onDrawBitmapBounds.isEmpty) {
                 clipOutRect(onDrawBitmapBounds)
             }
 
             for (page in snapshot.pagesRect) {
-                val docPage = document?.pages?.getOrNull(page.index) ?: continue
-                if (!docPage.isPrepared) docPage.prepare()
-                docPage.bitmapPage?.let { drawBitmap(it, null, page.rect, null) }
+                drawViewModel.pageMaker.makePageBackground(canvas, page.rect, windowRect)
+
+                // Selezioniamo cosa disegnare per ogni slot
+                if (drawViewModel.isReorderingPages && page.index == drawViewModel.draggedPageIndex) {
+                    // È il buco lasciato dalla pagina che stiamo spostando: disegniamo il placeholder
+                    canvas.drawRect(page.rect, placeholderPaint)
+                } else {
+                    // È una pagina normale: disegniamo la sua bitmap
+                    val docPage = document?.pages?.getOrNull(page.index) ?: continue
+                    if (!docPage.isPrepared) docPage.prepare()
+                    docPage.bitmapPage?.let { drawBitmap(it, null, page.rect, null) }
+                }
             }
         }
 
-        if (relativeTransform != null && snapshot.bitmap != null) {
+        // Mostriamo il layer ad alta risoluzione SOLO se NON stiamo riordinando le pagine
+        if (!drawViewModel.isReorderingPages && relativeTransform != null && snapshot.bitmap != null) {
             canvas.withClip(windowRect) {
                 drawBitmap(snapshot.bitmap, relativeTransform, null)
             }
         }
+
+        // --- FIX 1: DISENGA LA PAGINA VOLANTE ---
+        // Prima mancava questa riga, per questo la pagina spariva durante l'auto-scroll!
+        renderFloatingPage(canvas)
     }
 
     private fun renderAnimateMode(canvas: Canvas, snapshot: RenderSnapshot) {

@@ -73,26 +73,23 @@ class OnTouchHover(
             if (!isAutoScrolling || !drawViewModel.isReorderingPages) return
             val view = attachedView ?: return
 
-            // 1. Spinge la telecamera del documento (usa il delta calcolato)
+            // 1. Spinge la telecamera del documento
             drawViewModel.drawManager.cameraPhysics.onDrag(
                 0f, autoScrollDeltaY, 1f,
                 view.width / 2f, view.height / 2f
             )
 
-            // 2. Ricalcola dove si trovano le pagine sullo schermo dopo aver mosso la telecamera
-            val renderMatrix = drawViewModel.drawManager.cameraPhysics.getRenderMatrix()
-            drawViewModel.drawManager.pagesRectOnWindow = drawViewModel.drawManager.calcPage.getPagesRectOnWindowTransformation(drawViewModel.drawManager.windowRect, renderMatrix)
-
-            // 3. Poiché il documento scorre SOTTO il dito fermo, la pagina sollevata
-            //    potrebbe aver superato una nuova pagina. Verifichiamo lo Swap!
+            // 2. Eseguiamo la logica di scambio in base alla NUOVA posizione della telecamera
             performSwapLogic()
 
-            // 4. Disegniamo il nuovo fotogramma
+            // 3. FIX CRITICO: Chiediamo uno SCALE_TRANSLATE, non un REFRESH!
+            // In questo modo il Render Thread capisce che la telecamera si è mossa
+            // e ricalcolerà i rettangoli in tempo reale prima di disegnare.
             drawViewModel.drawManager.requestDraw(
-                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.REFRESH)
+                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.SCALE_TRANSLATE)
             )
 
-            // 5. Ordina ad Android di richiamare questo stesso blocco al prossimo fotogramma
+            // 4. Ordina ad Android di richiamare questo stesso blocco al prossimo fotogramma
             view.postOnAnimation(this)
         }
     }
@@ -104,29 +101,30 @@ class OnTouchHover(
         val floatCenterY = floatingRect.centerY()
         val floatCenterX = floatingRect.centerX()
 
-        val targetInfo = drawViewModel.drawManager.pagesRectOnWindow.find {
+        // FIX: Non leggere le variabili grafiche vecchie. Chiediamo le posizioni aggiornate
+        // alla fisica esattamente in questo istante!
+        val currentRenderMatrix = drawViewModel.drawManager.cameraPhysics.getRenderMatrix()
+        val currentPagesRects = drawViewModel.drawManager.calcPage.getPagesRectOnWindowTransformation(
+            drawViewModel.drawManager.windowRect, currentRenderMatrix
+        )
+
+        val targetInfo = currentPagesRects.find {
             it.rect.contains(floatCenterX, floatCenterY)
         }
 
         if (targetInfo != null && targetInfo.index != drawViewModel.draggedPageIndex) {
-            // Spostiamo la pagina nella RAM
-            val draggedPage = doc.pages.removeAt(drawViewModel.draggedPageIndex)
-            doc.pages.add(targetInfo.index, draggedPage)
-            drawViewModel.draggedPageIndex = targetInfo.index
 
-            // Ricalcoliamo le dimensioni fisiche ("i buchi")
-            drawViewModel.drawManager.calcPage.calcPagesRectOnWindow(
-                doc.pages,
-                drawViewModel.drawManager.windowRect,
-                com.studiomath.drawview.document.page.CalcPage.PagePositionOnWindowOption()
-            )
-            drawViewModel.drawManager.calcPage.needToBeUpdated = true
-        }
+            // SINCRONIZZAZIONE CRITICA: Blocchiamo il Render Thread per un nanosecondo
+            // per evitare che cerchi di disegnare una pagina mentre la stiamo spostando nella lista.
+            synchronized(drawViewModel.drawManager.renderLock) {
+                // Spostiamo la pagina nella RAM
+                val draggedPage = doc.pages.removeAt(drawViewModel.draggedPageIndex)
+                doc.pages.add(targetInfo.index, draggedPage)
+                drawViewModel.draggedPageIndex = targetInfo.index
 
-        if (drawViewModel.drawManager.calcPage.needToBeUpdated) {
-            val renderMatrix = drawViewModel.drawManager.cameraPhysics.getRenderMatrix()
-            drawViewModel.drawManager.pagesRectOnWindow = drawViewModel.drawManager.calcPage.getPagesRectOnWindowTransformation(drawViewModel.drawManager.windowRect, renderMatrix)
-            drawViewModel.drawManager.calcPage.needToBeUpdated = false
+                // Diciamo al sistema che i "buchi" del documento sono cambiati
+                drawViewModel.drawManager.calcPage.needToBeUpdated = true
+            }
         }
     }
 

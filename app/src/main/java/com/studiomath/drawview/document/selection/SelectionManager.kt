@@ -253,26 +253,61 @@ class SelectionManager(
         val isPageChanged = oldPageIndex != targetPageIndex
         val finalTransform = Matrix(selection.transformMatrix)
 
-        if (isPageChanged) {
-            val screenToNewMmMatrix = Matrix()
-            Matrix().apply { setRectToRect(targetPage.rect(), targetPageInfo.rect, Matrix.ScaleToFit.CENTER) }.invert(screenToNewMmMatrix)
+        // --- FIX: BLOCCO DI SINCRONIZZAZIONE ATOMICA ---
+        // Blocchiamo il RenderThread. Così non potrà MAI disegnare un frame
+        // a metà strada, evitando il glitch della doppia trasformazione.
+        synchronized(drawManager.renderLock) {
 
-            val oldMmToNewMmMatrix = Matrix().apply {
-                postConcat(oldMmToScreenMatrix)
-                postConcat(screenToNewMmMatrix)
+            if (isPageChanged) {
+                val screenToNewMmMatrix = Matrix()
+                Matrix().apply { setRectToRect(targetPage.rect(), targetPageInfo.rect, Matrix.ScaleToFit.CENTER) }.invert(screenToNewMmMatrix)
+
+                val oldMmToNewMmMatrix = Matrix().apply {
+                    postConcat(oldMmToScreenMatrix)
+                    postConcat(screenToNewMmMatrix)
+                }
+                finalTransform.postConcat(oldMmToNewMmMatrix)
+                oldMmToNewMmMatrix.mapRect(selection.boundingBox)
+                selection.pageIndex = targetPageIndex
+
+                oldPage.imageData.removeAll(selection.images)
+                oldPage.strokeData.removeAll(selection.strokes)
+                oldPage.textData.removeAll(selection.texts)
+
+                targetPage.imageData.addAll(selection.images)
+                targetPage.strokeData.addAll(selection.strokes)
+                targetPage.textData.addAll(selection.texts)
             }
-            finalTransform.postConcat(oldMmToNewMmMatrix)
-            oldMmToNewMmMatrix.mapRect(selection.boundingBox)
-            selection.pageIndex = targetPageIndex
 
-            oldPage.imageData.removeAll(selection.images)
-            oldPage.strokeData.removeAll(selection.strokes)
-            oldPage.textData.removeAll(selection.texts)
+            selection.strokes.forEach { it.applyTransform(finalTransform) }
 
-            targetPage.imageData.addAll(selection.images)
-            targetPage.strokeData.addAll(selection.strokes)
-            targetPage.textData.addAll(selection.texts)
+            val values = FloatArray(9)
+            finalTransform.getValues(values)
+            val scale = hypot(values[Matrix.MSCALE_X].toDouble(), values[Matrix.MSKEW_Y].toDouble()).toFloat()
+            val angle = Math.toDegrees(atan2(values[Matrix.MSKEW_Y].toDouble(), values[Matrix.MSCALE_X].toDouble())).toFloat()
+            val pts = FloatArray(2)
 
+            selection.images.forEach { img ->
+                pts[0] = img.x + (img.width / 2f); pts[1] = img.y + (img.height / 2f)
+                finalTransform.mapPoints(pts)
+                img.width *= scale; img.height *= scale; img.rotation = (img.rotation + angle) % 360f
+                img.x = pts[0] - (img.width / 2f); img.y = pts[1] - (img.height / 2f)
+            }
+
+            selection.texts.forEach { txt ->
+                pts[0] = txt.x + (txt.width / 2f); pts[1] = txt.y + (txt.height / 2f)
+                finalTransform.mapPoints(pts)
+                txt.width *= scale; txt.height *= scale; txt.fontSize *= scale; txt.rotation = (txt.rotation + angle) % 360f
+                txt.x = pts[0] - (txt.width / 2f); txt.y = pts[1] - (txt.height / 2f)
+            }
+
+            // Resettiamo la matrice NELLO STESSO ISTANTE in cui applichiamo le coordinate.
+            selection.transformMatrix.reset()
+
+        } // FINE BLOCCO SINCRONIZZATO
+
+        // (Il resto rimane invariato e fuori dal blocco perché usa le Coroutine)
+        if (isPageChanged) {
             coroutineScope.launch(Dispatchers.Default) {
                 oldPage.bitmapPage?.let { oldBitmap ->
                     oldPage.bitmapPage = pageMaker.makePage(android.graphics.Rect(0, 0, oldBitmap.width, oldBitmap.height), null, oldPage, doc)
@@ -280,30 +315,6 @@ class SelectionManager(
                 requestRedraw()
             }
         }
-
-        selection.strokes.forEach { it.applyTransform(finalTransform) }
-
-        val values = FloatArray(9)
-        finalTransform.getValues(values)
-        val scale = hypot(values[Matrix.MSCALE_X].toDouble(), values[Matrix.MSKEW_Y].toDouble()).toFloat()
-        val angle = Math.toDegrees(atan2(values[Matrix.MSKEW_Y].toDouble(), values[Matrix.MSCALE_X].toDouble())).toFloat()
-        val pts = FloatArray(2)
-
-        selection.images.forEach { img ->
-            pts[0] = img.x + (img.width / 2f); pts[1] = img.y + (img.height / 2f)
-            finalTransform.mapPoints(pts)
-            img.width *= scale; img.height *= scale; img.rotation = (img.rotation + angle) % 360f
-            img.x = pts[0] - (img.width / 2f); img.y = pts[1] - (img.height / 2f)
-        }
-
-        selection.texts.forEach { txt ->
-            pts[0] = txt.x + (txt.width / 2f); pts[1] = txt.y + (txt.height / 2f)
-            finalTransform.mapPoints(pts)
-            txt.width *= scale; txt.height *= scale; txt.fontSize *= scale; txt.rotation = (txt.rotation + angle) % 360f
-            txt.x = pts[0] - (txt.width / 2f); txt.y = pts[1] - (txt.height / 2f)
-        }
-
-        selection.transformMatrix.reset()
 
         if (selection.oldImageStates != null) {
             historyManager.addHistoryAction(

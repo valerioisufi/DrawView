@@ -9,6 +9,7 @@ import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.RectF
 import android.util.DisplayMetrics
+import android.view.SurfaceHolder
 import androidx.core.graphics.createBitmap
 import androidx.core.graphics.withClip
 import androidx.core.graphics.withSave
@@ -22,6 +23,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentLinkedQueue
 
 /**
  * The core rendering engine and state manager for the drawing canvas.
@@ -76,6 +78,11 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     /** The physical boundaries of the drawing view on the screen. */
     var windowRect = RectF()
 
+
+    private var renderThread: Thread? = null
+    @Volatile private var isRendering = false
+    private val threadWaitLock = Object() // Usato per mettere in pausa il thread e risparmiare batteria
+    private var currentSurfaceHolder: SurfaceHolder? = null
 
 
     val cameraPhysics = CameraPhysicsEngine(displayMetrics) {
@@ -152,7 +159,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     }
 
     /** The queue of rendering events waiting to be drawn on the next frame. */
-    private var drawStack = mutableListOf<DrawAttachments>()
+    private var drawStack = ConcurrentLinkedQueue<DrawAttachments>()
 
     /**
      * Dispatches a request to update the drawing view.
@@ -250,10 +257,6 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         }
     }
 
-    var invalidateRequest: (() -> Unit)? = null
-    var postInvalidateRequest: (() -> Unit)? = null
-    var postInvalidateOnAnimationRequest: (() -> Unit)? = null
-
     var isDrawing = false
     var isUserTouching = false
 
@@ -263,19 +266,72 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
      */
     private fun updateDrawView(drawAttachments: DrawAttachments) {
         isDrawing = true
-        drawStack.add(drawAttachments)
+        drawStack.add(drawAttachments) // Aggiunge in modo thread-safe
 
-        when (drawAttachments.drawMode){
-            DrawAttachments.DrawMode.UPDATE -> postInvalidateRequest?.invoke()
-            DrawAttachments.DrawMode.ANIMATE -> postInvalidateOnAnimationRequest?.invoke()
-            else -> {
-                if (drawAttachments.invalidateType == DrawAttachments.Invalidate.INVALIDATE){
-                    invalidateRequest?.invoke()
-                } else if (drawAttachments.invalidateType == DrawAttachments.Invalidate.POST_INVALIDATE){
-                    postInvalidateRequest?.invoke()
+        // Sveglia il Render Thread se si era addormentato
+        synchronized(threadWaitLock) {
+            threadWaitLock.notifyAll()
+        }
+    }
+
+    fun startRenderLoop(holder: SurfaceHolder) {
+        if (isRendering) return
+        currentSurfaceHolder = holder
+        isRendering = true
+
+        renderThread = Thread {
+            while (isRendering) {
+                // 1. Controlla se c'è qualcosa da disegnare o se c'è un'animazione in corso
+                val hasWork = drawStack.isNotEmpty() || cameraPhysics.isAnimating()
+
+                if (!hasWork) {
+                    // Niente da fare? Mettiamo in pausa il thread per NON scaricare la batteria
+                    synchronized(threadWaitLock) {
+                        try {
+                            threadWaitLock.wait() // Aspetta finché updateDrawView non chiama notifyAll()
+                        } catch (e: InterruptedException) {
+                            Thread.currentThread().interrupt()
+                        }
+                    }
+                    continue // Quando si sveglia, ricomincia il ciclo
+                }
+
+                // 2. Disegniamo! Blocchiamo la tela della SurfaceView
+                var canvas: Canvas? = null
+                try {
+                    canvas = holder.lockCanvas()
+                    if (canvas != null) {
+                        // Criptiamo le dimensioni della finestra per sicurezza
+                        canvas.clipRect(windowRect)
+
+                        // Chiamiamo il tuo vecchio onDrawView (che ora rinominiamo internamente)
+                        renderFrame(canvas)
+                    }
+                } finally {
+                    // 3. Rilasciamo la tela e pubblichiamo il frame a schermo!
+                    if (canvas != null) {
+                        holder.unlockCanvasAndPost(canvas)
+                    }
                 }
             }
+        }.apply {
+            name = "DrawView-RenderThread"
+            start()
         }
+    }
+
+    fun stopRenderLoop() {
+        isRendering = false
+        synchronized(threadWaitLock) {
+            threadWaitLock.notifyAll() // Sveglia il thread se dorme per farlo uscire dal while
+        }
+        try {
+            renderThread?.join() // Aspettiamo che muoia pulito
+        } catch (e: InterruptedException) {
+            e.printStackTrace()
+        }
+        renderThread = null
+        currentSurfaceHolder = null
     }
 
     var lastDrawAttachments: DrawAttachments? = null
@@ -286,7 +342,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
      *
      * @param canvas The Android hardware-accelerated Canvas to draw on.
      */
-    fun onDrawView(canvas: Canvas) {
+    fun renderFrame(canvas: Canvas) {
         isInitialized = true
 
         if (drawStack.isEmpty()) {
@@ -304,7 +360,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         var targetAnimation = DrawAttachments.AnimationType.NONE
 
         while (drawStack.isNotEmpty()) {
-            val attachment = drawStack.removeAt(0)
+            val attachment = drawStack.poll() ?: break // poll() estrae e rimuove il primo elemento
 
             // Determine priority (UPDATE takes precedence over REFRESH/SCALE_TRANSLATE)
             if (attachment.drawMode == DrawAttachments.DrawMode.UPDATE) {

@@ -240,8 +240,14 @@ class OnTouchHover(
 
                     if (drawViewModel.draggedPageIndex != -1 && !drawViewModel.isDropAnimating) {
 
-                        // Troviamo il rettangolo finale in cui la pagina DEVE atterrare
-                        val targetPageInfo = drawViewModel.drawManager.pagesRectOnWindow.find {
+                        // FIX 1: Forza un ricalcolo immediato e sincronizzato dei rettangoli
+                        // per avere il bersaglio ESATTO in cui la pagina deve atterrare.
+                        val currentRenderMatrix = drawViewModel.drawManager.cameraPhysics.getRenderMatrix()
+                        val currentPagesRects = drawViewModel.drawManager.calcPage.getPagesRectOnWindowTransformation(
+                            drawViewModel.drawManager.windowRect, currentRenderMatrix
+                        )
+
+                        val targetPageInfo = currentPagesRects.find {
                             it.index == drawViewModel.draggedPageIndex
                         }
 
@@ -274,12 +280,22 @@ class OnTouchHover(
 
                                 addListener(object : android.animation.AnimatorListenerAdapter() {
                                     override fun onAnimationEnd(animation: android.animation.Animator) {
-                                        // Animazione conclusa: puliamo lo stato e salviamo nel DB!
+                                        // FIX 2: Animazione conclusa visivamente.
+                                        // NON spegniamo subito drawViewModel.isReorderingPages!
+                                        // Se lo facessimo, il DrawManager cercherebbe di disegnare la vecchia
+                                        // bitmap ad alta risoluzione per una frazione di secondo (il glitch!).
+
+                                        // Invece, lanciamo un DRAW_BITMAP che aggiornerà la grafica
+                                        // in background, e spegniamo i flag solo DOPO (o contemporaneamente).
+
                                         drawViewModel.isDropAnimating = false
                                         drawViewModel.draggedPageIndex = -1
                                         drawViewModel.floatingPageRect = null
                                         drawViewModel.draggedPageBitmap = null
 
+                                        // Chiedi al DrawManager di ricreare tutto e poi uscire dalla modalità.
+                                        // NOTA: Assicurati che il tuo finishPageReorderMode() chiami un
+                                        // requestDraw(UPDATE -> DRAW_BITMAP) per renderizzare il documento finale.
                                         drawViewModel.finishPageReorderMode()
                                     }
                                 })
@@ -287,7 +303,8 @@ class OnTouchHover(
                             animator.start()
 
                         } else {
-                            // Fallback di sicurezza: se per caso il targetRect non esiste, spegniamo subito
+                            // Fallback di sicurezza
+                            drawViewModel.isDropAnimating = false
                             drawViewModel.draggedPageIndex = -1
                             drawViewModel.floatingPageRect = null
                             drawViewModel.draggedPageBitmap = null

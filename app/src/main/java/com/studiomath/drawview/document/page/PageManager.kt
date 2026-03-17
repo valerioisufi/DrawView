@@ -106,14 +106,33 @@ class PageManager(
     }
 
     fun finishPageReorderMode(documentData: Document?) {
-        isReorderingPages = false
+        // NON spegnere isReorderingPages qui!
         contextMenuTargetPageIndex = -1
 
         val currentDoc = documentData ?: return
 
         coroutineScope.launch {
+            // 1. Aggiorna il database
             repository.updatePagesOrder(currentDoc.pages)
-            updateDrawManager()
+
+            // 2. Ordina la creazione della nuova grafica ad alta risoluzione
+            val drawManager = getDrawManager()
+            drawManager.calcPage.needToBeUpdated = true
+            drawManager.requestDraw(
+                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                }
+            )
+
+            // --- FIX SINCRONIZZAZIONE ---
+            // 3. ASPETTIAMO che il background thread abbia finito di creare
+            // la nuova bitmap e abbia fatto lo "swap" nel frontState.
+            // .join() mette in pausa questa specifica coroutine senza bloccare l'interfaccia UI!
+            drawManager.jobOnDrawBitmap?.join()
+
+            // 4. SOLO ORA, con la grafica pronta, spegniamo la modalità riordino.
+            // Il prossimo frame leggerà la bitmap nuova fiammante e non ci sarà nessun salto!
+            isReorderingPages = false
         }
     }
 

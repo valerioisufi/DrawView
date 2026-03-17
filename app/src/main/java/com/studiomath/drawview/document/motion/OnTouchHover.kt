@@ -68,9 +68,10 @@ class OnTouchHover(
     private var attachedView: View? = null
 
     // Questo è il "Motore" che gira a 60fps quando il dito è fermo ai bordi
-    private val autoScrollRunnable = object : java.lang.Runnable {
+    private val autoScrollRunnable = object : Runnable {
         override fun run() {
-            if (!isAutoScrolling || !drawViewModel.isReorderingPages) return
+            // Rimosso il blocco "!drawViewModel.isReorderingPages" per renderlo universale
+            if (!isAutoScrolling) return
             val view = attachedView ?: return
 
             // 1. Spinge la telecamera del documento
@@ -79,17 +80,29 @@ class OnTouchHover(
                 view.width / 2f, view.height / 2f
             )
 
-            // 2. Eseguiamo la logica di scambio in base alla NUOVA posizione della telecamera
-            performSwapLogic()
+            // 2. SMISTAMENTO LOGICA
+            if (drawViewModel.isReorderingPages) {
+                // Atterraggio Pagine
+                performSwapLogic()
+            } else if (currentDragState == DragState.PANNING) {
+                // --- NUOVO: Trascina la Selezione ---
+                val dyMm = -autoScrollDeltaY * dragScaleMmPerPx
 
-            // 3. FIX CRITICO: Chiediamo uno SCALE_TRANSLATE, non un REFRESH!
-            // In questo modo il Render Thread capisce che la telecamera si è mossa
-            // e ricalcolerà i rettangoli in tempo reale prima di disegnare.
+                // BLOCCO DI SICUREZZA
+                synchronized(drawViewModel.drawManager.renderLock) {
+                    drawViewModel.currentSelection?.let {
+                        it.transformMatrix.postTranslate(0f, dyMm)
+                        it.boundingBox.offset(0f, dyMm)
+                    }
+                }
+            }
+
+            // 3. Chiediamo uno SCALE_TRANSLATE perché la telecamera si è mossa
             drawViewModel.drawManager.requestDraw(
                 DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.SCALE_TRANSLATE)
             )
 
-            // 4. Ordina ad Android di richiamare questo stesso blocco al prossimo fotogramma
+            // 4. Ripeti al prossimo fotogramma
             view.postOnAnimation(this)
         }
     }
@@ -588,10 +601,38 @@ class OnTouchHover(
                             DragState.PANNING -> {
                                 val dxMm = (event.x - lastTouchX) * dragScaleMmPerPx
                                 val dyMm = (event.y - lastTouchY) * dragScaleMmPerPx
-                                selection.transformMatrix.postTranslate(dxMm, dyMm)
-                                selection.boundingBox.offset(dxMm, dyMm)
+
+                                // BLOCCO DI SICUREZZA
+                                synchronized(drawViewModel.drawManager.renderLock) {
+                                    selection.transformMatrix.postTranslate(dxMm, dyMm)
+                                    selection.boundingBox.offset(dxMm, dyMm)
+                                }
+
                                 lastTouchX = event.x
                                 lastTouchY = event.y
+
+                                // --- NUOVO: LOGICA AUTO-SCROLL PER GLI ELEMENTI ---
+                                val edgeMargin = 150f // Area di attivazione ai bordi
+                                var scrollDelta = 0f
+
+                                if (event.y < edgeMargin) {
+                                    scrollDelta = (edgeMargin - event.y) * 0.4f // Verso l'alto
+                                } else if (event.y > view.height - edgeMargin) {
+                                    scrollDelta = -((event.y - (view.height - edgeMargin)) * 0.4f) // Verso il basso
+                                }
+
+                                if (scrollDelta != 0f) {
+                                    autoScrollDeltaY = scrollDelta
+                                    if (!isAutoScrolling) {
+                                        isAutoScrolling = true
+                                        view.postOnAnimation(autoScrollRunnable)
+                                    }
+                                } else {
+                                    if (isAutoScrolling) {
+                                        isAutoScrolling = false
+                                        view.removeCallbacks(autoScrollRunnable)
+                                    }
+                                }
                             }
                             DragState.SCALING -> {
                                 // Calcoliamo la nuova distanza dal centro
@@ -601,12 +642,13 @@ class OnTouchHover(
                                 ).toFloat()
                                 if (initialDistance > 0.1f) {
                                     val scaleFactor = currentDist / initialDistance
-                                    // Scaliamo rispetto al centro del gruppo
-                                    selection.transformMatrix.postScale(scaleFactor, scaleFactor, initialCenterX, initialCenterY)
 
-                                    // Aggiorniamo manualmente il bounding box per farlo ingrandire visivamente
-                                    val scaleMatrix = Matrix().apply { setScale(scaleFactor, scaleFactor, initialCenterX, initialCenterY) }
-                                    scaleMatrix.mapRect(selection.boundingBox)
+                                    // BLOCCO DI SICUREZZA
+                                    synchronized(drawViewModel.drawManager.renderLock) {
+                                        selection.transformMatrix.postScale(scaleFactor, scaleFactor, initialCenterX, initialCenterY)
+                                        val scaleMatrix = Matrix().apply { setScale(scaleFactor, scaleFactor, initialCenterX, initialCenterY) }
+                                        scaleMatrix.mapRect(selection.boundingBox)
+                                    }
 
                                     initialDistance = currentDist
                                 }
@@ -621,8 +663,10 @@ class OnTouchHover(
                                 ).toFloat()
                                 val deltaAngle = currentAngle - initialAngle
 
-                                // Ruotiamo rispetto al centro del gruppo
-                                selection.transformMatrix.postRotate(deltaAngle, initialCenterX, initialCenterY)
+                                // BLOCCO DI SICUREZZA
+                                synchronized(drawViewModel.drawManager.renderLock) {
+                                    selection.transformMatrix.postRotate(deltaAngle, initialCenterX, initialCenterY)
+                                }
 
                                 initialAngle = currentAngle
                             }
@@ -634,39 +678,49 @@ class OnTouchHover(
                                 // per poter trascinare e allargare il testo lungo il suo asse "dritto"
                                 val pts = floatArrayOf(xMm, yMm)
                                 val inverseTransform = Matrix()
-                                selection.transformMatrix.invert(inverseTransform)
-                                inverseTransform.mapPoints(pts)
 
-                                val touchLocalX = pts[0]
-                                val minWidthMm = 20f // Larghezza minima (2 cm) per non far collassare il box
+                                // BLOCCO DI SICUREZZA
+                                synchronized(drawViewModel.drawManager.renderLock) {
+                                    selection.transformMatrix.invert(inverseTransform)
+                                    inverseTransform.mapPoints(pts)
 
-                                if (currentDragState == DragState.TEXT_RESIZE_RIGHT) {
-                                    val newWidth = touchLocalX - txt.x
-                                    txt.width = max(minWidthMm, newWidth)
-                                } else {
-                                    val rightEdge = txt.x + txt.width
-                                    val newWidth = rightEdge - touchLocalX
-                                    if (newWidth >= minWidthMm) {
-                                        txt.x = touchLocalX
-                                        txt.width = newWidth
+                                    val touchLocalX = pts[0]
+                                    val minWidthMm = 20f
+
+                                    if (currentDragState == DragState.TEXT_RESIZE_RIGHT) {
+                                        val newWidth = touchLocalX - txt.x
+                                        txt.width = max(minWidthMm, newWidth)
+                                    } else {
+                                        val rightEdge = txt.x + txt.width
+                                        val newWidth = rightEdge - touchLocalX
+                                        if (newWidth >= minWidthMm) {
+                                            txt.x = touchLocalX
+                                            txt.width = newWidth
+                                        }
                                     }
+                                    selection.boundingBox.set(txt.x, txt.y, txt.x + txt.width, txt.y + txt.height)
                                 }
-
-                                // Aggiorniamo la scatola base visiva
-                                selection.boundingBox.set(txt.x, txt.y, txt.x + txt.width, txt.y + txt.height)
                             }
                             DragState.NONE -> {}
                         }
 
                         if (currentDragState != DragState.NONE) {
-                            drawViewModel.drawManager.requestDraw(
-                                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.REFRESH)
-                            )
+                            // Se c'è l'autoscroll attivo, il Runnable sta già lanciando SCALE_TRANSLATE a 60fps.
+                            // Se non è attivo, basta un REFRESH per aggiornare l'overlay del trascinamento manuale.
+                            if (!isAutoScrolling) {
+                                drawViewModel.drawManager.requestDraw(
+                                    DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.REFRESH)
+                                )
+                            }
                             return@OnTouchListener true
                         }
                     }
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                         if (currentDragState != DragState.NONE) {
+
+                            // --- NUOVO: SPEGNIMENTO AUTO-SCROLL ---
+                            isAutoScrolling = false
+                            view.removeCallbacks(autoScrollRunnable)
 
                             // --- COMPORTAMENTO STANDARD DI FINE TRASCINAMENTO ---
                             currentDragState = DragState.NONE

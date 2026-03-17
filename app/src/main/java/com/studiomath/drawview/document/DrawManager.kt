@@ -463,7 +463,10 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         }
 
         // 3. DISEGNO OVERLAY E OVERRIDE
-        selectionOverlayRenderer.draw(canvas, snapshot.pagesRect, windowRect)
+        // --- FIX: IL RENDERER ORA ASPETTA CHE IL MAIN THREAD FINISCA LE MODIFICHE ---
+        synchronized(renderLock) {
+            selectionOverlayRenderer.draw(canvas, snapshot.pagesRect, windowRect)
+        }
 
         // 4. CHECK ANIMAZIONI CONTINUE
         if (cameraPhysics.isAnimating()) {

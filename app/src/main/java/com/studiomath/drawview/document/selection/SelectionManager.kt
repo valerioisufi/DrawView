@@ -238,15 +238,25 @@ class SelectionManager(
         val doc = documentData ?: return
         val drawManager = getDrawManager()
 
+        // --- FIX CRITICO: USARE LE POSIZIONI DAL VIVO ---
+        // Poiché l'auto-scroll ha mosso la telecamera, calcoliamo i rettangoli
+        // aggiornati in questo esatto momento per trovare l'atterraggio corretto!
+        val currentRenderMatrix = drawManager.cameraPhysics.getRenderMatrix()
+        val livePagesRects = drawManager.calcPage.getPagesRectOnWindowTransformation(
+            drawManager.windowRect, currentRenderMatrix
+        )
+
         val oldPageIndex = selection.pageIndex
-        val oldPageInfo = drawManager.pagesRectOnWindow.find { it.index == oldPageIndex } ?: return
+
+        // Da qui in poi usiamo 'livePagesRects' invece di 'drawManager.pagesRectOnWindow'
+        val oldPageInfo = livePagesRects.find { it.index == oldPageIndex } ?: return
         val oldPage = doc.pages.getOrNull(oldPageIndex) ?: return
 
         val oldMmToScreenMatrix = Matrix().apply { setRectToRect(oldPage.rect(), oldPageInfo.rect, Matrix.ScaleToFit.CENTER) }
         val screenBoundingBox = RectF()
         oldMmToScreenMatrix.mapRect(screenBoundingBox, selection.boundingBox)
 
-        val targetPageInfo = drawManager.pagesRectOnWindow.find { it.rect.contains(screenBoundingBox.centerX(), screenBoundingBox.centerY()) } ?: oldPageInfo
+        val targetPageInfo = livePagesRects.find { it.rect.contains(screenBoundingBox.centerX(), screenBoundingBox.centerY()) } ?: oldPageInfo
         val targetPageIndex = targetPageInfo.index
         val targetPage = doc.pages.getOrNull(targetPageIndex) ?: return
 

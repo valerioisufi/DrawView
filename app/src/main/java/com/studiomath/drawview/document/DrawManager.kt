@@ -296,19 +296,23 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     continue // Quando si sveglia, ricomincia il ciclo
                 }
 
-                // 2. Disegniamo! Blocchiamo la tela della SurfaceView
+                // 2. Disegniamo! Blocchiamo la tela della SurfaceView richiedendo l'Accelerazione Hardware
                 var canvas: Canvas? = null
                 try {
-                    canvas = holder.lockCanvas()
+                    // FIX FPS: lockHardwareCanvas() obbliga l'uso della GPU (disponibile da Android 8+)
+                    canvas =
+                        holder.lockHardwareCanvas()
+
                     if (canvas != null) {
-                        // Criptiamo le dimensioni della finestra per sicurezza
                         canvas.clipRect(windowRect)
 
-                        // Chiamiamo il tuo vecchio onDrawView (che ora rinominiamo internamente)
+                        // FIX SCIA/DUPLICAZIONI: Pulisci SEMPRE lo schermo prima di disegnare il nuovo frame.
+                        // Sostituisci LTGRAY con il colore reale del background della tua app
+                        canvas.drawColor(android.graphics.Color.LTGRAY)
+
                         renderFrame(canvas)
                     }
                 } finally {
-                    // 3. Rilasciamo la tela e pubblichiamo il frame a schermo!
                     if (canvas != null) {
                         holder.unlockCanvasAndPost(canvas)
                     }
@@ -569,14 +573,19 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     }
 
     private fun renderFloatingPage(canvas: Canvas) {
-        if (!drawViewModel.isReorderingPages || drawViewModel.floatingPageRect == null || drawViewModel.draggedPageBitmap == null) return
+        // Salviamo i riferimenti in variabili locali. Se il Main Thread li modifica
+        // una frazione di secondo dopo, noi continueremo a usare questi riferimenti sicuri.
+        val isReordering = drawViewModel.isReorderingPages
+        val rect = drawViewModel.floatingPageRect
+        val bmp = drawViewModel.draggedPageBitmap
+
+        if (!isReordering || rect == null || bmp == null) return
 
         canvas.withSave {
-            val floatingRect = drawViewModel.floatingPageRect!!
-            canvas.drawRect(floatingRect, shadowPaint) // Usa la variabile pre-allocata!
-            drawViewModel.pageMaker.makePageBackground(canvas, floatingRect, windowRect)
-            canvas.drawBitmap(drawViewModel.draggedPageBitmap!!, null, floatingRect, null)
-            canvas.drawRect(floatingRect, borderPaint) // Usa la variabile pre-allocata!
+            canvas.drawRect(rect, shadowPaint)
+            drawViewModel.pageMaker.makePageBackground(canvas, rect, windowRect)
+            canvas.drawBitmap(bmp, null, rect, null)
+            canvas.drawRect(rect, borderPaint)
         }
     }
 

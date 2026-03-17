@@ -35,12 +35,28 @@ import kotlinx.coroutines.launch
  */
 class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetrics) {
     var isInitialized = false
+    var scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
-    /** The high-resolution bitmap cache representing the current viewport. */
+    // --- FASE 1: DOUBLE BUFFERING STATE ---
+    data class RenderState(
+        var bitmap: Bitmap? = null,
+        var matrix: Matrix = Matrix(),
+        var pagesRect: Set<CalcPage.PageRectWithIndex> = mutableSetOf()
+    )
+
+    private val renderLock = Any() // Oggetto usato per sincronizzare i thread
+    var frontState = RenderState() // Quello che il Main Thread disegna
+    var backState = RenderState()  // Quello su cui la Coroutine lavora in background
+
+    // Manteniamo queste variabili per retrocompatibilità temporanea con il resto del codice
+    // (le rimuoveremo nelle fasi successive)
     var onDrawBitmap: Bitmap? = null
+    var onDrawBitmapMatrix = Matrix()
+    var pagesRectOnWindow = mutableSetOf<CalcPage.PageRectWithIndex>()
+
+
     var jobOnDrawBitmap: Job? = null
     var jobCache: Job? = null
-    var scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
     val inkStrokeProcessor = InkStrokeProcessor(
         drawViewModel = drawViewModel,
@@ -56,17 +72,10 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     /** The calculated bounding box representing the limits of the document on the screen. */
     var contentConstraintsOnWindow = RectF()
 
-    /**
-     * Core application transformation matrices:
-     * - [onDrawBitmapMatrix]: The exact camera state (matrix) when the current high-res cache was generated.
-     */
-    var onDrawBitmapMatrix = Matrix()
 
     /** The physical boundaries of the drawing view on the screen. */
     var windowRect = RectF()
 
-    /** Set containing the currently visible pages and their mapped screen coordinates. */
-    var pagesRectOnWindow = mutableSetOf<CalcPage.PageRectWithIndex>()
 
 
     val cameraPhysics = CameraPhysicsEngine(displayMetrics) {
@@ -171,21 +180,38 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                 calcPage.needToBeUpdated = false
                             }
 
-                            // CHIEDIAMO LA MATRICE AL MOTORE FISICO
+                            // Chiediamo la matrice al motore fisico
                             val renderMatrix = cameraPhysics.getRenderMatrix()
+                            val newPagesRect = calcPage.getPagesRectOnWindowTransformation(windowRect, renderMatrix)
 
-                            pagesRectOnWindow = calcPage.getPagesRectOnWindowTransformation(windowRect, renderMatrix)
                             drawViewModel.maskPath?.invoke(getMaskPath())
 
-                            onDrawBitmap?.let { bitmap ->
-                                val tempBitmap = drawViewModel.pageMaker.makePagesOnBitmap(
-                                    Rect(0, 0, bitmap.width, bitmap.height),
-                                    pagesRectOnWindow,
+                            // 1. LAVORO IN BACKGROUND (senza bloccare nessuno)
+                            // Usiamo il frontState.bitmap attuale per capire le dimensioni, se esiste
+                            val tempBitmap = frontState.bitmap?.let { currentBmp ->
+                                drawViewModel.pageMaker.makePagesOnBitmap(
+                                    Rect(0, 0, currentBmp.width, currentBmp.height),
+                                    newPagesRect,
                                     document
                                 )
-                                onDrawBitmap = tempBitmap
-                                onDrawBitmapMatrix = Matrix(renderMatrix) // Salviamo la matrice esatta usata
                             }
+
+                            // 2. SWAP ATOMICO (Istante critico bloccato)
+                            synchronized(renderLock) {
+                                // Opzionale: salva il vecchio front nel back per eventuale riciclo memoria
+                                backState.bitmap = frontState.bitmap
+
+                                // Promuovi i nuovi dati nel Front Buffer
+                                frontState.bitmap = tempBitmap
+                                frontState.matrix = Matrix(renderMatrix)
+                                frontState.pagesRect = newPagesRect
+
+                                // Aggiorniamo anche le vecchie variabili per non rompere il resto del codice oggi
+                                onDrawBitmap = frontState.bitmap
+                                onDrawBitmapMatrix = frontState.matrix
+                                pagesRectOnWindow = frontState.pagesRect.toMutableSet()
+                            }
+
                             updateDrawView(drawAttachments)
                         }
                     }
@@ -318,23 +344,34 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         val document = drawViewModel.documentData
         val currentRenderMatrix = cameraPhysics.getRenderMatrix()
 
+        // 1. CATTURA DELLO STATO SICURO PER QUESTO FRAME
+        val currentBitmap: Bitmap?
+        val currentBitmapMatrix: Matrix
+        val currentPagesRect: Set<CalcPage.PageRectWithIndex>
+
+        synchronized(renderLock) {
+            currentBitmap = frontState.bitmap
+            currentBitmapMatrix = Matrix(frontState.matrix) // Copia difensiva della matrice
+            currentPagesRect = frontState.pagesRect
+        }
+
         when (drawAttachments.drawMode) {
             DrawAttachments.DrawMode.UPDATE -> {
-                drawViewModel.pageMaker.makeWindowBackground(canvas, pagesRectOnWindow, currentRenderMatrix)
-                for (pageRectWithIndex in pagesRectOnWindow){
+                drawViewModel.pageMaker.makeWindowBackground(canvas, currentPagesRect, currentRenderMatrix)
+                for (pageRectWithIndex in currentPagesRect){
                     drawViewModel.pageMaker.makePageBackground(canvas, pageRectWithIndex.rect, windowRect)
                 }
-                onDrawBitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
+                // Usa il currentBitmap sicuro!
+                currentBitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
 
-                // Assicuriamoci che i tratti temporanei non persistano
                 drawViewModel.removeFinishedStrokes?.let { it(drawAttachments.strokesIdToRemove ?: emptySet()) }
                 drawViewModel.isDocumentShowed = true
             }
             DrawAttachments.DrawMode.REFRESH -> {
-                drawViewModel.pageMaker.makeWindowBackground(canvas, pagesRectOnWindow, currentRenderMatrix)
+                drawViewModel.pageMaker.makeWindowBackground(canvas, currentPagesRect, currentRenderMatrix)
 
                 // 1. Disegna le pagine di sfondo
-                for (pageRectWithIndex in pagesRectOnWindow) {
+                for (pageRectWithIndex in currentPagesRect) {
                     drawViewModel.pageMaker.makePageBackground(canvas, pageRectWithIndex.rect, windowRect)
 
                     if (drawViewModel.isReorderingPages) {
@@ -392,35 +429,30 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 drawViewModel.removeFinishedStrokes?.let { it(drawAttachments.strokesIdToRemove ?: emptySet()) }
             }
             DrawAttachments.DrawMode.SCALE_TRANSLATE -> {
-                // 1. FIRST calculate the relative transformation and the bounds of the high-resolution bitmap
                 val inverseDrawMatrix = Matrix()
                 var relativeTransform: Matrix? = null
                 val onDrawBitmapBounds = RectF()
 
-                if (onDrawBitmapMatrix.invert(inverseDrawMatrix)) {
+                // Usa la matrice congelata!
+                if (currentBitmapMatrix.invert(inverseDrawMatrix)) {
                     relativeTransform = Matrix(inverseDrawMatrix)
                     relativeTransform.postConcat(currentRenderMatrix)
 
-                    // Find EXACTLY where the onDrawBitmap will be located on the screen in this frame
                     onDrawBitmapBounds.set(windowRect)
                     relativeTransform.mapRect(onDrawBitmapBounds)
                 }
 
-                // 2. Render view and pages background
-                drawViewModel.pageMaker.makeWindowBackground(canvas, pagesRectOnWindow, currentRenderMatrix)
-                for (pageRectWithIndex in pagesRectOnWindow){
+                drawViewModel.pageMaker.makeWindowBackground(canvas, currentPagesRect, currentRenderMatrix)
+                for (pageRectWithIndex in currentPagesRect){
                     drawViewModel.pageMaker.makePageBackground(canvas, pageRectWithIndex.rect, windowRect)
                 }
 
-                // 3. Draw individual pages ONLY in the "empty" areas
                 canvas.withSave {
                     if (relativeTransform != null && !onDrawBitmapBounds.isEmpty) {
-                        // "Clip out" (exclude) the area that will be covered by the onDrawBitmap.
-                        // Individual pages will be drawn solely to fill the "borders" exposed by pan/zoom.
                         clipOutRect(onDrawBitmapBounds)
                     }
 
-                    for (pageRectWithIndex in pagesRectOnWindow) {
+                    for (pageRectWithIndex in currentPagesRect) {
                         val page = document?.pages?.getOrNull(pageRectWithIndex.index) ?: continue
                         if (!page.isPrepared) page.prepare()
 
@@ -430,10 +462,10 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     }
                 }
 
-                // 4. Draw the onDrawBitmap (High resolution) exactly in the "hole" left behind
-                if (relativeTransform != null && onDrawBitmap != null) {
+                // Usa il currentBitmap sicuro!
+                if (relativeTransform != null && currentBitmap != null) {
                     canvas.withClip(windowRect) {
-                        drawBitmap(onDrawBitmap!!, relativeTransform, null)
+                        drawBitmap(currentBitmap, relativeTransform, null)
                     }
                 }
             }
@@ -450,9 +482,9 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 val renderMatrix = cameraPhysics.getRenderMatrix()
 
                 // 3. Disegna gli sfondi delle finestre e le pagine
-                drawViewModel.pageMaker.makeWindowBackground(canvas, pagesRectOnWindow, renderMatrix)
+                drawViewModel.pageMaker.makeWindowBackground(canvas, currentPagesRect, renderMatrix)
 
-                for (pageRectWithIndex in pagesRectOnWindow){
+                for (pageRectWithIndex in currentPagesRect){
                     drawViewModel.pageMaker.makePageBackground(canvas, pageRectWithIndex.rect, windowRect)
                     val page = document?.pages?.getOrNull(pageRectWithIndex.index) ?: continue
                     if (!page.isPrepared) page.prepare()
@@ -477,7 +509,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         }
 
         // --- FASE 3: DISEGNO IN OVERLAY DEL GRUPPO SELEZIONATO E DEL BOUNDING BOX ---
-        selectionOverlayRenderer.draw(canvas, pagesRectOnWindow, windowRect)
+        selectionOverlayRenderer.draw(canvas, currentPagesRect, windowRect)
 
         // If the animation is still ongoing, request another frame
         if (needsInvalidate) {
@@ -492,8 +524,11 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
      * It allocates a new bitmap matching the new view dimensions and requests a redraw.
      */
     fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
-        onDrawBitmap?.recycle()
-        onDrawBitmap = createBitmap(width, height)
+        synchronized(renderLock) {
+            frontState.bitmap?.recycle()
+            frontState.bitmap = createBitmap(width, height)
+            onDrawBitmap = frontState.bitmap // Per compatibilità temporanea
+        }
 
         windowRect = RectF(0f, 0f, width.toFloat(), height.toFloat())
         calcPage.needToBeUpdated = true

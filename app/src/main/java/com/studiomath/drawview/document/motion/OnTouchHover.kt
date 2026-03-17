@@ -706,10 +706,12 @@ class OnTouchHover(
 
                         if (currentDragState != DragState.NONE) {
                             // Se c'è l'autoscroll attivo, il Runnable sta già lanciando SCALE_TRANSLATE a 60fps.
-                            // Se non è attivo, basta un REFRESH per aggiornare l'overlay del trascinamento manuale.
                             if (!isAutoScrolling) {
+                                // --- FIX 1: USARE SCALE_TRANSLATE INVECE DI REFRESH ---
+                                // Poiché l'auto-scroll potrebbe aver mosso la telecamera,
+                                // dobbiamo continuare a dire al DrawManager di usare le coordinate dal vivo!
                                 drawViewModel.drawManager.requestDraw(
-                                    DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.REFRESH)
+                                    DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.SCALE_TRANSLATE)
                                 )
                             }
                             return@OnTouchListener true

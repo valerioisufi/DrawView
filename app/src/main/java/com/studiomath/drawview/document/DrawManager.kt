@@ -483,8 +483,15 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
         snapshot.bitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
 
-        drawViewModel.removeFinishedStrokes?.let { it(attachments.strokesIdToRemove ?: emptySet()) }
-        drawViewModel.isDocumentShowed = true
+        // --- FIX CRASH: Passiamo la palla al Main Thread per aggiornare la UI ---
+        val strokesToRemove = attachments.strokesIdToRemove
+        scope.launch(Dispatchers.Main) {
+            if (!strokesToRemove.isNullOrEmpty()) {
+                drawViewModel.removeFinishedStrokes?.invoke(strokesToRemove)
+            }
+            // Aggiorniamo anche lo stato di Compose nel Main Thread per sicurezza
+            drawViewModel.isDocumentShowed = true
+        }
     }
 
     private fun renderRefreshMode(canvas: Canvas, snapshot: RenderSnapshot, attachments: DrawAttachments) {
@@ -496,7 +503,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
             if (drawViewModel.isReorderingPages) {
                 if (page.index == drawViewModel.draggedPageIndex) {
-                    canvas.drawRect(page.rect, placeholderPaint) // Usa la variabile pre-allocata!
+                    canvas.drawRect(page.rect, placeholderPaint)
                 } else {
                     document?.pages?.getOrNull(page.index)?.bitmapPage?.let { bmp ->
                         canvas.drawBitmap(bmp, null, page.rect, null)
@@ -509,8 +516,15 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             snapshot.bitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
         }
 
-        renderFloatingPage(canvas) // Metodo separato per pulizia
-        drawViewModel.removeFinishedStrokes?.let { it(attachments.strokesIdToRemove ?: emptySet()) }
+        renderFloatingPage(canvas)
+
+        // --- FIX CRASH: Passiamo la palla al Main Thread per aggiornare la UI ---
+        val strokesToRemove = attachments.strokesIdToRemove
+        if (!strokesToRemove.isNullOrEmpty()) {
+            scope.launch(Dispatchers.Main) {
+                drawViewModel.removeFinishedStrokes?.invoke(strokesToRemove)
+            }
+        }
     }
 
     private fun renderScaleTranslateMode(canvas: Canvas, snapshot: RenderSnapshot) {

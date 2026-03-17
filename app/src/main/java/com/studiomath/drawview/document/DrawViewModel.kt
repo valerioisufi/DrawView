@@ -228,6 +228,11 @@ class DrawViewModel(
     fun pasteSelection(targetXPx: Float? = null, targetYPx: Float? = null) = selectionManager.pasteSelection(documentData, targetXPx, targetYPx)
     fun applySelectionTransformation() = selectionManager.applySelectionTransformation(documentData)
 
+    // --- STATO FLUTTUANTE PER LA SELEZIONE ---
+    var isFloatingSelection = false
+    var floatingSelectionScreenMatrix = Matrix()
+    var initialSelectionCameraMatrix = Matrix()
+
     init {
         loadDocument()
     }

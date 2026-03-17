@@ -68,41 +68,28 @@ class OnTouchHover(
     private var attachedView: View? = null
 
     // Questo è il "Motore" che gira a 60fps quando il dito è fermo ai bordi
+    // Questo è il "Motore" che gira a 60fps quando il dito è fermo ai bordi
     private val autoScrollRunnable = object : Runnable {
         override fun run() {
-            // Rimosso il blocco "!drawViewModel.isReorderingPages" per renderlo universale
             if (!isAutoScrolling) return
             val view = attachedView ?: return
 
-            // 1. Spinge la telecamera del documento
+            // 1. Spinge la telecamera
             drawViewModel.drawManager.cameraPhysics.onDrag(
                 0f, autoScrollDeltaY, 1f,
                 view.width / 2f, view.height / 2f
             )
 
-            // 2. SMISTAMENTO LOGICA
+            // 2. Se stiamo riordinando le pagine, controlliamo lo swap.
+            // Se stiamo spostando una SELEZIONE, non facciamo nulla!
+            // L'oggetto galleggia tranquillo sullo schermo, ci penseremo al rilascio.
             if (drawViewModel.isReorderingPages) {
-                // Atterraggio Pagine
                 performSwapLogic()
-            } else if (currentDragState == DragState.PANNING) {
-                // --- NUOVO: Trascina la Selezione ---
-                val dyMm = -autoScrollDeltaY * dragScaleMmPerPx
-
-                // BLOCCO DI SICUREZZA
-                synchronized(drawViewModel.drawManager.renderLock) {
-                    drawViewModel.currentSelection?.let {
-                        it.transformMatrix.postTranslate(0f, dyMm)
-                        it.boundingBox.offset(0f, dyMm)
-                    }
-                }
             }
 
-            // 3. Chiediamo uno SCALE_TRANSLATE perché la telecamera si è mossa
             drawViewModel.drawManager.requestDraw(
                 DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.SCALE_TRANSLATE)
             )
-
-            // 4. Ripeti al prossimo fotogramma
             view.postOnAnimation(this)
         }
     }
@@ -589,7 +576,12 @@ class OnTouchHover(
                             currentDragState = DragState.PANNING
                             lastTouchX = event.x
                             lastTouchY = event.y
-                            dragScaleMmPerPx = scaleX
+
+                            // --- FIX: SGANCIAMO L'OGGETTO DAL MONDO ---
+                            drawViewModel.isFloatingSelection = true
+                            drawViewModel.floatingSelectionScreenMatrix.reset()
+                            drawViewModel.initialSelectionCameraMatrix.set(drawViewModel.drawManager.cameraPhysics.getRenderMatrix())
+
                             drawViewModel.drawManager.cameraPhysics.stopAllAnimations()
                             return@OnTouchListener true
                         } else if (isSelectObjectMode || isLassoMode) {
@@ -599,26 +591,25 @@ class OnTouchHover(
                     MotionEvent.ACTION_MOVE -> {
                         when (currentDragState) {
                             DragState.PANNING -> {
-                                val dxMm = (event.x - lastTouchX) * dragScaleMmPerPx
-                                val dyMm = (event.y - lastTouchY) * dragScaleMmPerPx
+                                val dxPx = event.x - lastTouchX
+                                val dyPx = event.y - lastTouchY
 
-                                // BLOCCO DI SICUREZZA
+                                // Spostiamo la matrice visiva in PIXEL (Spazio Schermo)
                                 synchronized(drawViewModel.drawManager.renderLock) {
-                                    selection.transformMatrix.postTranslate(dxMm, dyMm)
-                                    selection.boundingBox.offset(dxMm, dyMm)
+                                    drawViewModel.floatingSelectionScreenMatrix.postTranslate(dxPx, dyPx)
                                 }
 
                                 lastTouchX = event.x
                                 lastTouchY = event.y
 
-                                // --- NUOVO: LOGICA AUTO-SCROLL PER GLI ELEMENTI ---
-                                val edgeMargin = 150f // Area di attivazione ai bordi
+                                // --- LOGICA AUTO-SCROLL (Invariata) ---
+                                val edgeMargin = 150f
                                 var scrollDelta = 0f
 
                                 if (event.y < edgeMargin) {
-                                    scrollDelta = (edgeMargin - event.y) * 0.4f // Verso l'alto
+                                    scrollDelta = (edgeMargin - event.y) * 0.4f
                                 } else if (event.y > view.height - edgeMargin) {
-                                    scrollDelta = -((event.y - (view.height - edgeMargin)) * 0.4f) // Verso il basso
+                                    scrollDelta = -((event.y - (view.height - edgeMargin)) * 0.4f)
                                 }
 
                                 if (scrollDelta != 0f) {
@@ -720,19 +711,76 @@ class OnTouchHover(
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                         if (currentDragState != DragState.NONE) {
 
-                            // --- NUOVO: SPEGNIMENTO AUTO-SCROLL ---
                             isAutoScrolling = false
                             view.removeCallbacks(autoScrollRunnable)
 
-                            // --- COMPORTAMENTO STANDARD DI FINE TRASCINAMENTO ---
+                            // --- MAGIA: RICONVERSIONE INFALLIBILE DA SCHERMO A MONDO FISICO ---
+                            if (currentDragState == DragState.PANNING && drawViewModel.isFloatingSelection) {
+                                val selection = drawViewModel.currentSelection
+                                val drawManager = drawViewModel.drawManager
+
+                                if (selection != null) {
+                                    val targetPageIndex = selection.pageIndex
+                                    val pageInfo = drawManager.pagesRectOnWindow.find { it.index == targetPageIndex }
+                                    val page = drawViewModel.documentData?.pages?.getOrNull(targetPageIndex)
+
+                                    if (pageInfo != null && page != null) {
+                                        // 1. Calcoliamo la matrice ESATTA che il Renderer stava usando per mostrare l'oggetto
+                                        val baseMmToScreenMatrix = Matrix().apply {
+                                            val currentCamInverse = Matrix()
+                                            drawManager.cameraPhysics.getRenderMatrix().invert(currentCamInverse)
+                                            postConcat(currentCamInverse)
+                                            postConcat(drawViewModel.initialSelectionCameraMatrix)
+                                        }
+
+                                        val frozenMmToScreenMatrix = Matrix().apply {
+                                            setRectToRect(page.rect(), pageInfo.rect, Matrix.ScaleToFit.CENTER)
+                                            postConcat(baseMmToScreenMatrix)
+                                        }
+
+                                        val finalOverlayMatrix = Matrix(selection.transformMatrix)
+                                        finalOverlayMatrix.postConcat(frozenMmToScreenMatrix)
+                                        finalOverlayMatrix.postConcat(drawViewModel.floatingSelectionScreenMatrix)
+
+                                        // 2. Ora cerchiamo la matrice del mondo reale (in MM) equivalente,
+                                        // usando la telecamera ATTUALE e la sua scala.
+                                        val currentMmToScreenMatrix = Matrix().apply {
+                                            setRectToRect(page.rect(), pageInfo.rect, Matrix.ScaleToFit.CENTER)
+                                        }
+
+                                        val inverseCurrentMmToScreen = Matrix()
+                                        currentMmToScreenMatrix.invert(inverseCurrentMmToScreen)
+
+                                        // L'operazione per trovare le nuove coordinate nel mondo:
+                                        val newTransformMatrixInMm = Matrix(finalOverlayMatrix)
+                                        newTransformMatrixInMm.postConcat(inverseCurrentMmToScreen)
+
+                                        // 3. Applichiamo la differenza per muovere anche il Bounding Box invisibile
+                                        val oldValues = FloatArray(9)
+                                        selection.transformMatrix.getValues(oldValues)
+                                        val newValues = FloatArray(9)
+                                        newTransformMatrixInMm.getValues(newValues)
+
+                                        val dxMm = newValues[Matrix.MTRANS_X] - oldValues[Matrix.MTRANS_X]
+                                        val dyMm = newValues[Matrix.MTRANS_Y] - oldValues[Matrix.MTRANS_Y]
+
+                                        // 4. Salviamo tutto bloccando il Render Thread
+                                        synchronized(drawManager.renderLock) {
+                                            selection.transformMatrix.set(newTransformMatrixInMm)
+                                            selection.boundingBox.offset(dxMm, dyMm)
+                                        }
+                                    }
+                                }
+
+                                drawViewModel.isFloatingSelection = false
+                            }
+
                             currentDragState = DragState.NONE
 
-                            // Fissa le coordinate in RAM e salva nel DB
                             drawViewModel.applySelectionTransformation()
 
-                            // Richiedi un refresh per ridisegnare i bordi azzurri nella nuova posizione
                             drawViewModel.drawManager.requestDraw(
-                                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.REFRESH)
+                                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.SCALE_TRANSLATE)
                             )
                             return@OnTouchListener true
                         }

@@ -67,14 +67,69 @@ class SelectionOverlayRenderer(private val drawViewModel: DrawViewModel) {
 
         val targetPageIndex = selection.pageIndex
         val pageInfo = pagesRectOnWindow.find { it.index == targetPageIndex } ?: return
-        val page = document.pages[pageInfo.index]
+        val page = document.pages.getOrNull(pageInfo.index) ?: return
 
-        val mmToScreenMatrix = Matrix().apply {
-            setRectToRect(page.rect(), pageInfo.rect, Matrix.ScaleToFit.CENTER)
-        }
+        // --- MAGIA DEL GALLEGGIAMENTO ---
+        val finalOverlayMatrix = Matrix()
 
-        val finalOverlayMatrix = Matrix(selection.transformMatrix).apply {
-            postConcat(mmToScreenMatrix)
+        if (drawViewModel.isFloatingSelection) {
+            // 1. MODALITÀ VOLANTE: Ignoriamo i movimenti attuali della telecamera!
+            // Usiamo la fotografia della telecamera presa all'istante del tocco iniziale
+            // e ci aggiungiamo sopra lo spostamento in nudi pixel del dito.
+            val initialMmToScreenMatrix = Matrix().apply {
+                setRectToRect(page.rect(), pageInfo.rect, Matrix.ScaleToFit.CENTER)
+            }
+            // Annulliamo il movimento live della telecamera sostituendo la mmToScreenMatrix live
+            // con quella bloccata al momento del tocco.
+
+            // Per farla semplice, usiamo initialSelectionCameraMatrix per posizionare il foglio
+            // e floatingSelectionScreenMatrix per traslarlo sullo schermo.
+            val staticMmToScreenMatrix = Matrix().apply {
+                // Calcoliamo il rettangolo della pagina basato sulla vecchia matrice della telecamera
+                val oldPageRect = RectF(page.rect())
+                val oldCam = drawViewModel.initialSelectionCameraMatrix
+                val tempCalcPage = CalcPage(drawViewModel.displayMetrics)
+                // Questo è un trucco per recuperare la posizione iniziale: usiamo la transformMatrix esistente
+                // e la matrix iniziale salvata.
+            }
+
+            // LA VERSIONE PIÙ ROBUSTA:
+            // La selezione contiene già le coordinate in millimetri e una transformMatrix.
+            // Quando fluttua, noi partiamo dalla initialSelectionCameraMatrix, proiettiamo i millimetri,
+            // e infiliamo la floatingSelectionScreenMatrix alla fine!
+
+            // Ricalcoliamo il pageInfo.rect come se la telecamera fosse ferma al momento del tocco:
+            val basePageRectOnScreen = RectF(page.rect())
+
+            // (Per semplicità estrema e massima efficienza, nel OnTouchHover.kt
+            // la initialSelectionCameraMatrix è la getRenderMatrix() intera).
+            val baseMmToScreenMatrix = Matrix().apply {
+                val currentCamInverse = Matrix()
+                drawViewModel.drawManager.cameraPhysics.getRenderMatrix().invert(currentCamInverse)
+
+                // Torniamo indietro al mondo fisico, andiamo nella posizione del tocco, andiamo allo schermo
+                postConcat(currentCamInverse)
+                postConcat(drawViewModel.initialSelectionCameraMatrix)
+
+                // Questa operazione ri-allinea il pageInfo.rect a dov'era prima di scorrere!
+            }
+
+            val frozenMmToScreenMatrix = Matrix().apply {
+                setRectToRect(page.rect(), pageInfo.rect, Matrix.ScaleToFit.CENTER)
+                postConcat(baseMmToScreenMatrix) // Applica la differenza tra cam attuale e cam iniziale
+            }
+
+            finalOverlayMatrix.set(selection.transformMatrix)
+            finalOverlayMatrix.postConcat(frozenMmToScreenMatrix)
+            finalOverlayMatrix.postConcat(drawViewModel.floatingSelectionScreenMatrix)
+
+        } else {
+            // 2. MODALITÀ NORMALE (Ancorata al documento)
+            val mmToScreenMatrix = Matrix().apply {
+                setRectToRect(page.rect(), pageInfo.rect, Matrix.ScaleToFit.CENTER)
+            }
+            finalOverlayMatrix.set(selection.transformMatrix)
+            finalOverlayMatrix.postConcat(mmToScreenMatrix)
         }
 
         canvas.withSave {
@@ -177,9 +232,10 @@ class SelectionOverlayRenderer(private val drawViewModel: DrawViewModel) {
             val isSingleText = selection.images.isEmpty() && selection.strokes.isEmpty() && selection.texts.size == 1
             val sideHandlesMm = floatArrayOf(boxMm.left, boxMm.centerY(), boxMm.right, boxMm.centerY())
 
-            mmToScreenMatrix.mapPoints(cornersPx, cornersMm)
-            mmToScreenMatrix.mapPoints(rotationHandlePx, rotationHandleMm)
-            if (isSingleText) mmToScreenMatrix.mapPoints(sideHandlesPx, sideHandlesMm)
+            // Mappiamo i punti usando la matrice finale (che include il galleggiamento se attivo)
+            finalOverlayMatrix.mapPoints(cornersPx, cornersMm)
+            finalOverlayMatrix.mapPoints(rotationHandlePx, rotationHandleMm)
+            if (isSingleText) finalOverlayMatrix.mapPoints(sideHandlesPx, sideHandlesMm)
 
             boxPath.reset()
             boxPath.moveTo(cornersPx[0], cornersPx[1])

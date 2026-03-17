@@ -439,6 +439,12 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 frontState.pagesRect
             }
 
+            // --- FIX MASCHERA IN TEMPO REALE ---
+            // Se la telecamera si è mossa, aggiorniamo la maschera per l'inchiostro in corso
+            if (useLiveRects) {
+                drawViewModel.maskPath?.invoke(getMaskPath(currentPagesRect))
+            }
+
             snapshot = RenderSnapshot(
                 bitmap = frontState.bitmap,
                 matrix = Matrix(frontState.matrix),

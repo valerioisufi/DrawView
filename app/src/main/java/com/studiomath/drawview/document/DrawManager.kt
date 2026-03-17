@@ -3,43 +3,25 @@ package com.studiomath.drawview.document
 import android.animation.ValueAnimator
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.DashPathEffect
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.RectF
 import android.util.DisplayMetrics
-import android.widget.OverScroller
-import androidx.annotation.UiThread
 import androidx.core.graphics.createBitmap
-import androidx.core.graphics.toColorInt
 import androidx.core.graphics.withClip
-import androidx.core.graphics.withMatrix
 import androidx.core.graphics.withSave
 import androidx.ink.authoring.InProgressStrokeId
-import androidx.ink.authoring.InProgressStrokesFinishedListener
-import androidx.ink.geometry.AffineTransform
-import androidx.ink.geometry.Intersection.intersects
-import androidx.ink.strokes.MutableStrokeInputBatch
-import androidx.ink.strokes.StrokeInput
-import androidx.ink.strokes.createClosedShape
 import com.studiomath.drawview.document.motion.CameraPhysicsEngine
 import com.studiomath.drawview.document.page.CalcPage
 import com.studiomath.drawview.document.page.Measure
-import com.studiomath.drawview.document.selection.LassoMode
-import com.studiomath.drawview.document.selection.SelectionGroup
-import com.studiomath.drawview.document.tools.Tool
+import com.studiomath.drawview.document.selection.SelectionOverlayRenderer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import kotlin.math.abs
-import kotlin.math.max
-import kotlin.math.min
-import androidx.ink.strokes.Stroke as InkStroke
-import com.studiomath.drawview.document.page.Stroke as DomainStroke
 
 /**
  * The core rendering engine and state manager for the drawing canvas.
@@ -65,6 +47,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         coroutineScope = scope, // Usa lo scope interno del DrawManager
         getDrawManager = { this }
     )
+
+    val selectionOverlayRenderer = SelectionOverlayRenderer(drawViewModel)
 
     /** Helper class for calculating page boundaries, positioning, and elastic effects. */
     val calcPage = CalcPage(displayMetrics)
@@ -493,229 +477,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         }
 
         // --- FASE 3: DISEGNO IN OVERLAY DEL GRUPPO SELEZIONATO E DEL BOUNDING BOX ---
-        val selection = drawViewModel.currentSelection
-        if (selection != null && !selection.isEmpty() && document != null) {
-
-            // FIX PROBLEMA 2 DEFINITIVO: Leggiamo direttamente l'indice salvato nello stato!
-            val targetPageIndex = selection.pageIndex
-
-            // Disegniamo la selezione SOLO se la pagina in cui si trova è attualmente visibile
-            val pageInfo = pagesRectOnWindow.find { it.index == targetPageIndex }
-
-            if (pageInfo != null) {
-                val page = document.pages[pageInfo.index]
-
-                // Matrice base per convertire i millimetri del foglio nei pixel dello schermo
-                val mmToScreenMatrix = Matrix().apply {
-                    setRectToRect(page.rect(), pageInfo.rect, Matrix.ScaleToFit.CENTER)
-                }
-
-                // FIX FASE 4: Fonde la matrice di trascinamento temporanea del gruppo con quella dello schermo
-                val finalOverlayMatrix = Matrix(selection.transformMatrix).apply {
-                    postConcat(mmToScreenMatrix)
-                }
-
-                canvas.withSave {
-                    canvas.clipRect(windowRect)
-
-                    // 1. DISEGNA LE IMMAGINI SELEZIONATE
-                    for (img in selection.images) {
-                        img.bitmapCache?.let { bmp ->
-                            val overlayMatrix = Matrix()
-                            val scaleX = img.width / bmp.width.toFloat()
-                            val scaleY = img.height / bmp.height.toFloat()
-
-                            overlayMatrix.postScale(scaleX, scaleY)
-                            overlayMatrix.postRotate(img.rotation, img.width / 2f, img.height / 2f)
-                            overlayMatrix.postTranslate(img.x, img.y)
-
-                            // MODIFICA: Usiamo la nuova matrice fusa
-                            overlayMatrix.postConcat(finalOverlayMatrix)
-
-                            canvas.drawBitmap(bmp, overlayMatrix, null)
-                        }
-                    }
-
-                    // 1.5 DISEGNA I TESTI SELEZIONATI
-                    for (txt in selection.texts) {
-                        if (txt.isLatex && txt.bitmapCache != null) {
-                            val overlayMatrix = Matrix()
-                            val scaleX = txt.width / txt.bitmapCache!!.width.toFloat()
-                            val scaleY = txt.height / txt.bitmapCache!!.height.toFloat()
-
-                            overlayMatrix.postScale(scaleX, scaleY)
-                            overlayMatrix.postRotate(txt.rotation, txt.width / 2f, txt.height / 2f)
-                            overlayMatrix.postTranslate(txt.x, txt.y)
-                            overlayMatrix.postConcat(finalOverlayMatrix)
-
-                            canvas.drawBitmap(txt.bitmapCache!!, overlayMatrix, null)
-                        } else if (!txt.isLatex) {
-                            canvas.withSave {
-                                // 1. Creiamo la matrice base dell'oggetto (senza le trasformazioni dinamiche)
-                                val baseObjMatrix = Matrix()
-                                baseObjMatrix.postRotate(txt.rotation, txt.width / 2f, txt.height / 2f)
-                                baseObjMatrix.postTranslate(txt.x, txt.y)
-
-                                // 2. Fondiamo la matrice base con la matrice dinamica dell'overlay (dito + zoom)
-                                val fullRenderMatrix = Matrix(baseObjMatrix)
-                                fullRenderMatrix.postConcat(finalOverlayMatrix)
-
-                                // 3. Estraiamo la VERA scala assoluta (usando la trigonometria per ignorare l'effetto della rotazione)
-                                val matrixValues = FloatArray(9)
-                                fullRenderMatrix.getValues(matrixValues)
-                                val trueScaleX = Math.hypot(matrixValues[Matrix.MSCALE_X].toDouble(), matrixValues[Matrix.MSKEW_Y].toDouble()).toFloat()
-
-                                // 4. Creiamo il font ad alta risoluzione basato sulla scala reale
-                                val screenFontSizePx = txt.fontSize * 0.3527f * trueScaleX
-                                val textPaint = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG or Paint.LINEAR_TEXT_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
-                                    color = txt.color
-                                    textSize = screenFontSizePx
-                                    typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT,
-                                        if (txt.isBold && txt.isItalic) android.graphics.Typeface.BOLD_ITALIC
-                                        else if (txt.isBold) android.graphics.Typeface.BOLD
-                                        else if (txt.isItalic) android.graphics.Typeface.ITALIC
-                                        else android.graphics.Typeface.NORMAL
-                                    )
-                                }
-
-                                // 5. Creiamo il Layout
-                                val screenSafeWidthPx = (txt.width * trueScaleX * 1.05f).toInt().coerceAtLeast(1)
-                                val staticLayout = android.text.StaticLayout.Builder.obtain(
-                                    txt.text, 0, txt.text.length, textPaint, screenSafeWidthPx
-                                ).setAlignment(android.text.Layout.Alignment.ALIGN_NORMAL).build()
-
-                                // 6. LA MAGIA: Applichiamo l'intera matrice per posizionare/ruotare il Canvas...
-                                canvas.concat(fullRenderMatrix)
-                                // ...ma cancelliamo l'effetto sgranatura riducendo il Canvas localmente!
-                                canvas.scale(1f / trueScaleX, 1f / trueScaleX)
-
-                                staticLayout.draw(canvas)
-                            }
-                        }
-                    }
-
-                    // 2. DISEGNA I TRATTI SELEZIONATI
-                    canvas.withSave {
-                        // MODIFICA: Applichiamo la matrice fusa (che include lo spostamento) al Canvas
-                        canvas.concat(finalOverlayMatrix)
-
-                        for (domainStroke in selection.strokes) {
-                            domainStroke.stroke?.let { nativeStroke ->
-                                drawViewModel.pageMaker.canvasStrokeRenderer.draw(
-                                    stroke = nativeStroke,
-                                    canvas = canvas,
-                                    strokeToScreenTransform = finalOverlayMatrix // Suggeriamo il nuovo zoom/spostamento a Ink
-                                )
-                            }
-                        }
-                    }
-
-                    // 3. DISEGNA IL BOUNDING BOX DELLA SELEZIONE E LE MANIGLIE
-
-                    // Aggiungiamo un piccolo padding (in millimetri) attorno agli oggetti
-                    val paddingMm = 4f
-                    val boxMm = RectF(selection.boundingBox)
-                    boxMm.inset(-paddingMm, -paddingMm)
-
-                    // Definiamo i 4 angoli del rettangolo in millimetri
-                    // [x1, y1, x2, y2, x3, y3, x4, y4] -> [Alto-Sx, Alto-Dx, Basso-Dx, Basso-Sx]
-                    val cornersMm = floatArrayOf(
-                        boxMm.left, boxMm.top,
-                        boxMm.right, boxMm.top,
-                        boxMm.right, boxMm.bottom,
-                        boxMm.left, boxMm.bottom
-                    )
-
-                    // Troviamo il punto per la maniglia di rotazione (Centro-Alto, un po' più in su)
-                    val midTopXMm = boxMm.centerX()
-                    val midTopYMm = boxMm.top - 12f // 12 mm sopra il bordo superiore
-                    val rotationHandleMm = floatArrayOf(midTopXMm, midTopYMm, midTopXMm, boxMm.top) // [X maniglia, Y maniglia, X ancoraggio, Y ancoraggio]
-
-                    // --- FASE 2: MANIGLIE LATERALI PER IL TESTO ---
-                    val isSingleText = selection.images.isEmpty() && selection.strokes.isEmpty() && selection.texts.size == 1
-                    val sideHandlesMm = floatArrayOf(boxMm.left, boxMm.centerY(), boxMm.right, boxMm.centerY()) // [Sinistra X, Sinistra Y, Destra X, Destra Y]
-
-                    // Mappiamo tutti i punti attraverso la matrice fusa (Spostamento/Rotazione Gruppo + Zoom/Pan Schermo)
-                    val cornersPx = FloatArray(8)
-                    mmToScreenMatrix.mapPoints(cornersPx, cornersMm)
-
-                    val rotationHandlePx = FloatArray(4)
-                    mmToScreenMatrix.mapPoints(rotationHandlePx, rotationHandleMm)
-
-                    val sideHandlesPx = FloatArray(4)
-                    if (isSingleText) {
-                        mmToScreenMatrix.mapPoints(sideHandlesPx, sideHandlesMm)
-                    }
-
-                    // --- STILI GRAFICI ---
-                    val boxPaint = Paint().apply {
-                        color = "#1A73E8".toColorInt()
-                        style = Paint.Style.STROKE
-                        strokeWidth = 4f
-                        pathEffect = DashPathEffect(floatArrayOf(20f, 20f), 0f)
-                        isAntiAlias = true
-                    }
-                    val fillPaint = Paint().apply {
-                        color = "#1A1A73E8".toColorInt()
-                        style = Paint.Style.FILL
-                    }
-                    val handlePaint = Paint().apply {
-                        color = android.graphics.Color.WHITE
-                        style = Paint.Style.FILL
-                        isAntiAlias = true
-                    }
-                    val handleStrokePaint = Paint().apply {
-                        color = "#1A73E8".toColorInt()
-                        style = Paint.Style.STROKE
-                        strokeWidth = 4f
-                        isAntiAlias = true
-                    }
-                    val rotStrokePaint = Paint(handleStrokePaint).apply { color = "#0F9D58".toColorInt() } // Verde per la rotazione
-                    val textHandleStrokePaint = Paint(handleStrokePaint).apply { color = "#FF9800".toColorInt() } // Arancione per la larghezza testo
-
-                    val handleRadius = 24f // Dimensione fissa in pixel per le maniglie
-
-                    // --- DISEGNO ---
-
-                    // A. Costruiamo e disegniamo il poligono del Bounding Box (che ora supporta la rotazione!)
-                    val boxPath = Path().apply {
-                        moveTo(cornersPx[0], cornersPx[1])
-                        lineTo(cornersPx[2], cornersPx[3])
-                        lineTo(cornersPx[4], cornersPx[5])
-                        lineTo(cornersPx[6], cornersPx[7])
-                        close()
-                    }
-                    canvas.drawPath(boxPath, fillPaint)
-                    canvas.drawPath(boxPath, boxPaint)
-
-                    // B. Disegniamo la linea di ancoraggio per la maniglia di rotazione
-                    canvas.drawLine(rotationHandlePx[0], rotationHandlePx[1], rotationHandlePx[2], rotationHandlePx[3], boxPaint)
-
-                    // C. Disegniamo i 4 pallini di ridimensionamento (Zoom) agli angoli
-                    for (i in 0 until 4) {
-                        val cx = cornersPx[i * 2]
-                        val cy = cornersPx[i * 2 + 1]
-                        canvas.drawCircle(cx, cy, handleRadius, handlePaint)
-                        canvas.drawCircle(cx, cy, handleRadius, handleStrokePaint)
-                    }
-
-                    // D. Disegniamo il pallino verde di rotazione
-                    canvas.drawCircle(rotationHandlePx[0], rotationHandlePx[1], handleRadius, handlePaint)
-                    canvas.drawCircle(rotationHandlePx[0], rotationHandlePx[1], handleRadius, rotStrokePaint)
-
-                    // E. Disegniamo le maniglie laterali (Arancioni) SOLO se è un singolo testo
-                    if (isSingleText) {
-                        // Sinistra
-                        canvas.drawCircle(sideHandlesPx[0], sideHandlesPx[1], handleRadius, handlePaint)
-                        canvas.drawCircle(sideHandlesPx[0], sideHandlesPx[1], handleRadius, textHandleStrokePaint)
-                        // Destra
-                        canvas.drawCircle(sideHandlesPx[2], sideHandlesPx[3], handleRadius, handlePaint)
-                        canvas.drawCircle(sideHandlesPx[2], sideHandlesPx[3], handleRadius, textHandleStrokePaint)
-                    }
-
-                } // Fine del canvas.withSave
-            }
-        }
+        selectionOverlayRenderer.draw(canvas, pagesRectOnWindow, windowRect)
 
         // If the animation is still ongoing, request another frame
         if (needsInvalidate) {

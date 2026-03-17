@@ -108,14 +108,14 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
     /**
      * Creates a clipping path that masks out the areas between and outside the pages.
-     * Useful for preventing strokes from being drawn on the canvas background.
      *
+     * @param currentRects The currently calculated page positions on screen.
      * @return The computed clipping mask [Path].
      */
-    fun getMaskPath(): Path {
+    fun getMaskPath(currentRects: Set<CalcPage.PageRectWithIndex>): Path {
         val maskPath = Path().apply {
             addRect(windowRect, Path.Direction.CW)
-            for (pageRect in pagesRectOnWindow){
+            for (pageRect in currentRects){
                 val pageRectPath = Path().apply {
                     addRect(pageRect.rect, Path.Direction.CW)
                 }
@@ -124,7 +124,6 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         }
         return maskPath
     }
-
 
 
     /**
@@ -191,7 +190,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                             val renderMatrix = cameraPhysics.getRenderMatrix()
                             val newPagesRect = calcPage.getPagesRectOnWindowTransformation(windowRect, renderMatrix)
 
-                            drawViewModel.maskPath?.invoke(getMaskPath())
+                            // Invia la maschera calcolata usando i rettangoli NUOVI
+                            drawViewModel.maskPath?.invoke(getMaskPath(newPagesRect))
 
                             // 1. LAVORO IN BACKGROUND (senza bloccare nessuno)
                             // Usiamo il frontState.bitmap attuale per capire le dimensioni, se esiste

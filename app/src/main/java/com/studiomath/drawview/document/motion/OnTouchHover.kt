@@ -736,55 +736,38 @@ class OnTouchHover(
                                 val drawManager = drawViewModel.drawManager
 
                                 if (selection != null) {
-                                    val targetPageIndex = selection.pageIndex
-                                    val pageInfo = drawManager.pagesRectOnWindow.find { it.index == targetPageIndex }
-                                    val page = drawViewModel.documentData?.pages?.getOrNull(targetPageIndex)
+                                    // 1. Calcoliamo l'esatta posizione su schermo dell'oggetto tramite le matrici di overlay
+                                    val finalOverlayMatrix = Matrix(selection.transformMatrix)
+                                    finalOverlayMatrix.postConcat(drawViewModel.floatingSelectionBaseMatrix)
+                                    finalOverlayMatrix.postConcat(drawViewModel.floatingSelectionScreenMatrix)
 
-                                    if (pageInfo != null && page != null) {
-                                        // 1. Calcoliamo la matrice ESATTA che il Renderer stava usando per mostrare l'oggetto
-                                        val baseMmToScreenMatrix = Matrix().apply {
-                                            val currentCamInverse = Matrix()
-                                            drawManager.cameraPhysics.getRenderMatrix().invert(currentCamInverse)
-                                            postConcat(currentCamInverse)
-                                            postConcat(drawViewModel.initialSelectionCameraMatrix)
-                                        }
+                                    // 2. Ricostruiamo dove si trova (o si troverebbe) la vecchia pagina sullo schermo in questo istante
+                                    val invInitialCam = Matrix()
+                                    drawViewModel.initialSelectionCameraMatrix.invert(invInitialCam)
 
-                                        val frozenMmToScreenMatrix = Matrix().apply {
-                                            setRectToRect(page.rect(), pageInfo.rect, Matrix.ScaleToFit.CENTER)
-                                            postConcat(baseMmToScreenMatrix)
-                                        }
+                                    val currentMmToScreenMatrix = Matrix(drawViewModel.floatingSelectionBaseMatrix)
+                                    currentMmToScreenMatrix.postConcat(invInitialCam)
+                                    currentMmToScreenMatrix.postConcat(drawManager.cameraPhysics.getRenderMatrix())
 
-                                        val finalOverlayMatrix = Matrix(selection.transformMatrix)
-                                        finalOverlayMatrix.postConcat(frozenMmToScreenMatrix)
-                                        finalOverlayMatrix.postConcat(drawViewModel.floatingSelectionScreenMatrix)
+                                    // 3. Convertiamo la posizione dello schermo indietro in millimetri sulla vecchia pagina
+                                    val inverseCurrentMmToScreen = Matrix()
+                                    currentMmToScreenMatrix.invert(inverseCurrentMmToScreen)
 
-                                        // 2. Ora cerchiamo la matrice del mondo reale (in MM) equivalente,
-                                        // usando la telecamera ATTUALE e la sua scala.
-                                        val currentMmToScreenMatrix = Matrix().apply {
-                                            setRectToRect(page.rect(), pageInfo.rect, Matrix.ScaleToFit.CENTER)
-                                        }
+                                    val newTransformMatrixInMm = Matrix(finalOverlayMatrix)
+                                    newTransformMatrixInMm.postConcat(inverseCurrentMmToScreen)
 
-                                        val inverseCurrentMmToScreen = Matrix()
-                                        currentMmToScreenMatrix.invert(inverseCurrentMmToScreen)
+                                    // 4. Applichiamo la differenza
+                                    val oldValues = FloatArray(9)
+                                    selection.transformMatrix.getValues(oldValues)
+                                    val newValues = FloatArray(9)
+                                    newTransformMatrixInMm.getValues(newValues)
 
-                                        // L'operazione per trovare le nuove coordinate nel mondo:
-                                        val newTransformMatrixInMm = Matrix(finalOverlayMatrix)
-                                        newTransformMatrixInMm.postConcat(inverseCurrentMmToScreen)
+                                    val dxMm = newValues[Matrix.MTRANS_X] - oldValues[Matrix.MTRANS_X]
+                                    val dyMm = newValues[Matrix.MTRANS_Y] - oldValues[Matrix.MTRANS_Y]
 
-                                        // 3. Applichiamo la differenza per muovere anche il Bounding Box invisibile
-                                        val oldValues = FloatArray(9)
-                                        selection.transformMatrix.getValues(oldValues)
-                                        val newValues = FloatArray(9)
-                                        newTransformMatrixInMm.getValues(newValues)
-
-                                        val dxMm = newValues[Matrix.MTRANS_X] - oldValues[Matrix.MTRANS_X]
-                                        val dyMm = newValues[Matrix.MTRANS_Y] - oldValues[Matrix.MTRANS_Y]
-
-                                        // 4. Salviamo tutto bloccando il Render Thread
-                                        synchronized(drawManager.renderLock) {
-                                            selection.transformMatrix.set(newTransformMatrixInMm)
-                                            selection.boundingBox.offset(dxMm, dyMm)
-                                        }
+                                    synchronized(drawManager.renderLock) {
+                                        selection.transformMatrix.set(newTransformMatrixInMm)
+                                        selection.boundingBox.offset(dxMm, dyMm)
                                     }
                                 }
 

@@ -248,15 +248,34 @@ class SelectionManager(
 
         val oldPageIndex = selection.pageIndex
 
-        // Da qui in poi usiamo 'livePagesRects' invece di 'drawManager.pagesRectOnWindow'
-        val oldPageInfo = livePagesRects.find { it.index == oldPageIndex } ?: return
+        // --- FIX: Non fare `?: return` qui, la pagina potrebbe essere fuori schermo! ---
+        val oldPageInfo = livePagesRects.find { it.index == oldPageIndex }
         val oldPage = doc.pages.getOrNull(oldPageIndex) ?: return
 
-        val oldMmToScreenMatrix = Matrix().apply { setRectToRect(oldPage.rect(), oldPageInfo.rect, Matrix.ScaleToFit.CENTER) }
+        val drawViewModel = getDrawManager().drawViewModel
+
+        // Calcoliamo la matrice MM -> Schermo per la vecchia pagina, anche se è invisibile
+        val oldMmToScreenMatrix = if (oldPageInfo != null) {
+            Matrix().apply { setRectToRect(oldPage.rect(), oldPageInfo.rect, Matrix.ScaleToFit.CENTER) }
+        } else {
+            // Se è fuori schermo, la deduciamo matematicamente dalle matrici salvate
+            val invInitialCam = Matrix()
+            drawViewModel.initialSelectionCameraMatrix.invert(invInitialCam)
+            Matrix(drawViewModel.floatingSelectionBaseMatrix).apply {
+                postConcat(invInitialCam)
+                postConcat(currentRenderMatrix)
+            }
+        }
+
         val screenBoundingBox = RectF()
         oldMmToScreenMatrix.mapRect(screenBoundingBox, selection.boundingBox)
 
-        val targetPageInfo = livePagesRects.find { it.rect.contains(screenBoundingBox.centerX(), screenBoundingBox.centerY()) } ?: oldPageInfo
+        // Troviamo la pagina bersaglio sotto il centro della selezione (se rilasci fuori, trova la più vicina)
+        val targetPageInfo = livePagesRects.find { it.rect.contains(screenBoundingBox.centerX(), screenBoundingBox.centerY()) }
+            ?: livePagesRects.minByOrNull { Math.hypot((it.rect.centerX() - screenBoundingBox.centerX()).toDouble(), (it.rect.centerY() - screenBoundingBox.centerY()).toDouble()) }
+
+        if (targetPageInfo == null) return // Failsafe se lo schermo non ha pagine
+
         val targetPageIndex = targetPageInfo.index
         val targetPage = doc.pages.getOrNull(targetPageIndex) ?: return
 

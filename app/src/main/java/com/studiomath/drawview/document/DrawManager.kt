@@ -572,19 +572,23 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         }
         lastFrameTime = currentTime
 
-        // Nota: Ricalcoliamo la matrice post-update fisico
+        // 1. Poiché la fisica è avanzata di un frame, ricalcoliamo subito le
+        // posizioni aggiornate delle pagine per evitare lag visivi.
         val updatedRenderMatrix = cameraPhysics.getRenderMatrix()
+        val updatedPagesRect = calcPage.getPagesRectOnWindowTransformation(windowRect, updatedRenderMatrix)
 
-        drawViewModel.pageMaker.makeWindowBackground(canvas, snapshot.pagesRect, updatedRenderMatrix)
-        val document = drawViewModel.documentData
+        // 2. Creiamo una copia dello snapshot con i dati freschi
+        val updatedSnapshot = snapshot.copy(
+            currentRenderMatrix = updatedRenderMatrix,
+            pagesRect = updatedPagesRect
+        )
 
-        for (page in snapshot.pagesRect) {
-            drawViewModel.pageMaker.makePageBackground(canvas, page.rect, windowRect)
-            val docPage = document?.pages?.getOrNull(page.index) ?: continue
-            if (!docPage.isPrepared) docPage.prepare()
-            docPage.bitmapPage?.let { canvas.drawBitmap(it, null, page.rect, null) }
-        }
+        // 3. FIX LAMPEGGIO: Deleghiamo il disegno effettivo alla funzione gemella!
+        // renderScaleTranslateMode sa già perfettamente come disegnare sia la bassa
+        // risoluzione che la bitmap ad alta risoluzione in movimento.
+        renderScaleTranslateMode(canvas, updatedSnapshot)
 
+        // 4. Controllo fine animazione
         if (!cameraPhysics.isAnimating()) {
             lastFrameTime = 0L
             requestDraw(DrawAttachments(drawMode = DrawAttachments.DrawMode.UPDATE).apply {

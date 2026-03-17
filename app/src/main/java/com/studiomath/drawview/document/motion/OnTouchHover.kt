@@ -481,17 +481,25 @@ class OnTouchHover(
         val selection = drawViewModel.currentSelection
         if (selection != null && !selection.isEmpty()) {
             val pageInfo = drawViewModel.drawManager.pagesRectOnWindow.find { it.index == selection.pageIndex }
-            if (pageInfo != null) {
-                val page = drawViewModel.documentData!!.pages[pageInfo.index]
-                val scaleX = page.width / pageInfo.rect.width()
-                val scaleY = page.height / pageInfo.rect.height()
 
-                val xMm = (event.x - pageInfo.rect.left) * scaleX
-                val yMm = (event.y - pageInfo.rect.top) * scaleY
+            // --- FIX CRITICO: SOPRAVVIVENZA OFF-SCREEN ---
+            // Entriamo nel blocco se la pagina originale è visibile OPPURE se stiamo galleggiando.
+            // In questo modo, anche se la pagina esce dallo schermo, il drag continua senza interruzioni!
+            if (pageInfo != null || drawViewModel.isFloatingSelection) {
+
+                // Se la pagina è uscita dallo schermo, usiamo l'ultima scala nota per non far crollare la matematica
+                val scaleX = if (pageInfo != null) drawViewModel.documentData!!.pages[pageInfo.index].width / pageInfo.rect.width() else dragScaleMmPerPx
+                val scaleY = if (pageInfo != null) drawViewModel.documentData!!.pages[pageInfo.index].height / pageInfo.rect.height() else dragScaleMmPerPx
+
+                val xMm = if (pageInfo != null) (event.x - pageInfo.rect.left) * scaleX else 0f
+                val yMm = if (pageInfo != null) (event.y - pageInfo.rect.top) * scaleY else 0f
 
                 when (event.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
-                        // --- UNDO/REDO: FOTOGRAFIAMO LO STATO PRIMA DI TOCCARE ---
+                        // (L'ACTION_DOWN richiede per forza il pageInfo != null, perché
+                        // non puoi iniziare un tocco su una pagina che non c'è)
+                        if (pageInfo == null) return@OnTouchListener true
+
                         if (currentDragState == DragState.NONE) {
                             selection.captureOriginalStates()
                         }
@@ -516,7 +524,7 @@ class OnTouchHover(
                         for (corner in corners) {
                             val dx = xMm - corner.first
                             val dy = yMm - corner.second
-                            if (Math.hypot(dx.toDouble(), dy.toDouble()) <= handleRadiusMm) {
+                            if (hypot(dx.toDouble(), dy.toDouble()) <= handleRadiusMm) {
                                 hitScaleHandle = true
                                 break
                             }
@@ -576,11 +584,19 @@ class OnTouchHover(
                             currentDragState = DragState.PANNING
                             lastTouchX = event.x
                             lastTouchY = event.y
+                            dragScaleMmPerPx = scaleX
 
-                            // --- FIX: SGANCIAMO L'OGGETTO DAL MONDO ---
+                            // --- FIX: SALVIAMO LO STATO INIZIALE ASSOLUTO ---
                             drawViewModel.isFloatingSelection = true
                             drawViewModel.floatingSelectionScreenMatrix.reset()
                             drawViewModel.initialSelectionCameraMatrix.set(drawViewModel.drawManager.cameraPhysics.getRenderMatrix())
+
+                            // Salviamo la vera conversione mm-to-screen della pagina in questo esatto momento
+                            val page = drawViewModel.documentData!!.pages[pageInfo.index]
+                            val mmToScreen = Matrix().apply {
+                                setRectToRect(page.rect(), pageInfo.rect, Matrix.ScaleToFit.CENTER)
+                            }
+                            drawViewModel.floatingSelectionBaseMatrix.set(mmToScreen)
 
                             drawViewModel.drawManager.cameraPhysics.stopAllAnimations()
                             return@OnTouchListener true

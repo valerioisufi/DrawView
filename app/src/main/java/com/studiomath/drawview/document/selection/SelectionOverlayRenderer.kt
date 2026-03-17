@@ -63,68 +63,25 @@ class SelectionOverlayRenderer(private val drawViewModel: DrawViewModel) {
     fun draw(canvas: Canvas, pagesRectOnWindow: Set<CalcPage.PageRectWithIndex>, windowRect: RectF) {
         val selection = drawViewModel.currentSelection ?: return
         if (selection.isEmpty()) return
-        val document = drawViewModel.documentData ?: return
 
-        val targetPageIndex = selection.pageIndex
-        val pageInfo = pagesRectOnWindow.find { it.index == targetPageIndex } ?: return
-        val page = document.pages.getOrNull(pageInfo.index) ?: return
-
-        // --- MAGIA DEL GALLEGGIAMENTO ---
+        // --- FIX CRITICO: MAGIA DEL GALLEGGIAMENTO INDIPENDENTE ---
         val finalOverlayMatrix = Matrix()
 
         if (drawViewModel.isFloatingSelection) {
-            // 1. MODALITÀ VOLANTE: Ignoriamo i movimenti attuali della telecamera!
-            // Usiamo la fotografia della telecamera presa all'istante del tocco iniziale
-            // e ci aggiungiamo sopra lo spostamento in nudi pixel del dito.
-            val initialMmToScreenMatrix = Matrix().apply {
-                setRectToRect(page.rect(), pageInfo.rect, Matrix.ScaleToFit.CENTER)
-            }
-            // Annulliamo il movimento live della telecamera sostituendo la mmToScreenMatrix live
-            // con quella bloccata al momento del tocco.
-
-            // Per farla semplice, usiamo initialSelectionCameraMatrix per posizionare il foglio
-            // e floatingSelectionScreenMatrix per traslarlo sullo schermo.
-            val staticMmToScreenMatrix = Matrix().apply {
-                // Calcoliamo il rettangolo della pagina basato sulla vecchia matrice della telecamera
-                val oldPageRect = RectF(page.rect())
-                val oldCam = drawViewModel.initialSelectionCameraMatrix
-                val tempCalcPage = CalcPage(drawViewModel.displayMetrics)
-                // Questo è un trucco per recuperare la posizione iniziale: usiamo la transformMatrix esistente
-                // e la matrix iniziale salvata.
-            }
-
-            // LA VERSIONE PIÙ ROBUSTA:
-            // La selezione contiene già le coordinate in millimetri e una transformMatrix.
-            // Quando fluttua, noi partiamo dalla initialSelectionCameraMatrix, proiettiamo i millimetri,
-            // e infiliamo la floatingSelectionScreenMatrix alla fine!
-
-            // Ricalcoliamo il pageInfo.rect come se la telecamera fosse ferma al momento del tocco:
-            val basePageRectOnScreen = RectF(page.rect())
-
-            // (Per semplicità estrema e massima efficienza, nel OnTouchHover.kt
-            // la initialSelectionCameraMatrix è la getRenderMatrix() intera).
-            val baseMmToScreenMatrix = Matrix().apply {
-                val currentCamInverse = Matrix()
-                drawViewModel.drawManager.cameraPhysics.getRenderMatrix().invert(currentCamInverse)
-
-                // Torniamo indietro al mondo fisico, andiamo nella posizione del tocco, andiamo allo schermo
-                postConcat(currentCamInverse)
-                postConcat(drawViewModel.initialSelectionCameraMatrix)
-
-                // Questa operazione ri-allinea il pageInfo.rect a dov'era prima di scorrere!
-            }
-
-            val frozenMmToScreenMatrix = Matrix().apply {
-                setRectToRect(page.rect(), pageInfo.rect, Matrix.ScaleToFit.CENTER)
-                postConcat(baseMmToScreenMatrix) // Applica la differenza tra cam attuale e cam iniziale
-            }
-
+            // 1. MODALITÀ VOLANTE: Ignoriamo completamente le pagine a schermo!
+            // Usiamo la matrice fissa che avevamo salvato al momento del tocco,
+            // e ci sommiamo sopra il movimento in pixel del dito.
             finalOverlayMatrix.set(selection.transformMatrix)
-            finalOverlayMatrix.postConcat(frozenMmToScreenMatrix)
+            finalOverlayMatrix.postConcat(drawViewModel.floatingSelectionBaseMatrix)
             finalOverlayMatrix.postConcat(drawViewModel.floatingSelectionScreenMatrix)
-
         } else {
             // 2. MODALITÀ NORMALE (Ancorata al documento)
+            // Se NON sta galleggiando, DEVE esserci la pagina a schermo, altrimenti abortiamo.
+            val targetPageIndex = selection.pageIndex
+            val pageInfo = pagesRectOnWindow.find { it.index == targetPageIndex } ?: return
+            val document = drawViewModel.documentData ?: return
+            val page = document.pages.getOrNull(pageInfo.index) ?: return
+
             val mmToScreenMatrix = Matrix().apply {
                 setRectToRect(page.rect(), pageInfo.rect, Matrix.ScaleToFit.CENTER)
             }

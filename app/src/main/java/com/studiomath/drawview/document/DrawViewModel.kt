@@ -232,6 +232,7 @@ class DrawViewModel(
     var isFloatingSelection = false
     var floatingSelectionScreenMatrix = Matrix()
     var initialSelectionCameraMatrix = Matrix()
+    var floatingSelectionBaseMatrix = Matrix()
 
     init {
         loadDocument()

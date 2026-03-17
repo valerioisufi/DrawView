@@ -110,7 +110,7 @@ class DrawActivity : ComponentActivity() {
         }.value
 
         inProgressStrokesView = InProgressStrokesView(this)
-        inProgressStrokesView.addFinishedStrokesListener(drawViewModel.drawManager)
+        inProgressStrokesView.addFinishedStrokesListener(drawViewModel.drawManager.inkStrokeProcessor)
         inProgressStrokesView.eagerInit()
 
         setContent {

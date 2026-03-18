@@ -72,6 +72,33 @@ data class DocumentWithPages(
  */
 
 @Dao
+interface FolderDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(folder: FolderEntity): Long
+
+    @Query("SELECT * FROM folders WHERE name = :name AND (parentId = :parentId OR (parentId IS NULL AND :parentId IS NULL))")
+    suspend fun getFolderByNameAndParent(name: String, parentId: Int?): FolderEntity?
+
+    @Query("SELECT * FROM folders WHERE parentId IS NULL")
+    suspend fun getRootFolders(): List<FolderEntity>
+
+    @Query("SELECT * FROM folders WHERE parentId = :parentId")
+    suspend fun getSubFolders(parentId: Int): List<FolderEntity>
+
+    @Query("SELECT * FROM folders WHERE id = :id")
+    suspend fun getFolderById(id: Int): FolderEntity?
+
+    @Query("UPDATE folders SET name = :newName, modifiedAt = :timestamp WHERE id = :id")
+    suspend fun renameFolder(id: Int, newName: String, timestamp: Long = System.currentTimeMillis())
+
+    @Query("DELETE FROM folders WHERE id = :id")
+    suspend fun deleteById(id: Int)
+
+    @Query("UPDATE folders SET parentId = :newParentId, modifiedAt = :timestamp WHERE id = :id")
+    suspend fun moveFolder(id: Int, newParentId: Int?, timestamp: Long = System.currentTimeMillis())
+}
+
+@Dao
 interface DocumentDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(document: DocumentEntity): Long
@@ -92,6 +119,28 @@ interface DocumentDao {
 
     @Delete
     suspend fun delete(document: DocumentEntity)
+
+
+    @Query("SELECT * FROM documents WHERE name = :name AND folderId IS NULL")
+    suspend fun getRootDocumentByName(name: String): DocumentEntity?
+
+    @Query("SELECT * FROM documents WHERE name = :name AND folderId = :folderId")
+    suspend fun getDocumentByNameAndFolder(name: String, folderId: Int): DocumentEntity?
+
+    @Query("SELECT * FROM documents WHERE folderId IS NULL ORDER BY modifiedAt DESC")
+    suspend fun getRootDocuments(): List<DocumentEntity>
+
+    @Query("SELECT * FROM documents WHERE folderId = :folderId ORDER BY modifiedAt DESC")
+    suspend fun getDocumentsInFolder(folderId: Int): List<DocumentEntity>
+
+    @Query("UPDATE documents SET name = :newName, modifiedAt = :timestamp WHERE id = :id")
+    suspend fun renameDocument(id: Int, newName: String, timestamp: Long = System.currentTimeMillis())
+
+    @Query("UPDATE documents SET folderId = :newFolderId, modifiedAt = :timestamp WHERE id = :id")
+    suspend fun moveDocument(id: Int, newFolderId: Int?, timestamp: Long = System.currentTimeMillis())
+
+    @Query("SELECT * FROM documents ORDER BY lastOpenedAt DESC LIMIT :limit")
+    suspend fun getRecentDocuments(limit: Int): List<DocumentEntity>
 }
 
 @Dao

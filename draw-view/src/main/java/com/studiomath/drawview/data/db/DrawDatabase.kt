@@ -27,6 +27,7 @@ import androidx.room.RoomDatabase
 abstract class DrawDatabase : RoomDatabase() {
 
     // Dichiarazione dei DAO accessibili
+    abstract fun folderDao(): FolderDao
     abstract fun documentDao(): DocumentDao
     abstract fun pageDao(): PageDao
     abstract fun strokeDao(): StrokeDao

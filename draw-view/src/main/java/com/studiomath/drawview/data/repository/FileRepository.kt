@@ -9,6 +9,7 @@ class FileRepository(context: Context) {
     private val database = DrawDatabase.getInstance(context)
     private val folderDao = database.folderDao()
     private val documentDao = database.documentDao()
+    private val pageDao = database.pageDao()
 
     // --- FOLDER OPERATIONS ---
     suspend fun createFolder(name: String, parentId: Int?): Boolean {
@@ -63,8 +64,20 @@ class FileRepository(context: Context) {
         else documentDao.getDocumentByNameAndFolder(name, folderId)
         if (existing != null) return false
 
+        // 1. Crea il documento e salva l'ID generato
         val document = DocumentEntity(name = name, folderId = folderId)
-        documentDao.insert(document)
+        val newDocId = documentDao.insert(document).toInt()
+
+        // 2. Crea la primissima pagina di default (Foglio A4)
+        // Assicurati che l'import di PageEntity sia corretto
+        val dbPage = com.studiomath.drawview.data.db.PageEntity(
+            documentId = newDocId,
+            pageNumber = 0,
+            width = 210f, // Larghezza A4 in mm (o usa i tuoi valori di default)
+            height = 297f // Altezza A4 in mm
+        )
+        pageDao.insert(dbPage)
+
         return true
     }
 

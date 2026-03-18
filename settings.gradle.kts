@@ -23,5 +23,5 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "DrawView"
+include(":draw-view")
 include(":app")
- 

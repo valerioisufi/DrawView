@@ -1,13 +1,7 @@
 package com.studiomath.drawview
 
-import android.os.Bundle
-import android.view.ViewConfiguration
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.viewModels
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -69,12 +63,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import androidx.ink.authoring.InProgressStrokesView
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import com.studiomath.drawview.document.DrawComponent
 import com.studiomath.drawview.document.DrawViewModel
 import com.studiomath.drawview.document.page.pt
@@ -82,67 +71,16 @@ import com.studiomath.drawview.document.selection.LassoMode
 import com.studiomath.drawview.document.tools.Tool
 import com.studiomath.drawview.ui.composeComponents.ColorWheel
 import com.studiomath.drawview.ui.composeComponents.SizeSlider
-import com.studiomath.drawview.ui.theme.DrawViewTheme
-
-class DrawActivity : ComponentActivity() {
-    private lateinit var inProgressStrokesView: InProgressStrokesView
-    private lateinit var drawViewModel: DrawViewModel
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        enableEdgeToEdge()
-        super.onCreate(savedInstanceState)
-
-        // Retrieve documentId from Intent instead of filePath
-        val documentId = intent.getIntExtra("documentId", -1)
-
-        drawViewModel = viewModels<DrawViewModel> {
-            object : ViewModelProvider.Factory {
-                override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    // Pass the Application instance and the Document ID to the ViewModel
-                    return DrawViewModel(
-                        application = application,
-                        documentId = documentId,
-                        displayMetrics = resources.displayMetrics,
-                        configuration = ViewConfiguration.get(this@DrawActivity)
-                    ) as T
-                }
-            }
-        }.value
-
-        inProgressStrokesView = InProgressStrokesView(this)
-        inProgressStrokesView.addFinishedStrokesListener(drawViewModel.drawManager.inkStrokeProcessor)
-        inProgressStrokesView.eagerInit()
-
-        setContent {
-            DrawViewTheme {
-                DrawActivity(drawViewModel = drawViewModel, inProgressStrokesView = inProgressStrokesView)
-            }
-        }
-
-        drawViewModel.finishActivity = { finish() }
-    }
-
-    override fun onPause() {
-        super.onPause()
-    }
-
-    override fun onAttachedToWindow() {
-        super.onAttachedToWindow()
-
-        val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
-        windowInsetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        windowInsetsController.hide(WindowInsetsCompat.Type.systemBars())
-    }
-}
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class,
     ExperimentalFoundationApi::class
 )
 @Composable
-fun DrawActivity(
+fun DrawScreen(
     modifier: Modifier = Modifier,
     drawViewModel: DrawViewModel,
-    inProgressStrokesView: InProgressStrokesView
+    inProgressStrokesView: InProgressStrokesView,
+    onNavigateBack: () -> Unit // <-- Deleghiamo l'azione di uscita a chi chiama questa schermata
 ) {
 
     // Launcher per selezionare il file PDF
@@ -189,9 +127,7 @@ fun DrawActivity(
                         modifier = Modifier
                     ) {
                         ToolButton(
-                            onClick = {
-                                drawViewModel.finishActivity?.let { it() }
-                            }
+                            onClick = onNavigateBack
                         ){
                             Icon(
                                 imageVector = Icons.AutoMirrored.Outlined.ArrowBack,

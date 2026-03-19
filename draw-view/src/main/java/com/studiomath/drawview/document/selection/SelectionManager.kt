@@ -8,6 +8,7 @@ import android.graphics.Matrix
 import android.graphics.PointF
 import android.graphics.RectF
 import android.net.Uri
+import android.view.View
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -66,6 +67,29 @@ class SelectionManager(
     var lassoMode by mutableStateOf(LassoMode.ALL)
 
     private val clipMgr = application.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+
+    // --- VARIABILI PER AUTO-SCROLL SELEZIONE ---
+    var isAutoScrollingSelection = false
+    private var autoScrollDeltaY = 0f
+    private var attachedView: View? = null
+
+    private val autoScrollRunnable = object : Runnable {
+        override fun run() {
+            if (!isAutoScrollingSelection) return
+            val view = attachedView ?: return
+            val drawManager = getDrawManager()
+
+            drawManager.cameraPhysics.onDrag(
+                0f, autoScrollDeltaY, 1f,
+                view.width / 2f, view.height / 2f
+            )
+
+            drawManager.requestDraw(
+                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.SCALE_TRANSLATE)
+            )
+            view.postOnAnimation(this)
+        }
+    }
 
     fun clearSelection(documentData: Document?) {
         val selection = currentSelection ?: return
@@ -131,7 +155,6 @@ class SelectionManager(
 
     fun cutSelection(documentData: Document?) {
         copySelection(documentData)
-        // Ripristina la selezione per poi cancellarla
         currentSelection = clipboard
         deleteSelection(documentData)
     }
@@ -171,7 +194,6 @@ class SelectionManager(
                 val pastedImages = mutableListOf<Image>()
                 val pastedTexts = mutableListOf<Text>()
 
-                // Clonazione Immagini
                 copiedGroup.images.forEach { originalImg ->
                     val newImg = Image(zIndex = targetPage.imageData.size + pastedImages.size).apply {
                         id = originalImg.id; dbId = 0
@@ -182,7 +204,6 @@ class SelectionManager(
                     pastedImages.add(newImg)
                 }
 
-                // Clonazione Tratti
                 val offsetMatrix = Matrix().apply { postTranslate(offsetXMm, offsetYMm) }
                 copiedGroup.strokes.forEach { originalStroke ->
                     val newStroke = Stroke(zIndex = targetPage.strokeData.size + pastedStrokes.size).apply {
@@ -194,7 +215,6 @@ class SelectionManager(
                     pastedStrokes.add(newStroke)
                 }
 
-                // Clonazione Testi
                 copiedGroup.texts.forEach { originalText ->
                     val newText = Text(zIndex = targetPage.textData.size + pastedTexts.size).apply {
                         dbId = 0; text = originalText.text; isLatex = originalText.isLatex
@@ -224,7 +244,6 @@ class SelectionManager(
                 }
             }
         } else {
-            // Immagine esterna
             val clip = clipMgr.primaryClip
             if (clip != null && clip.itemCount > 0) {
                 clip.getItemAt(0).uri?.let { uri -> onExternalImagePaste(uri, targetXPx, targetYPx) }
@@ -233,32 +252,156 @@ class SelectionManager(
         contextMenuPosition = null
     }
 
+    // ==========================================================
+    // METODI DELEGATI DAL SELECTION TOUCH HANDLER
+    // ==========================================================
+
+    fun startPanning(pageInfo: com.studiomath.drawview.document.page.CalcPage.PageRectWithIndex) {
+        val drawViewModel = getDrawManager().drawViewModel
+        val doc = drawViewModel.documentData ?: return
+
+        drawViewModel.isFloatingSelection = true
+        drawViewModel.floatingSelectionScreenMatrix.reset()
+        drawViewModel.initialSelectionCameraMatrix.set(getDrawManager().cameraPhysics.getRenderMatrix())
+
+        val page = doc.pages[pageInfo.index]
+        val mmToScreen = Matrix().apply {
+            setRectToRect(page.rect(), pageInfo.rect, Matrix.ScaleToFit.CENTER)
+        }
+        drawViewModel.floatingSelectionBaseMatrix.set(mmToScreen)
+        getDrawManager().cameraPhysics.stopAllAnimations()
+    }
+
+    fun updatePanning(view: View, dxPx: Float, dyPx: Float, scrollDelta: Float) {
+        val drawViewModel = getDrawManager().drawViewModel
+
+        synchronized(getDrawManager().renderLock) {
+            drawViewModel.floatingSelectionScreenMatrix.postTranslate(dxPx, dyPx)
+        }
+
+        attachedView = view
+        if (scrollDelta != 0f) {
+            autoScrollDeltaY = scrollDelta
+            if (!isAutoScrollingSelection) {
+                isAutoScrollingSelection = true
+                view.postOnAnimation(autoScrollRunnable)
+            }
+        } else {
+            if (isAutoScrollingSelection) {
+                isAutoScrollingSelection = false
+                view.removeCallbacks(autoScrollRunnable)
+            }
+        }
+    }
+
+    fun updateScaling(scaleFactor: Float, pivotX: Float, pivotY: Float) {
+        currentSelection?.let { selection ->
+            synchronized(getDrawManager().renderLock) {
+                selection.transformMatrix.postScale(scaleFactor, scaleFactor, pivotX, pivotY)
+            }
+        }
+    }
+
+    fun updateRotation(deltaAngle: Float, pivotX: Float, pivotY: Float) {
+        currentSelection?.let { selection ->
+            synchronized(getDrawManager().renderLock) {
+                selection.transformMatrix.postRotate(deltaAngle, pivotX, pivotY)
+            }
+        }
+    }
+
+    fun updateTextResize(touchLocalXMm: Float, touchLocalYMm: Float, isRightEdge: Boolean) {
+        currentSelection?.let { selection ->
+            val txt = selection.texts.firstOrNull() ?: return
+            val pts = floatArrayOf(touchLocalXMm, touchLocalYMm)
+            val inverseTransform = Matrix()
+
+            synchronized(getDrawManager().renderLock) {
+                selection.transformMatrix.invert(inverseTransform)
+                inverseTransform.mapPoints(pts)
+
+                val touchLocalX = pts[0]
+                val minWidthMm = 20f
+
+                if (isRightEdge) {
+                    val newWidth = touchLocalX - txt.x
+                    txt.width = kotlin.math.max(minWidthMm, newWidth)
+                } else {
+                    val rightEdge = txt.x + txt.width
+                    val newWidth = rightEdge - touchLocalX
+                    if (newWidth >= minWidthMm) {
+                        txt.x = touchLocalX
+                        txt.width = newWidth
+                    }
+                }
+                selection.boundingBox.set(txt.x, txt.y, txt.x + txt.width, txt.y + txt.height)
+            }
+        }
+    }
+
+    fun finalizeTransformation(view: View, wasPanning: Boolean) {
+        isAutoScrollingSelection = false
+        view.removeCallbacks(autoScrollRunnable)
+
+        val drawViewModel = getDrawManager().drawViewModel
+        val drawManager = getDrawManager()
+        val selection = currentSelection
+
+        if (wasPanning && drawViewModel.isFloatingSelection && selection != null) {
+            val finalOverlayMatrix = Matrix(selection.transformMatrix)
+            finalOverlayMatrix.postConcat(drawViewModel.floatingSelectionBaseMatrix)
+            finalOverlayMatrix.postConcat(drawViewModel.floatingSelectionScreenMatrix)
+
+            val invInitialCam = Matrix()
+            drawViewModel.initialSelectionCameraMatrix.invert(invInitialCam)
+
+            val currentMmToScreenMatrix = Matrix(drawViewModel.floatingSelectionBaseMatrix)
+            currentMmToScreenMatrix.postConcat(invInitialCam)
+            currentMmToScreenMatrix.postConcat(drawManager.cameraPhysics.getRenderMatrix())
+
+            val inverseCurrentMmToScreen = Matrix()
+            currentMmToScreenMatrix.invert(inverseCurrentMmToScreen)
+
+            val newTransformMatrixInMm = Matrix(finalOverlayMatrix)
+            newTransformMatrixInMm.postConcat(inverseCurrentMmToScreen)
+
+            synchronized(drawManager.renderLock) {
+                selection.transformMatrix.set(newTransformMatrixInMm)
+            }
+        }
+
+        drawViewModel.isFloatingSelection = false
+
+        applySelectionTransformation(drawViewModel.documentData)
+
+        drawManager.requestDraw(
+            DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.SCALE_TRANSLATE)
+        )
+    }
+
+    // ==========================================================
+    // METODO ORIGINALE (CON I TUOI FIX CRITICI)
+    // ==========================================================
+
     fun applySelectionTransformation(documentData: Document?) {
         val selection = currentSelection ?: return
         val doc = documentData ?: return
         val drawManager = getDrawManager()
 
-        // --- FIX CRITICO: USARE LE POSIZIONI DAL VIVO ---
-        // Poiché l'auto-scroll ha mosso la telecamera, calcoliamo i rettangoli
-        // aggiornati in questo esatto momento per trovare l'atterraggio corretto!
         val currentRenderMatrix = drawManager.cameraPhysics.getRenderMatrix()
         val livePagesRects = drawManager.calcPage.getPagesRectOnWindowTransformation(
             drawManager.windowRect, currentRenderMatrix
         )
 
         val oldPageIndex = selection.pageIndex
-
-        // --- FIX: Non fare `?: return` qui, la pagina potrebbe essere fuori schermo! ---
         val oldPageInfo = livePagesRects.find { it.index == oldPageIndex }
         val oldPage = doc.pages.getOrNull(oldPageIndex) ?: return
 
         val drawViewModel = getDrawManager().drawViewModel
 
-        // Calcoliamo la matrice MM -> Schermo per la vecchia pagina, anche se è invisibile
         val oldMmToScreenMatrix = if (oldPageInfo != null) {
             Matrix().apply { setRectToRect(oldPage.rect(), oldPageInfo.rect, Matrix.ScaleToFit.CENTER) }
         } else {
-            // Se è fuori schermo, la deduciamo matematicamente dalle matrici salvate
             val invInitialCam = Matrix()
             drawViewModel.initialSelectionCameraMatrix.invert(invInitialCam)
             Matrix(drawViewModel.floatingSelectionBaseMatrix).apply {
@@ -270,11 +413,10 @@ class SelectionManager(
         val screenBoundingBox = RectF()
         oldMmToScreenMatrix.mapRect(screenBoundingBox, selection.boundingBox)
 
-        // Troviamo la pagina bersaglio sotto il centro della selezione (se rilasci fuori, trova la più vicina)
         val targetPageInfo = livePagesRects.find { it.rect.contains(screenBoundingBox.centerX(), screenBoundingBox.centerY()) }
             ?: livePagesRects.minByOrNull { Math.hypot((it.rect.centerX() - screenBoundingBox.centerX()).toDouble(), (it.rect.centerY() - screenBoundingBox.centerY()).toDouble()) }
 
-        if (targetPageInfo == null) return // Failsafe se lo schermo non ha pagine
+        if (targetPageInfo == null) return
 
         val targetPageIndex = targetPageInfo.index
         val targetPage = doc.pages.getOrNull(targetPageIndex) ?: return
@@ -282,9 +424,6 @@ class SelectionManager(
         val isPageChanged = oldPageIndex != targetPageIndex
         val finalTransform = Matrix(selection.transformMatrix)
 
-        // --- FIX: BLOCCO DI SINCRONIZZAZIONE ATOMICA ---
-        // Blocchiamo il RenderThread. Così non potrà MAI disegnare un frame
-        // a metà strada, evitando il glitch della doppia trasformazione.
         synchronized(drawManager.renderLock) {
 
             if (isPageChanged) {
@@ -296,9 +435,6 @@ class SelectionManager(
                     postConcat(screenToNewMmMatrix)
                 }
                 finalTransform.postConcat(oldMmToNewMmMatrix)
-
-                // RIMOSSO: oldMmToNewMmMatrix.mapRect(selection.boundingBox)
-                // Non mappiamo qui a metà, lo facciamo alla fine con la matrice completa!
 
                 selection.pageIndex = targetPageIndex
 
@@ -333,17 +469,11 @@ class SelectionManager(
                 txt.x = pts[0] - (txt.width / 2f); txt.y = pts[1] - (txt.height / 2f)
             }
 
-            // --- AGGIUNTO: CUOCIAMO IL BOUNDING BOX ---
-            // Questa singola riga applica lo spostamento, lo zoom, la rotazione
-            // e persino il salto di pagina al riquadro blu, rendendolo definitivo.
             finalTransform.mapRect(selection.boundingBox)
-
-            // Resettiamo la matrice NELLO STESSO ISTANTE in cui applichiamo le coordinate.
             selection.transformMatrix.reset()
 
         } // FINE BLOCCO SINCRONIZZATO
 
-        // (Il resto rimane invariato e fuori dal blocco perché usa le Coroutine)
         if (isPageChanged) {
             coroutineScope.launch(Dispatchers.Default) {
                 oldPage.bitmapPage?.let { oldBitmap ->

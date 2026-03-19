@@ -146,6 +146,7 @@ class DrawViewModel(
         repository = repository,
         coroutineScope = viewModelScope,
         getDrawManager = { drawManager },
+        getDocumentData = { documentData },
         clearSelectionCallback = { clearSelection() }
     )
 

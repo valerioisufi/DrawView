@@ -2,6 +2,7 @@ package com.studiomath.drawview.document.page
 
 import android.graphics.Bitmap
 import android.graphics.RectF
+import android.view.View
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -15,7 +16,8 @@ class PageManager(
     private val repository: DrawDocumentRepository,
     private val coroutineScope: CoroutineScope,
     private val getDrawManager: () -> DrawManager,
-    private val clearSelectionCallback: () -> Unit // Callback per pulire la selezione
+    private val getDocumentData: () -> Document?, // Aggiunto per l'auto-scroll
+    private val clearSelectionCallback: () -> Unit
 ) {
     // --- STATO RIORDINO PAGINE (DRAG & DROP) ---
     var contextMenuTargetPageIndex by mutableIntStateOf(-1)
@@ -24,6 +26,161 @@ class PageManager(
     var draggedPageIndex by mutableIntStateOf(-1)
     var draggedPageBitmap: Bitmap? = null
     var floatingPageRect by mutableStateOf<RectF?>(null)
+
+    // --- VARIABILI PER AUTO-SCROLL ---
+    private var isAutoScrolling = false
+    private var autoScrollDeltaY = 0f
+    private var attachedView: View? = null
+
+    // Motore a 60fps per far scorrere la pagina ai bordi
+    private val autoScrollRunnable = object : Runnable {
+        override fun run() {
+            if (!isAutoScrolling) return
+            val view = attachedView ?: return
+            val drawManager = getDrawManager()
+
+            // 1. Spinge la telecamera
+            drawManager.cameraPhysics.onDrag(
+                0f, autoScrollDeltaY, 1f,
+                view.width / 2f, view.height / 2f
+            )
+
+            // 2. Controlliamo se la pagina trascinata ha superato un'altra pagina
+            if (isReorderingPages) {
+                performSwapLogic()
+            }
+
+            drawManager.requestDraw(
+                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.SCALE_TRANSLATE)
+            )
+            view.postOnAnimation(this)
+        }
+    }
+
+    // ==========================================================
+    // METODI CHIAMATI DAL TOUCH HANDLER PER IL DRAG & DROP
+    // ==========================================================
+
+    fun startDraggingPage(pageIndex: Int, originalRect: RectF) {
+        isAutoScrolling = false
+        attachedView?.removeCallbacks(autoScrollRunnable)
+
+        draggedPageIndex = pageIndex
+        val doc = getDocumentData() ?: return
+        draggedPageBitmap = doc.pages[pageIndex].bitmapPage
+
+        floatingPageRect = RectF(originalRect)
+        getDrawManager().cameraPhysics.stopAllAnimations()
+
+        getDrawManager().requestDraw(
+            DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.REFRESH)
+        )
+    }
+
+    fun updateDragPosition(view: View, newLeft: Float, newTop: Float, scrollDelta: Float) {
+        attachedView = view
+        floatingPageRect?.offsetTo(newLeft, newTop)
+
+        if (scrollDelta != 0f) {
+            autoScrollDeltaY = scrollDelta
+            if (!isAutoScrolling) {
+                isAutoScrolling = true
+                view.postOnAnimation(autoScrollRunnable)
+            }
+        } else {
+            if (isAutoScrolling) {
+                isAutoScrolling = false
+                view.removeCallbacks(autoScrollRunnable)
+            }
+            performSwapLogic()
+            getDrawManager().requestDraw(
+                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.REFRESH)
+            )
+        }
+    }
+
+    fun releaseDraggedPage(view: View) {
+        isAutoScrolling = false
+        view.removeCallbacks(autoScrollRunnable)
+
+        val drawManager = getDrawManager()
+        val currentRenderMatrix = drawManager.cameraPhysics.getRenderMatrix()
+        val currentPagesRects = drawManager.calcPage.getPagesRectOnWindowTransformation(
+            drawManager.windowRect, currentRenderMatrix
+        )
+
+        val targetPageInfo = currentPagesRects.find { it.index == draggedPageIndex }
+
+        if (targetPageInfo != null && floatingPageRect != null) {
+            isDropAnimating = true
+            val targetRect = targetPageInfo.rect
+            val startRect = RectF(floatingPageRect!!)
+
+            val animator = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = 250
+                interpolator = android.view.animation.DecelerateInterpolator(1.5f)
+
+                addUpdateListener { anim ->
+                    val fraction = anim.animatedFraction
+                    val newLeft = startRect.left + (targetRect.left - startRect.left) * fraction
+                    val newTop = startRect.top + (targetRect.top - startRect.top) * fraction
+                    floatingPageRect?.offsetTo(newLeft, newTop)
+
+                    drawManager.requestDraw(
+                        DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.REFRESH)
+                    )
+                }
+
+                addListener(object : android.animation.AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: android.animation.Animator) {
+                        isDropAnimating = false
+                        draggedPageIndex = -1
+                        floatingPageRect = null
+                        draggedPageBitmap = null
+                        finishPageReorderMode(getDocumentData())
+                    }
+                })
+            }
+            animator.start()
+        } else {
+            isDropAnimating = false
+            draggedPageIndex = -1
+            floatingPageRect = null
+            draggedPageBitmap = null
+            finishPageReorderMode(getDocumentData())
+        }
+    }
+
+    private fun performSwapLogic() {
+        val doc = getDocumentData() ?: return
+        val floatingRect = floatingPageRect ?: return
+        val drawManager = getDrawManager()
+
+        val floatCenterY = floatingRect.centerY()
+        val floatCenterX = floatingRect.centerX()
+
+        val currentRenderMatrix = drawManager.cameraPhysics.getRenderMatrix()
+        val currentPagesRects = drawManager.calcPage.getPagesRectOnWindowTransformation(
+            drawManager.windowRect, currentRenderMatrix
+        )
+
+        val targetInfo = currentPagesRects.find {
+            it.rect.contains(floatCenterX, floatCenterY)
+        }
+
+        if (targetInfo != null && targetInfo.index != draggedPageIndex) {
+            synchronized(drawManager.renderLock) {
+                val draggedPage = doc.pages.removeAt(draggedPageIndex)
+                doc.pages.add(targetInfo.index, draggedPage)
+                draggedPageIndex = targetInfo.index
+                drawManager.calcPage.needToBeUpdated = true
+            }
+        }
+    }
+
+    // ==========================================================
+    // METODI ORIGINALI
+    // ==========================================================
 
     fun addNewPageAtBottom(documentData: Document?) {
         val currentDoc = documentData ?: return
@@ -64,7 +221,6 @@ class PageManager(
 
             currentDoc.pages.add(newPageIndex, newPage)
 
-            // Sistema gli indici per le pagine successive
             for (i in newPageIndex + 1 until currentDoc.pages.size) {
                 currentDoc.pages[i].index = i
             }
@@ -88,7 +244,6 @@ class PageManager(
             repository.deletePageAtIndex(currentDoc.dbId, pageToDelete.dbId, targetIndex)
             currentDoc.pages.removeAt(targetIndex)
 
-            // Sistema gli indici scalando all'indietro
             for (i in targetIndex until currentDoc.pages.size) {
                 currentDoc.pages[i].index = i
             }
@@ -102,20 +257,16 @@ class PageManager(
     fun startPageReorderMode(clearContextMenuPosition: () -> Unit) {
         isReorderingPages = true
         clearContextMenuPosition()
-        clearSelectionCallback() // Evita conflitti togliendo selezioni attive
+        clearSelectionCallback()
     }
 
     fun finishPageReorderMode(documentData: Document?) {
-        // NON spegnere isReorderingPages qui!
         contextMenuTargetPageIndex = -1
-
         val currentDoc = documentData ?: return
 
         coroutineScope.launch {
-            // 1. Aggiorna il database
             repository.updatePagesOrder(currentDoc.pages)
 
-            // 2. Ordina la creazione della nuova grafica ad alta risoluzione
             val drawManager = getDrawManager()
             drawManager.calcPage.needToBeUpdated = true
             drawManager.requestDraw(
@@ -124,14 +275,7 @@ class PageManager(
                 }
             )
 
-            // --- FIX SINCRONIZZAZIONE ---
-            // 3. ASPETTIAMO che il background thread abbia finito di creare
-            // la nuova bitmap e abbia fatto lo "swap" nel frontState.
-            // .join() mette in pausa questa specifica coroutine senza bloccare l'interfaccia UI!
             drawManager.jobOnDrawBitmap?.join()
-
-            // 4. SOLO ORA, con la grafica pronta, spegniamo la modalità riordino.
-            // Il prossimo frame leggerà la bitmap nuova fiammante e non ci sarà nessun salto!
             isReorderingPages = false
         }
     }

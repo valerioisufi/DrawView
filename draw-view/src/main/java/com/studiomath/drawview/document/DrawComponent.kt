@@ -288,8 +288,14 @@ fun DrawComponent(
                     value = textValue,
                     onValueChange = { textValue = it },
                     modifier = Modifier
-                        .offset { IntOffset(pos.x.toInt(), pos.y.toInt()) }
-                        // FIX: Forziamo la scatola ad avere esattamente la larghezza impostata!
+                        // --- FIX PRESTAZIONALE: Lettura Ritardata (Deferred Reading) ---
+                        // Leggendo la variabile "drawViewModel.activeTextEditPosition" QUI DENTRO,
+                        // Compose salta la ricomposizione e muove il testo a 60fps in perfetta
+                        // sincronia col SurfaceView!
+                        .offset {
+                            val livePos = drawViewModel.activeTextEditPosition ?: pos
+                            IntOffset(livePos.x.toInt(), livePos.y.toInt())
+                        }
                         .width(with(density) { (currentBoxWidthMm * scale).toDp() })
                         .focusRequester(focusRequester),
                     textStyle = TextStyle(
@@ -313,21 +319,18 @@ fun DrawComponent(
                 // --- FASE 4: AUTO-TRACKING DEL CURSORE MIGLIORATO ---
                 LaunchedEffect(textValue, textLayoutResult, imeBottom, containerHeightPx) {
                     if (imeBottom > 0 && textLayoutResult != null) {
-                        // Troviamo il punto più basso dell'ultima riga di testo digitata
                         val lineCount = textLayoutResult!!.lineCount
                         val textBottomLocal = textLayoutResult!!.getLineBottom(lineCount - 1)
-                        val absoluteBottomY = pos.y + textBottomLocal
 
-                        // FIX 2: Convertiamo 80 DP in Pixel reali (garantisce lo stesso margine fisico
-                        // su telefoni standard e telefoni ad altissima risoluzione).
+                        // FIX: Usiamo la posizione DAL VIVO del ViewModel, non quella statica (pos.y)
+                        val liveY = drawViewModel.activeTextEditPosition?.y ?: pos.y
+                        val absoluteBottomY = liveY + textBottomLocal
+
                         val marginPx = with(density) { 80.dp.toPx() }
-
-                        // FIX 3: Usiamo l'altezza vera dell'area di disegno (containerHeightPx)
                         val safeAreaBottom = containerHeightPx - imeBottom - marginPx
 
-                        // Se la riga finisce sotto la tastiera, solleviamo il documento
                         if (absoluteBottomY > safeAreaBottom) {
-                            val deltaY = safeAreaBottom - absoluteBottomY // Spostamento negativo verso l'alto
+                            val deltaY = absoluteBottomY - safeAreaBottom
                             drawViewModel.panCanvasForKeyboard(deltaY)
                         }
                     }

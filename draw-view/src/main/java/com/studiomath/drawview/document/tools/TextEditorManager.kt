@@ -113,7 +113,7 @@ class TextEditorManager(
         coroutineScope.launch(Dispatchers.Main) {
             getDrawManager().smoothPanBy(deltaY) { stepDy ->
                 activeTextEditPosition?.let { pos ->
-                    activeTextEditPosition = PointF(pos.x, pos.y + stepDy)
+                    activeTextEditPosition = PointF(pos.x, pos.y - stepDy)
                 }
             }
         }

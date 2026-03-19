@@ -77,7 +77,33 @@ fun DrawComponent(
     drawViewModel: DrawViewModel,
     inProgressStrokesView: InProgressStrokesView
 ){
-    val backgroundColor = MaterialTheme.colorScheme.background.toArgb()
+    // 1. Estraiamo il colorScheme corrente generato da Compose
+    val colorScheme = MaterialTheme.colorScheme
+
+    // 2. FASE 2: Iniettiamo i colori nel ViewModel ogni volta che il tema cambia.
+    // Usiamo come chiave (key) l'intero colorScheme, così se il sistema
+    // passa da Light a Dark, questo blocco viene rieseguito.
+    LaunchedEffect(colorScheme) {
+        val newThemeColors = DrawThemeColors(
+            backgroundColor = colorScheme.surfaceVariant.toArgb(), // Sfondo del "tavolo" (dietro i fogli)
+            surfaceColor = colorScheme.surface.toArgb(),           // Colore del foglio (bianco in light, scuro in dark)
+            primaryColor = colorScheme.primary.toArgb(),           // Colore principale (es. per il lazo)
+            onSurfaceColor = colorScheme.onSurface.toArgb()        // Testo di default
+        )
+
+        // Aggiorniamo lo stato nel ViewModel
+        drawViewModel.themeColors = newThemeColors
+
+        // Opzionale ma consigliato: Se il documento è già caricato e cambiamo tema "al volo",
+        // chiediamo al motore grafico di ridisegnare la schermata per applicare i nuovi colori.
+        if (drawViewModel.isDocumentLoaded) {
+            drawViewModel.drawManager.requestDraw(
+                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                }
+            )
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
 

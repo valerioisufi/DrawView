@@ -306,9 +306,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     if (canvas != null) {
                         canvas.clipRect(windowRect)
 
-                        // FIX SCIA/DUPLICAZIONI: Pulisci SEMPRE lo schermo prima di disegnare il nuovo frame.
-                        // Sostituisci LTGRAY con il colore reale del background della tua app
-                        canvas.drawColor(android.graphics.Color.LTGRAY)
+                        // FIX SCIA/DUPLICAZIONI: Pulisci SEMPRE lo schermo usando il colore di sfondo del Material Theme
+                        canvas.drawColor(drawViewModel.themeColors.backgroundColor)
 
                         renderFrame(canvas)
                     }
@@ -350,9 +349,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         isInitialized = true
 
         // --- FIX 1: PULISCI LA SURFACE VIEW ---
-        // Sostituisci questo colore con il colore effettivo di sfondo della tua app
-        // (es. bianco o il colore del tema scuro). È cruciale per evitare l'effetto scia.
-        canvas.drawColor(android.graphics.Color.LTGRAY) // Usa il tuo colore qui!
+        canvas.drawColor(drawViewModel.themeColors.backgroundColor)
 
         if (drawStack.isEmpty()) {
             lastDrawAttachments?.let { executeRender(canvas, it) }
@@ -479,9 +476,9 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     // --- METODI PRIVATI DI RENDERING ESTRATTI ---
 
     private fun renderUpdateMode(canvas: Canvas, snapshot: RenderSnapshot, attachments: DrawAttachments) {
-        drawViewModel.pageMaker.makeWindowBackground(canvas, snapshot.pagesRect, snapshot.currentRenderMatrix)
+        drawViewModel.pageMaker.makeWindowBackground(canvas, snapshot.pagesRect, snapshot.currentRenderMatrix, drawViewModel.themeColors)
         for (page in snapshot.pagesRect) {
-            drawViewModel.pageMaker.makePageBackground(canvas, page.rect, windowRect)
+            drawViewModel.pageMaker.makePageBackground(canvas, page.rect, windowRect, drawViewModel.themeColors)
         }
 
         snapshot.bitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
@@ -498,14 +495,17 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     }
 
     private fun renderRefreshMode(canvas: Canvas, snapshot: RenderSnapshot, attachments: DrawAttachments) {
-        drawViewModel.pageMaker.makeWindowBackground(canvas, snapshot.pagesRect, snapshot.currentRenderMatrix)
+        drawViewModel.pageMaker.makeWindowBackground(canvas, snapshot.pagesRect, snapshot.currentRenderMatrix, drawViewModel.themeColors)
         val document = drawViewModel.documentData
 
         for (page in snapshot.pagesRect) {
-            drawViewModel.pageMaker.makePageBackground(canvas, page.rect, windowRect)
+            drawViewModel.pageMaker.makePageBackground(canvas, page.rect, windowRect, drawViewModel.themeColors)
 
             if (drawViewModel.isReorderingPages) {
                 if (page.index == drawViewModel.draggedPageIndex) {
+                    // Applica il colore primario del tema con una leggera trasparenza
+                    placeholderPaint.color = drawViewModel.themeColors.primaryColor
+                    placeholderPaint.alpha = 30 // Circa 12% di opacità
                     canvas.drawRect(page.rect, placeholderPaint)
                 } else {
                     document?.pages?.getOrNull(page.index)?.bitmapPage?.let { bmp ->
@@ -543,7 +543,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             relativeTransform.mapRect(onDrawBitmapBounds)
         }
 
-        drawViewModel.pageMaker.makeWindowBackground(canvas, snapshot.pagesRect, snapshot.currentRenderMatrix)
+        drawViewModel.pageMaker.makeWindowBackground(canvas, snapshot.pagesRect, snapshot.currentRenderMatrix, drawViewModel.themeColors)
 
         val document = drawViewModel.documentData
 
@@ -555,11 +555,13 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             }
 
             for (page in snapshot.pagesRect) {
-                drawViewModel.pageMaker.makePageBackground(canvas, page.rect, windowRect)
+                drawViewModel.pageMaker.makePageBackground(canvas, page.rect, windowRect, drawViewModel.themeColors)
 
                 // Selezioniamo cosa disegnare per ogni slot
                 if (drawViewModel.isReorderingPages && page.index == drawViewModel.draggedPageIndex) {
                     // È il buco lasciato dalla pagina che stiamo spostando: disegniamo il placeholder
+                    placeholderPaint.color = drawViewModel.themeColors.primaryColor
+                    placeholderPaint.alpha = 30
                     canvas.drawRect(page.rect, placeholderPaint)
                 } else {
                     // È una pagina normale: disegniamo la sua bitmap
@@ -625,8 +627,11 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
         canvas.withSave {
             canvas.drawRect(rect, shadowPaint)
-            drawViewModel.pageMaker.makePageBackground(canvas, rect, windowRect)
+            drawViewModel.pageMaker.makePageBackground(canvas, rect, windowRect, drawViewModel.themeColors)
             canvas.drawBitmap(bmp, null, rect, null)
+
+            // Applica il colore primario del tema per il bordo
+            borderPaint.color = drawViewModel.themeColors.primaryColor
             canvas.drawRect(rect, borderPaint)
         }
     }

@@ -31,6 +31,7 @@ import kotlin.math.max
 import kotlin.math.min
 import androidx.core.graphics.withClip
 import androidx.core.graphics.withSave
+import com.studiomath.drawview.document.DrawThemeColors
 
 /**
  * Handles the generation and rendering of document pages onto Bitmaps.
@@ -350,39 +351,44 @@ class PageMaker(
         return@withContext bitmap
     }
 
-    /**
-     * Paints the basic white background of a page onto the canvas.
-     */
-    fun makePageBackground(canvas: Canvas, pageRect: RectF, windowRect: RectF) {
-        val pageRectPath = Path().apply {
-            addRect(pageRect, Path.Direction.CW)
-        }
-
-        val paintViewBackground = Paint().apply {
-            color = "#FFFFFF".toColorInt()
-        }
-        canvas.drawPath(pageRectPath, paintViewBackground)
+    // --- PAINT OTTIMIZZATI E RIUTILIZZABILI ---
+    private val pageBackgroundPaint = Paint().apply {
+        style = Paint.Style.FILL
     }
 
     private val windowBackgroundWithShadowPaint = Paint().apply {
-        color = Color.WHITE
         style = Paint.Style.FILL
+    }
+
+    /**
+     * Paints the basic background of a page onto the canvas using the current theme colors.
+     */
+    fun makePageBackground(canvas: Canvas, pageRect: RectF, windowRect: RectF, themeColors: DrawThemeColors) {
+        // Aggiorniamo dinamicamente il colore senza riallocare memoria
+        pageBackgroundPaint.color = themeColors.surfaceColor
+
+        // Sostituito drawPath con drawRect per prestazioni migliori
+        canvas.drawRect(pageRect, pageBackgroundPaint)
     }
 
     /**
      * Paints the background shadows behind the pages to give them a physical paper look.
      */
-    fun makeWindowBackground(canvas: Canvas, pagesRect: Set<CalcPage.PageRectWithIndex>, matrix: Matrix) {
+    fun makeWindowBackground(canvas: Canvas, pagesRect: Set<CalcPage.PageRectWithIndex>, matrix: Matrix, themeColors: DrawThemeColors) {
         val matrixValues = FloatArray(9)
         matrix.getValues(matrixValues)
         val scaleFactor = matrixValues[Matrix.MSCALE_X]
 
         windowBackgroundWithShadowPaint.apply {
+            color = themeColors.surfaceColor
+            // Usiamo un'ombra nera con alpha al ~30%.
+            // Essendo neutra, si noterà bene sul "tavolo" in Light Mode,
+            // e darà un sottile stacco di profondità in Dark Mode.
             setShadowLayer(
                 24f * scaleFactor, // Scale shadow radius with zoom
                 0f,
                 8f,
-                "#BF959DA5".toColorInt()
+                android.graphics.Color.argb(80, 0, 0, 0)
             )
         }
 

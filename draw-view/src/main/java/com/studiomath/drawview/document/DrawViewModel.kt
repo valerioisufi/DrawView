@@ -2,6 +2,7 @@ package com.studiomath.drawview.document
 
 import android.app.Application
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Path
 import android.graphics.PointF
@@ -12,6 +13,7 @@ import android.util.DisplayMetrics
 import android.util.Log
 import android.view.MotionEvent
 import android.view.ViewConfiguration
+import androidx.annotation.ColorInt
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -70,6 +72,9 @@ class DrawViewModel(
     var documentData by mutableStateOf<Document?>(null)
     var isDocumentLoaded by mutableStateOf(false)
     var isDocumentShowed by mutableStateOf(false)
+
+    // Stato dei colori letto da Compose e usato dal Canvas
+    var themeColors by mutableStateOf(DrawThemeColors())
 
     // --- MOTORE UNDO / REDO ---
     val historyManager = HistoryManager(viewModelScope)
@@ -444,3 +449,14 @@ class DrawViewModel(
     var maskPath: ((path: Path) -> Unit)? = null
     var finishActivity: (() -> Unit)? = null
 }
+
+/**
+ * Contenitore dei colori del tema convertiti per il Canvas (Interi ARGB).
+ * Usiamo i colori di default per evitare crash prima che Compose inietti quelli reali.
+ */
+data class DrawThemeColors(
+    @ColorInt val backgroundColor: Int = Color.LTGRAY, // Sfondo dell'app (dietro le pagine)
+    @ColorInt val surfaceColor: Int = Color.WHITE,     // Colore del foglio/pagina
+    @ColorInt val primaryColor: Int = Color.BLACK,     // Colore primario (es. per il lazo o bordi)
+    @ColorInt val onSurfaceColor: Int = Color.BLACK    // Colore testo o tratto di default
+)

@@ -653,8 +653,8 @@ class OnTouchHover(
                                     // BLOCCO DI SICUREZZA
                                     synchronized(drawViewModel.drawManager.renderLock) {
                                         selection.transformMatrix.postScale(scaleFactor, scaleFactor, initialCenterX, initialCenterY)
-                                        val scaleMatrix = Matrix().apply { setScale(scaleFactor, scaleFactor, initialCenterX, initialCenterY) }
-                                        scaleMatrix.mapRect(selection.boundingBox)
+//                                        val scaleMatrix = Matrix().apply { setScale(scaleFactor, scaleFactor, initialCenterX, initialCenterY) }
+//                                        scaleMatrix.mapRect(selection.boundingBox)
                                     }
 
                                     initialDistance = currentDist
@@ -767,7 +767,7 @@ class OnTouchHover(
 
                                     synchronized(drawManager.renderLock) {
                                         selection.transformMatrix.set(newTransformMatrixInMm)
-                                        selection.boundingBox.offset(dxMm, dyMm)
+//                                        selection.boundingBox.offset(dxMm, dyMm)
                                     }
                                 }
 

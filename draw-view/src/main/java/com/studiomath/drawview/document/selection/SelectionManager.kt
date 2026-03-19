@@ -296,7 +296,10 @@ class SelectionManager(
                     postConcat(screenToNewMmMatrix)
                 }
                 finalTransform.postConcat(oldMmToNewMmMatrix)
-                oldMmToNewMmMatrix.mapRect(selection.boundingBox)
+
+                // RIMOSSO: oldMmToNewMmMatrix.mapRect(selection.boundingBox)
+                // Non mappiamo qui a metà, lo facciamo alla fine con la matrice completa!
+
                 selection.pageIndex = targetPageIndex
 
                 oldPage.imageData.removeAll(selection.images)
@@ -329,6 +332,11 @@ class SelectionManager(
                 txt.width *= scale; txt.height *= scale; txt.fontSize *= scale; txt.rotation = (txt.rotation + angle) % 360f
                 txt.x = pts[0] - (txt.width / 2f); txt.y = pts[1] - (txt.height / 2f)
             }
+
+            // --- AGGIUNTO: CUOCIAMO IL BOUNDING BOX ---
+            // Questa singola riga applica lo spostamento, lo zoom, la rotazione
+            // e persino il salto di pagina al riquadro blu, rendendolo definitivo.
+            finalTransform.mapRect(selection.boundingBox)
 
             // Resettiamo la matrice NELLO STESSO ISTANTE in cui applichiamo le coordinate.
             selection.transformMatrix.reset()

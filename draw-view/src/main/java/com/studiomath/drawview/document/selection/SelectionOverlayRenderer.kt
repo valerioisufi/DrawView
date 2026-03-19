@@ -103,23 +103,31 @@ class SelectionOverlayRenderer(private val drawViewModel: DrawViewModel) {
 
                         val matrixValues = FloatArray(9)
                         fullRenderMatrix.getValues(matrixValues)
-                        val trueScaleX = Math.hypot(matrixValues[Matrix.MSCALE_X].toDouble(), matrixValues[Matrix.MSKEW_Y].toDouble()).toFloat()
+                        val trueScaleX = hypot(
+                            matrixValues[Matrix.MSCALE_X].toDouble(),
+                            matrixValues[Matrix.MSKEW_Y].toDouble()
+                        ).toFloat()
 
                         val screenFontSizePx = txt.fontSize * 0.3527f * trueScaleX
+
+                        // Font e colore base
                         val textPaint = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG or Paint.LINEAR_TEXT_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
                             color = txt.color
                             textSize = screenFontSizePx
-                            typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT,
-                                if (txt.isBold && txt.isItalic) android.graphics.Typeface.BOLD_ITALIC
-                                else if (txt.isBold) android.graphics.Typeface.BOLD
-                                else if (txt.isItalic) android.graphics.Typeface.ITALIC
-                                else android.graphics.Typeface.NORMAL
-                            )
+                            typeface = android.graphics.Typeface.DEFAULT
                         }
 
+                        // Conversione HTML
+                        val spannedText = androidx.core.text.HtmlCompat.fromHtml(
+                            txt.text,
+                            androidx.core.text.HtmlCompat.FROM_HTML_MODE_COMPACT
+                        )
+
                         val screenSafeWidthPx = (txt.width * trueScaleX * 1.05f).toInt().coerceAtLeast(1)
+
+                        // Creazione Layout con testo formattato
                         val staticLayout = android.text.StaticLayout.Builder.obtain(
-                            txt.text, 0, txt.text.length, textPaint, screenSafeWidthPx
+                            spannedText, 0, spannedText.length, textPaint, screenSafeWidthPx
                         ).setAlignment(android.text.Layout.Alignment.ALIGN_NORMAL).build()
 
                         canvas.concat(fullRenderMatrix)

@@ -15,8 +15,6 @@ import android.view.MotionEvent
 import android.view.ViewConfiguration
 import androidx.annotation.ColorInt
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.ink.authoring.InProgressStrokeId
@@ -24,14 +22,12 @@ import androidx.ink.brush.Brush
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.studiomath.drawview.data.repository.DrawDocumentRepository
-import com.studiomath.drawview.document.history.AddTextAction
 import com.studiomath.drawview.document.history.DrawAction
 import com.studiomath.drawview.document.history.HistoryManager
 import com.studiomath.drawview.document.io.MediaImporter
 import com.studiomath.drawview.document.page.Document
 import com.studiomath.drawview.document.page.Image
 import com.studiomath.drawview.document.page.Measure
-import com.studiomath.drawview.document.page.Page
 import com.studiomath.drawview.document.page.PageMaker
 import com.studiomath.drawview.document.page.PageManager
 import com.studiomath.drawview.document.page.Stroke
@@ -133,9 +129,9 @@ class DrawViewModel(
     // --- DELEGATI FUNZIONI TESTO ---
     fun finishTextEditing(
         text: String, isLatex: Boolean, color: Int, fontSize: Float,
-        isBold: Boolean, isItalic: Boolean, measuredWidthMm: Float, measuredHeightMm: Float
+        measuredWidthMm: Float, measuredHeightMm: Float
     ) = textEditorManager.finishTextEditing(
-        documentData, text, isLatex, color, fontSize, isBold, isItalic, measuredWidthMm, measuredHeightMm
+        documentData, text, isLatex, color, fontSize, measuredWidthMm, measuredHeightMm
     )
 
     fun cancelTextEditing() = textEditorManager.cancelTextEditing()

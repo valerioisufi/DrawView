@@ -262,41 +262,37 @@ class PageMaker(
                             canvas.drawBitmap(bmp, textMatrix, null)
                         }
                     } else {
-                        // --- RENDERING TESTO VETTORIALE NORMALE ---
+                        // --- RENDERING TESTO RICH TEXT ---
                         canvas.withSave {
-                            // Estraiamo lo zoom attuale dalla matrice di proiezione (da millimetri a pixel)
                             val matrixValues = FloatArray(9)
                             strokePathMatrix.getValues(matrixValues)
                             val scaleX = matrixValues[Matrix.MSCALE_X]
                             val scaleY = matrixValues[Matrix.MSCALE_Y]
 
-                            // 1. Diciamo alla penna di usare il font SCALATO AI PIXEL DELLO SCHERMO
-                            // 1pt = 0.3527mm. Moltiplichiamo per lo zoom (scaleX)
                             val screenFontSizePx = textItem.fontSize * 0.3527f * scaleX
 
-                            // Aggiungiamo LINEAR_TEXT_FLAG e SUBPIXEL_TEXT_FLAG per uno zoom matematicamente perfetto
+                            // 1. Il Paint fornisce solo il font e il colore di BASE.
+                            // Grassetti, corsivi e colori custom verranno sovrascritti dall'HTML.
                             val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG or Paint.LINEAR_TEXT_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
                                 color = textItem.color
                                 textSize = screenFontSizePx
-                                typeface = Typeface.create(Typeface.DEFAULT,
-                                    if (textItem.isBold && textItem.isItalic) Typeface.BOLD_ITALIC
-                                    else if (textItem.isBold) Typeface.BOLD
-                                    else if (textItem.isItalic) Typeface.ITALIC
-                                    else Typeface.NORMAL
-                                )
+                                typeface = Typeface.DEFAULT
                             }
 
-                            // 2. Calcoliamo la larghezza consentita (scalata in pixel)
-                            // Aggiungiamo un 5% di "Safety Buffer" per evitare che gli arrotondamenti float
-                            // dello zoom mandino il testo a capo accidentalmente.
+                            // 2. MAGIA: Convertiamo l'HTML salvato nel DB in una stringa formattata
+                            val spannedText = androidx.core.text.HtmlCompat.fromHtml(
+                                textItem.text,
+                                androidx.core.text.HtmlCompat.FROM_HTML_MODE_COMPACT
+                            )
+
                             val screenSafeWidthPx = (textItem.width * scaleX * 1.05f).toInt().coerceAtLeast(1)
 
-                            // 3. Creiamo il Layout
+                            // 3. Passiamo la stringa formattata (spannedText) al Layout invece della String normale
                             val staticLayout = StaticLayout.Builder.obtain(
-                                textItem.text, 0, textItem.text.length, textPaint, screenSafeWidthPx
+                                spannedText, 0, spannedText.length, textPaint, screenSafeWidthPx
                             ).setAlignment(Layout.Alignment.ALIGN_NORMAL).build()
 
-                            // 4. Posizioniamo il Canvas nel punto corretto (usando la matrice base)
+                            // 4. Posizionamento (invariato)
                             val textMatrix = Matrix()
                             val centerX = textItem.width / 2f
                             val centerY = textItem.height / 2f
@@ -305,8 +301,6 @@ class PageMaker(
                             textMatrix.postTranslate(textItem.x, textItem.y)
                             textMatrix.postConcat(strokePathMatrix)
 
-                            // 5. APPLICHIAMO SOLO LO SPOSTAMENTO/ROTAZIONE, NON LA SCALA!
-                            // (Perché il testo lo abbiamo già scalato nel paint)
                             val translationMatrix = Matrix()
                             translationMatrix.postTranslate(matrixValues[Matrix.MTRANS_X], matrixValues[Matrix.MTRANS_Y])
 
@@ -317,8 +311,6 @@ class PageMaker(
                             translationMatrix.preConcat(localTransform)
 
                             canvas.concat(translationMatrix)
-
-                            // Disegniamo!
                             staticLayout.draw(canvas)
                         }
                     }

@@ -37,7 +37,7 @@ class TextEditorManager(
     fun finishTextEditing(
         documentData: Document?,
         text: String, isLatex: Boolean, color: Int, fontSize: Float,
-        isBold: Boolean, isItalic: Boolean, measuredWidthMm: Float, measuredHeightMm: Float
+        measuredWidthMm: Float, measuredHeightMm: Float
     ) {
         val pos = activeTextEditPosition ?: return
         val pageIndex = activeTextPageIndex
@@ -64,8 +64,6 @@ class TextEditorManager(
                 textObj.isLatex = isLatex
                 textObj.color = color
                 textObj.fontSize = fontSize
-                textObj.isBold = isBold
-                textObj.isItalic = isItalic
                 textObj.width = measuredWidthMm
                 textObj.height = measuredHeightMm
                 textObj.isDragging = false

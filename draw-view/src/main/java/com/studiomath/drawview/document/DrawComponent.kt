@@ -26,6 +26,9 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FormatBold
+import androidx.compose.material.icons.filled.FormatItalic
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
@@ -50,21 +53,28 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.ink.authoring.InProgressStrokesView
 import androidx.input.motionprediction.MotionEventPredictor
 import com.studiomath.drawview.document.motion.CanvasTouchDispatcher
+import com.studiomath.drawview.document.tools.RichTextUtil
 import kotlin.math.min
 
 @Composable
 fun DrawComponent(
     drawViewModel: DrawViewModel,
     inProgressStrokesView: InProgressStrokesView
-){
+) {
     // 1. Estraiamo il colorScheme corrente generato da Compose
     val colorScheme = MaterialTheme.colorScheme
 
@@ -128,9 +138,15 @@ fun DrawComponent(
                 drawViewModel.startStrokeInProgress = { event, pointerId, brush ->
                     inProgressStrokesView.startStroke(event, pointerId, brush)
                 }
-                drawViewModel.addToStrokeInProgress = { event, pointerId, strokeId, predictedEvent ->
-                    inProgressStrokesView.addToStroke(event, pointerId, strokeId, predictedEvent)
-                }
+                drawViewModel.addToStrokeInProgress =
+                    { event, pointerId, strokeId, predictedEvent ->
+                        inProgressStrokesView.addToStroke(
+                            event,
+                            pointerId,
+                            strokeId,
+                            predictedEvent
+                        )
+                    }
                 drawViewModel.finishStrokeInProgress = { event, pointerId, strokeId ->
                     inProgressStrokesView.finishStroke(event, pointerId, strokeId)
                 }
@@ -148,7 +164,8 @@ fun DrawComponent(
                  * Set up the touch and hover listeners for the view
                  */
                 val canvasTouchDispatcher = CanvasTouchDispatcher(drawViewModel)
-                canvasTouchDispatcher.motionEventPredictor = MotionEventPredictor.newInstance(rootView)
+                canvasTouchDispatcher.motionEventPredictor =
+                    MotionEventPredictor.newInstance(rootView)
                 rootView.setOnTouchListener(canvasTouchDispatcher.onTouchListener)
 //                rootView.setOnHoverListener(onTouchHover.onHoverListener)
 
@@ -174,13 +191,25 @@ fun DrawComponent(
             ) {
                 Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
                     IconButton(onClick = { drawViewModel.cutSelection() }) {
-                        Icon(Icons.Default.ContentCut, contentDescription = "Taglia", tint = MaterialTheme.colorScheme.onSurface)
+                        Icon(
+                            Icons.Default.ContentCut,
+                            contentDescription = "Taglia",
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
                     }
                     IconButton(onClick = { drawViewModel.copySelection() }) {
-                        Icon(Icons.Default.ContentCopy, contentDescription = "Copia", tint = MaterialTheme.colorScheme.onSurface)
+                        Icon(
+                            Icons.Default.ContentCopy,
+                            contentDescription = "Copia",
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
                     }
                     IconButton(onClick = { drawViewModel.deleteSelection() }) {
-                        Icon(Icons.Default.Delete, contentDescription = "Elimina", tint = MaterialTheme.colorScheme.error)
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = "Elimina",
+                            tint = MaterialTheme.colorScheme.error
+                        )
                     }
                 }
             }
@@ -210,7 +239,11 @@ fun DrawComponent(
                         // Tasto Incolla (Visibile se abbiamo copiato un gruppo O un'immagine da un'altra app)
                         if (drawViewModel.canPaste()) {
                             IconButton(onClick = { drawViewModel.pasteSelection(pos.x, pos.y) }) {
-                                Icon(Icons.Default.ContentPaste, contentDescription = "Incolla", tint = MaterialTheme.colorScheme.primary)
+                                Icon(
+                                    Icons.Default.ContentPaste,
+                                    contentDescription = "Incolla",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
                             }
                         }
 
@@ -221,7 +254,11 @@ fun DrawComponent(
                             Icon(Icons.Default.Add, contentDescription = "Aggiungi Pagina")
                         }
                         IconButton(onClick = { drawViewModel.deleteTargetPage() }) {
-                            Icon(Icons.Default.Delete, contentDescription = "Elimina Pagina", tint = MaterialTheme.colorScheme.error)
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = "Elimina Pagina",
+                                tint = MaterialTheme.colorScheme.error
+                            )
                         }
                         IconButton(onClick = { drawViewModel.startPageReorderMode() }) {
                             Icon(Icons.Default.SwapVert, contentDescription = "Sposta Pagina")
@@ -231,42 +268,53 @@ fun DrawComponent(
             }
         }
 
-        // --- EDITOR DI TESTO IN-PLACE (Fasi 3 e 4) ---
+        // --- EDITOR DI TESTO RICH TEXT ---
         if (drawViewModel.activeTextEditPosition != null) {
             val pos = drawViewModel.activeTextEditPosition!!
             val scale = drawViewModel.activeTextScale
 
-            var textValue by remember { mutableStateOf(drawViewModel.activeTextEditItem?.text ?: "") }
+            // 1. STATO: Usiamo TextFieldValue inizializzato con l'HTML decodificato
+            var textValue by remember {
+                mutableStateOf(
+                    TextFieldValue(
+                        annotatedString = RichTextUtil.fromHtml(
+                            drawViewModel.activeTextEditItem?.text ?: ""
+                        ),
+                        selection = TextRange((drawViewModel.activeTextEditItem?.text?.length ?: 0))
+                    )
+                )
+            }
 
             val focusRequester = remember { FocusRequester() }
             val keyboardController = LocalSoftwareKeyboardController.current
-
-            // Variabili per il tracking della tastiera e densità
             val density = LocalDensity.current
             val imeBottom = WindowInsets.ime.getBottom(density)
             var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
 
-            // Calcolo Font Size
             val defaultFontSizePt = 16f
             val baseFontSizeMm = defaultFontSizePt * 0.3527f
             val scaledFontSizePx = baseFontSizeMm * scale
             val scaledFontSizeSp = with(density) { scaledFontSizePx.toSp() }
 
-            // LIMITI E LARGHEZZA INIZIALE
-            val pageInfo = drawViewModel.drawManager.pagesRectOnWindow.find { it.index == drawViewModel.activeTextPageIndex }
-            val maxAllowedWidthPx = if (pageInfo != null) {
-                (pageInfo.rect.right - pos.x).coerceAtLeast(100f)
-            } else {
-                300f
-            }
+            val pageInfo =
+                drawViewModel.drawManager.pagesRectOnWindow.find { it.index == drawViewModel.activeTextPageIndex }
+            val maxAllowedWidthPx =
+                if (pageInfo != null) (pageInfo.rect.right - pos.x).coerceAtLeast(100f) else 300f
+            val initialWidthMm =
+                drawViewModel.activeTextEditItem?.width ?: min(80f, maxAllowedWidthPx / scale)
 
-            // Se stiamo modificando un testo esistente, usiamo la sua larghezza esatta.
-            // Se è un testo nuovo, gli diamo una scatola di default (es. 80mm), o meno se siamo vicini al bordo.
-            val initialWidthMm = drawViewModel.activeTextEditItem?.width ?: min(80f, maxAllowedWidthPx / scale)
-
-            // Usiamo questa larghezza come valore fisso per la UI
             var currentBoxWidthMm by remember { mutableFloatStateOf(initialWidthMm) }
             var actualTextHeightPx by remember { mutableFloatStateOf(10f) }
+
+            // 2. FUNZIONE HELP: Applica uno stile alla porzione di testo selezionata dall'utente
+            fun applyStyleToSelection(style: SpanStyle) {
+                if (textValue.selection.collapsed) return // Nessun testo selezionato
+                val newAnnotatedString = buildAnnotatedString {
+                    append(textValue.annotatedString)
+                    addStyle(style, textValue.selection.start, textValue.selection.end)
+                }
+                textValue = textValue.copy(annotatedString = newAnnotatedString)
+            }
 
             BoxWithConstraints(
                 modifier = Modifier
@@ -274,24 +322,27 @@ fun DrawComponent(
                     .pointerInput(Unit) {
                         detectTapGestures(onTap = {
                             keyboardController?.hide()
-                            // Passiamo la larghezza FISSA e l'altezza calcolata
                             val heightMm = actualTextHeightPx / scale
+                            // Quando chiudiamo, convertiamo l'AnnotatedString in HTML!
+                            val finalHtml = RichTextUtil.toHtml(textValue.annotatedString)
                             drawViewModel.finishTextEditing(
-                                textValue, false, android.graphics.Color.BLACK, defaultFontSizePt, false, false, currentBoxWidthMm, heightMm
+                                finalHtml,
+                                false,
+                                android.graphics.Color.BLACK,
+                                defaultFontSizePt,
+                                currentBoxWidthMm,
+                                heightMm
                             )
                         })
                     }
             ) {
                 val containerHeightPx = constraints.maxHeight.toFloat()
 
+                // LA CASELLA DI TESTO TRASPARENTE
                 BasicTextField(
                     value = textValue,
                     onValueChange = { textValue = it },
                     modifier = Modifier
-                        // --- FIX PRESTAZIONALE: Lettura Ritardata (Deferred Reading) ---
-                        // Leggendo la variabile "drawViewModel.activeTextEditPosition" QUI DENTRO,
-                        // Compose salta la ricomposizione e muove il testo a 60fps in perfetta
-                        // sincronia col SurfaceView!
                         .offset {
                             val livePos = drawViewModel.activeTextEditPosition ?: pos
                             IntOffset(livePos.x.toInt(), livePos.y.toInt())
@@ -306,23 +357,64 @@ fun DrawComponent(
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                     onTextLayout = { result ->
                         textLayoutResult = result
-                        // Salviamo solo l'altezza dinamica, la larghezza è comandata da noi
                         actualTextHeightPx = result.size.height.toFloat()
                     }
                 )
+
+                // LA TOOLBAR FLUTTUANTE SOPRA LA TASTIERA
+                AnimatedVisibility(
+                    visible = imeBottom > 0,
+                    enter = slideInVertically(initialOffsetY = { 50 }) + fadeIn(),
+                    exit = slideOutVertically(targetOffsetY = { 50 }) + fadeOut(),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        // Posizionata esattamente sopra il margine della tastiera
+                        .padding(bottom = with(density) { imeBottom.toDp() } + 16.dp)
+                ) {
+                    ElevatedCard(
+                        shape = RoundedCornerShape(16.dp),
+                        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 8.dp),
+                        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+                            IconButton(onClick = { applyStyleToSelection(SpanStyle(fontWeight = FontWeight.Bold)) }) {
+                                Icon(Icons.Default.FormatBold, contentDescription = "Grassetto")
+                            }
+                            IconButton(onClick = { applyStyleToSelection(SpanStyle(fontStyle = FontStyle.Italic)) }) {
+                                Icon(Icons.Default.FormatItalic, contentDescription = "Corsivo")
+                            }
+                            IconButton(onClick = { applyStyleToSelection(SpanStyle(color = androidx.compose.ui.graphics.Color.Red)) }) {
+                                Icon(
+                                    Icons.Default.Palette,
+                                    contentDescription = "Colore Rosso",
+                                    tint = androidx.compose.ui.graphics.Color.Red
+                                )
+                            }
+                            IconButton(onClick = { applyStyleToSelection(SpanStyle(color = androidx.compose.ui.graphics.Color.Blue)) }) {
+                                Icon(
+                                    Icons.Default.Palette,
+                                    contentDescription = "Colore Blu",
+                                    tint = androidx.compose.ui.graphics.Color.Blue
+                                )
+                            }
+                        }
+                    }
+                }
 
                 LaunchedEffect(Unit) {
                     focusRequester.requestFocus()
                     keyboardController?.show()
                 }
 
-                // --- FASE 4: AUTO-TRACKING DEL CURSORE MIGLIORATO ---
-                LaunchedEffect(textValue, textLayoutResult, imeBottom, containerHeightPx) {
+                LaunchedEffect(
+                    textValue.annotatedString.text,
+                    textLayoutResult,
+                    imeBottom,
+                    containerHeightPx
+                ) {
                     if (imeBottom > 0 && textLayoutResult != null) {
                         val lineCount = textLayoutResult!!.lineCount
                         val textBottomLocal = textLayoutResult!!.getLineBottom(lineCount - 1)
-
-                        // FIX: Usiamo la posizione DAL VIVO del ViewModel, non quella statica (pos.y)
                         val liveY = drawViewModel.activeTextEditPosition?.y ?: pos.y
                         val absoluteBottomY = liveY + textBottomLocal
 

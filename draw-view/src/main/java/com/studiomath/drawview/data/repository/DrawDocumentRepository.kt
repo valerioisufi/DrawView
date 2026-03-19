@@ -112,8 +112,6 @@ class DrawDocumentRepository(context: Context) {
                         rotation = textEntity.rotation
                         color = textEntity.color
                         fontSize = textEntity.fontSize
-                        isBold = textEntity.isBold
-                        isItalic = textEntity.isItalic
                     }
                     domainPage.textData.add(textObj)
                 }
@@ -356,9 +354,7 @@ class DrawDocumentRepository(context: Context) {
             height = textObj.height,
             rotation = textObj.rotation,
             color = textObj.color,
-            fontSize = textObj.fontSize,
-            isBold = textObj.isBold,
-            isItalic = textObj.isItalic
+            fontSize = textObj.fontSize
         )
         val id = textDao.insert(entity).toInt()
         textObj.dbId = id
@@ -378,9 +374,7 @@ class DrawDocumentRepository(context: Context) {
             height = textObj.height,
             rotation = textObj.rotation,
             color = textObj.color,
-            fontSize = textObj.fontSize,
-            isBold = textObj.isBold,
-            isItalic = textObj.isItalic
+            fontSize = textObj.fontSize
         )
         textDao.update(entity)
     }

@@ -146,9 +146,7 @@ data class TextEntity(
     val height: Float, // mm
     val rotation: Float, // gradi
     val color: Int,
-    val fontSize: Float,
-    val isBold: Boolean,
-    val isItalic: Boolean
+    val fontSize: Float
 )
 
 /**

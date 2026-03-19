@@ -14,7 +14,6 @@ import kotlin.math.hypot
 
 class SelectionOverlayRenderer(private val drawViewModel: DrawViewModel) {
 
-    // --- OTTIMIZZAZIONE PRESTAZIONI: Oggetti grafici creati una sola volta ---
     private val boxPaint = Paint().apply {
         color = "#1A73E8".toColorInt()
         style = Paint.Style.STROKE
@@ -41,26 +40,15 @@ class SelectionOverlayRenderer(private val drawViewModel: DrawViewModel) {
         isAntiAlias = true
     }
 
-    private val rotStrokePaint = Paint(handleStrokePaint).apply {
-        color = "#0F9D58".toColorInt()
-    }
-
-    private val textHandleStrokePaint = Paint(handleStrokePaint).apply {
-        color = "#FF9800".toColorInt()
-    }
-
+    private val rotStrokePaint = Paint(handleStrokePaint).apply { color = "#0F9D58".toColorInt() }
+    private val textHandleStrokePaint = Paint(handleStrokePaint).apply { color = "#FF9800".toColorInt() }
     private val handleRadius = 24f
 
-    // Oggetti di lavoro riutilizzabili per evitare allocazioni in memoria nel Draw Loop
     private val boxPath = Path()
     private val cornersPx = FloatArray(8)
     private val rotationHandlePx = FloatArray(4)
     private val sideHandlesPx = FloatArray(4)
 
-    /**
-     * Disegna il gruppo selezionato (immagini, testi, tratti) e il bounding box
-     * con le maniglie di ridimensionamento/rotazione.
-     */
     fun draw(canvas: Canvas, pagesRectOnWindow: Set<CalcPage.PageRectWithIndex>, windowRect: RectF) {
         val selection = drawViewModel.currentSelection ?: return
         if (selection.isEmpty()) return
@@ -68,50 +56,41 @@ class SelectionOverlayRenderer(private val drawViewModel: DrawViewModel) {
         val document = drawViewModel.documentData ?: return
         val pageInfo = pagesRectOnWindow.find { it.index == selection.pageIndex }
 
-        // Se la pagina non è sullo schermo E la selezione non sta galleggiando, non disegniamo nulla
         if (pageInfo == null && !selection.isFloating) return
 
-        // Calcoliamo la proiezione base (identità se fuori schermo ma volante)
         val mmToScreenMatrix = Matrix()
         if (pageInfo != null) {
             val page = document.pages.getOrNull(pageInfo.index) ?: return
             mmToScreenMatrix.setRectToRect(page.rect(), pageInfo.rect, Matrix.ScaleToFit.CENTER)
         }
 
-        // MAGIA DELLA FASE 1: Il SelectionGroup ci dà la matrice finale perfetta!
         val finalOverlayMatrix = selection.getLiveScreenMatrix(mmToScreenMatrix)
 
         canvas.withSave {
             canvas.clipRect(windowRect)
 
-            // 1. DISEGNA LE IMMAGINI SELEZIONATE
             for (img in selection.images) {
                 img.bitmapCache?.let { bmp ->
                     val overlayMatrix = Matrix()
                     val scaleX = img.width / bmp.width.toFloat()
                     val scaleY = img.height / bmp.height.toFloat()
-
                     overlayMatrix.postScale(scaleX, scaleY)
                     overlayMatrix.postRotate(img.rotation, img.width / 2f, img.height / 2f)
                     overlayMatrix.postTranslate(img.x, img.y)
                     overlayMatrix.postConcat(finalOverlayMatrix)
-
                     canvas.drawBitmap(bmp, overlayMatrix, null)
                 }
             }
 
-            // 1.5 DISEGNA I TESTI SELEZIONATI
             for (txt in selection.texts) {
                 if (txt.isLatex && txt.bitmapCache != null) {
                     val overlayMatrix = Matrix()
                     val scaleX = txt.width / txt.bitmapCache!!.width.toFloat()
                     val scaleY = txt.height / txt.bitmapCache!!.height.toFloat()
-
                     overlayMatrix.postScale(scaleX, scaleY)
                     overlayMatrix.postRotate(txt.rotation, txt.width / 2f, txt.height / 2f)
                     overlayMatrix.postTranslate(txt.x, txt.y)
                     overlayMatrix.postConcat(finalOverlayMatrix)
-
                     canvas.drawBitmap(txt.bitmapCache!!, overlayMatrix, null)
                 } else if (!txt.isLatex) {
                     canvas.withSave {
@@ -150,34 +129,22 @@ class SelectionOverlayRenderer(private val drawViewModel: DrawViewModel) {
                 }
             }
 
-            // 2. DISEGNA I TRATTI SELEZIONATI
             canvas.withSave {
                 canvas.concat(finalOverlayMatrix)
                 for (domainStroke in selection.strokes) {
                     domainStroke.stroke?.let { nativeStroke ->
-                        drawViewModel.pageMaker.canvasStrokeRenderer.draw(
-                            stroke = nativeStroke,
-                            canvas = canvas,
-                            strokeToScreenTransform = finalOverlayMatrix
-                        )
+                        drawViewModel.pageMaker.canvasStrokeRenderer.draw(stroke = nativeStroke, canvas = canvas, strokeToScreenTransform = finalOverlayMatrix)
                     }
                 }
             }
 
-            // 3. DISEGNA IL BOUNDING BOX DELLA SELEZIONE E LE MANIGLIE
-
-            // --- FIX PADDING: Estraiamo la scala attuale del gruppo ---
+            // --- FIX SINCRONIZZAZIONE PADDING E MANIGLIA ---
             val matrixValues = FloatArray(9)
             selection.transformMatrix.getValues(matrixValues)
-            val currentScale = hypot(
-                matrixValues[Matrix.MSCALE_X].toDouble(),
-                matrixValues[Matrix.MSKEW_Y].toDouble()
-            ).toFloat().coerceAtLeast(0.01f) // Evita la divisione per zero
+            val currentScale = hypot(matrixValues[Matrix.MSCALE_X].toDouble(), matrixValues[Matrix.MSKEW_Y].toDouble()).toFloat().coerceAtLeast(0.01f)
 
-            // Dividiamo il padding per la scala.
-            // La matrice poi lo moltiplicherà, mantenendolo visivamente sempre a 4mm!
+            // Il padding inverso
             val paddingMm = 4f / currentScale
-
             val boxMm = RectF(selection.boundingBox)
             boxMm.inset(-paddingMm, -paddingMm)
 
@@ -186,8 +153,10 @@ class SelectionOverlayRenderer(private val drawViewModel: DrawViewModel) {
                 boxMm.right, boxMm.bottom, boxMm.left, boxMm.bottom
             )
 
+            // --- FIX CRITICO: La maniglia non volerà più via! ---
+            val rotHandleOffsetMm = 12f / currentScale
             val midTopXMm = boxMm.centerX()
-            val midTopYMm = boxMm.top - 12f
+            val midTopYMm = boxMm.top - rotHandleOffsetMm
             val rotationHandleMm = floatArrayOf(midTopXMm, midTopYMm, midTopXMm, boxMm.top)
 
             val isSingleText = selection.images.isEmpty() && selection.strokes.isEmpty() && selection.texts.size == 1

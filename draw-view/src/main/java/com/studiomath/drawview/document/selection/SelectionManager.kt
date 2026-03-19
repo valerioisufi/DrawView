@@ -467,7 +467,6 @@ class SelectionManager(
                 targetPage.textData.addAll(selection.texts)
             }
 
-            // 1. Applichiamo la matrice a tutti gli oggetti
             selection.strokes.forEach { it.applyTransform(finalTransform) }
 
             val values = FloatArray(9)
@@ -490,17 +489,13 @@ class SelectionManager(
                 txt.x = pts[0] - (txt.width / 2f); txt.y = pts[1] - (txt.height / 2f)
             }
 
-            // 2. FIX CRITICO: Ricalcoliamo il Bounding Box PERFETTO dai dati base
-            // Annulla per sempre l'errore del riquadro che vola via e della crescita infinita!
-            val oldBox = RectF(selection.boundingBox)
-            finalTransform.mapRect(oldBox) // Calcola il box standard per i tratti nativi
-
+            // --- FASE 2: RICALCOLO ISOLATO DEL BOUNDING BOX ---
             val newBox = RectF()
             var isFirst = true
             val tempMatrix = Matrix()
             val tempRect = RectF()
 
-            // Crea un box aderente a tutte le immagini
+            // Immagini: Ricalcolo matematicamente perfetto, 0 crescita infinita
             selection.images.forEach { img ->
                 tempRect.set(img.x, img.y, img.x + img.width, img.y + img.height)
                 tempMatrix.setRotate(img.rotation, tempRect.centerX(), tempRect.centerY())
@@ -508,7 +503,7 @@ class SelectionManager(
                 if (isFirst) { newBox.set(tempRect); isFirst = false } else newBox.union(tempRect)
             }
 
-            // Crea un box aderente a tutti i testi
+            // Testi: Ricalcolo matematicamente perfetto, 0 crescita infinita
             selection.texts.forEach { txt ->
                 tempRect.set(txt.x, txt.y, txt.x + txt.width, txt.y + txt.height)
                 tempMatrix.setRotate(txt.rotation, tempRect.centerX(), tempRect.centerY())
@@ -516,16 +511,14 @@ class SelectionManager(
                 if (isFirst) { newBox.set(tempRect); isFirst = false } else newBox.union(tempRect)
             }
 
-            // Seleziona il box corretto
-            if (selection.images.isEmpty() && selection.texts.isEmpty()) {
-                selection.boundingBox.set(oldBox) // Solo tratti
-            } else {
-                selection.boundingBox.set(newBox) // Immagini/Testi
-                if (selection.strokes.isNotEmpty()) {
-                    selection.boundingBox.union(oldBox) // Unisce i tratti se misti
-                }
+            // Tratti: Utilizziamo la matrice AABB base (essendo percorsi liberi è necessaria una tolleranza)
+            if (selection.strokes.isNotEmpty()) {
+                val oldStrokeBox = RectF(selection.boundingBox)
+                finalTransform.mapRect(oldStrokeBox)
+                if (isFirst) { newBox.set(oldStrokeBox) } else newBox.union(oldStrokeBox)
             }
 
+            selection.boundingBox.set(newBox)
             selection.transformMatrix.reset()
         }
 

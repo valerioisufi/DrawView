@@ -37,7 +37,11 @@ class CanvasTouchDispatcher(
 
         // Tracciamo costantemente se il dito è fisicamente sullo schermo
         when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> drawViewModel.drawManager.isUserTouching = true
+            MotionEvent.ACTION_DOWN -> {
+                drawViewModel.drawManager.isUserTouching = true
+                // Spegniamo forzatamente il Pan prima di decidere cosa fare con questo tocco!
+                viewportHandler.resetTransformState()
+            }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_OUTSIDE -> drawViewModel.drawManager.isUserTouching = false
         }
 

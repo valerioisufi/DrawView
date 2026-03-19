@@ -12,9 +12,13 @@ class ViewportTouchHandler(drawViewModel: DrawViewModel) {
     val isTransforming: Boolean
         get() = onScaleTranslate.continueScaleTranslate
 
+    fun resetTransformState() {
+        onScaleTranslate.continueScaleTranslate = false
+    }
+
     fun handleTouch(view: View, event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
-            onScaleTranslate.continueScaleTranslate = false
+            resetTransformState()
         }
 
         onScaleTranslate.onScaleTranslate(view.context, event)

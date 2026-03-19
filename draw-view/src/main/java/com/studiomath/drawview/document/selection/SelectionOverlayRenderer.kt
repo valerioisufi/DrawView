@@ -10,6 +10,7 @@ import androidx.core.graphics.toColorInt
 import androidx.core.graphics.withSave
 import com.studiomath.drawview.document.DrawViewModel
 import com.studiomath.drawview.document.page.CalcPage
+import kotlin.math.hypot
 
 class SelectionOverlayRenderer(private val drawViewModel: DrawViewModel) {
 
@@ -164,7 +165,19 @@ class SelectionOverlayRenderer(private val drawViewModel: DrawViewModel) {
             }
 
             // 3. DISEGNA IL BOUNDING BOX DELLA SELEZIONE E LE MANIGLIE
-            val paddingMm = 4f
+
+            // --- FIX PADDING: Estraiamo la scala attuale del gruppo ---
+            val matrixValues = FloatArray(9)
+            selection.transformMatrix.getValues(matrixValues)
+            val currentScale = hypot(
+                matrixValues[Matrix.MSCALE_X].toDouble(),
+                matrixValues[Matrix.MSKEW_Y].toDouble()
+            ).toFloat().coerceAtLeast(0.01f) // Evita la divisione per zero
+
+            // Dividiamo il padding per la scala.
+            // La matrice poi lo moltiplicherà, mantenendolo visivamente sempre a 4mm!
+            val paddingMm = 4f / currentScale
+
             val boxMm = RectF(selection.boundingBox)
             boxMm.inset(-paddingMm, -paddingMm)
 

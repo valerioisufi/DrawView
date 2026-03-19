@@ -406,13 +406,11 @@ class SelectionManager(
     // ==========================================================
     // METODO ORIGINALE (CON I TUOI FIX CRITICI)
     // ==========================================================
-
     fun applySelectionTransformation(documentData: Document?) {
         val selection = currentSelection ?: return
         val doc = documentData ?: return
         val drawManager = getDrawManager()
 
-        // 1. MATH RESOLUTION: Trova la posizione esatta dal vivo
         val currentRenderMatrix = drawManager.cameraPhysics.getRenderMatrix()
         val livePagesRects = drawManager.calcPage.getPagesRectOnWindowTransformation(
             drawManager.windowRect, currentRenderMatrix
@@ -433,13 +431,11 @@ class SelectionManager(
             }
         }
 
-        // --- FIX 1: CALCOLO DEL BOUNDING BOX REALE (COMPRESO IL TRASCINAMENTO) ---
         val screenBoundingBox = RectF()
         val trueMmToScreen = Matrix(selection.transformMatrix)
         trueMmToScreen.postConcat(oldMmToScreenMatrix)
         trueMmToScreen.mapRect(screenBoundingBox, selection.boundingBox)
 
-        // Ora troviamo la VERA pagina sotto la selezione
         val targetPageInfo = livePagesRects.find { it.rect.contains(screenBoundingBox.centerX(), screenBoundingBox.centerY()) }
             ?: livePagesRects.minByOrNull { Math.hypot((it.rect.centerX() - screenBoundingBox.centerX()).toDouble(), (it.rect.centerY() - screenBoundingBox.centerY()).toDouble()) }
 
@@ -450,7 +446,6 @@ class SelectionManager(
         val isPageChanged = oldPageIndex != targetPageIndex
         val finalTransform = Matrix(selection.transformMatrix)
 
-        // 2. RAM UPDATE: Sincronizzato per evitare glitch sul Canvas
         synchronized(drawManager.renderLock) {
             if (isPageChanged) {
                 val screenToNewMmMatrix = Matrix()
@@ -472,12 +467,13 @@ class SelectionManager(
                 targetPage.textData.addAll(selection.texts)
             }
 
+            // 1. Applichiamo la matrice a tutti gli oggetti
             selection.strokes.forEach { it.applyTransform(finalTransform) }
 
             val values = FloatArray(9)
             finalTransform.getValues(values)
-            val scale = Math.hypot(values[Matrix.MSCALE_X].toDouble(), values[Matrix.MSKEW_Y].toDouble()).toFloat()
-            val angle = Math.toDegrees(Math.atan2(values[Matrix.MSKEW_Y].toDouble(), values[Matrix.MSCALE_X].toDouble())).toFloat()
+            val scale = hypot(values[Matrix.MSCALE_X].toDouble(), values[Matrix.MSKEW_Y].toDouble()).toFloat()
+            val angle = Math.toDegrees(atan2(values[Matrix.MSKEW_Y].toDouble(), values[Matrix.MSCALE_X].toDouble())).toFloat()
             val pts = FloatArray(2)
 
             selection.images.forEach { img ->
@@ -494,19 +490,50 @@ class SelectionManager(
                 txt.x = pts[0] - (txt.width / 2f); txt.y = pts[1] - (txt.height / 2f)
             }
 
-            // Cuociamo il bounding box e resettiamo
-            finalTransform.mapRect(selection.boundingBox)
+            // 2. FIX CRITICO: Ricalcoliamo il Bounding Box PERFETTO dai dati base
+            // Annulla per sempre l'errore del riquadro che vola via e della crescita infinita!
+            val oldBox = RectF(selection.boundingBox)
+            finalTransform.mapRect(oldBox) // Calcola il box standard per i tratti nativi
+
+            val newBox = RectF()
+            var isFirst = true
+            val tempMatrix = Matrix()
+            val tempRect = RectF()
+
+            // Crea un box aderente a tutte le immagini
+            selection.images.forEach { img ->
+                tempRect.set(img.x, img.y, img.x + img.width, img.y + img.height)
+                tempMatrix.setRotate(img.rotation, tempRect.centerX(), tempRect.centerY())
+                tempMatrix.mapRect(tempRect)
+                if (isFirst) { newBox.set(tempRect); isFirst = false } else newBox.union(tempRect)
+            }
+
+            // Crea un box aderente a tutti i testi
+            selection.texts.forEach { txt ->
+                tempRect.set(txt.x, txt.y, txt.x + txt.width, txt.y + txt.height)
+                tempMatrix.setRotate(txt.rotation, tempRect.centerX(), tempRect.centerY())
+                tempMatrix.mapRect(tempRect)
+                if (isFirst) { newBox.set(tempRect); isFirst = false } else newBox.union(tempRect)
+            }
+
+            // Seleziona il box corretto
+            if (selection.images.isEmpty() && selection.texts.isEmpty()) {
+                selection.boundingBox.set(oldBox) // Solo tratti
+            } else {
+                selection.boundingBox.set(newBox) // Immagini/Testi
+                if (selection.strokes.isNotEmpty()) {
+                    selection.boundingBox.union(oldBox) // Unisce i tratti se misti
+                }
+            }
+
             selection.transformMatrix.reset()
         }
 
-        // 3. PERSISTENCE: Tutto in una singola Coroutine organizzata
         coroutineScope.launch(Dispatchers.Default) {
             if (isPageChanged) {
-                // Aggiorniamo la bitmap della VECCHIA pagina per cancellarli visivamente
                 oldPage.bitmapPage?.let { oldBitmap ->
                     oldPage.bitmapPage = pageMaker.makePage(android.graphics.Rect(0, 0, oldBitmap.width, oldBitmap.height), null, oldPage, doc)
                 }
-                // --- FIX 2: AGGIORNIAMO LA BITMAP DELLA NUOVA PAGINA PER DISEGNARLI ---
                 targetPage.bitmapPage?.let { targetBitmap ->
                     targetPage.bitmapPage = pageMaker.makePage(android.graphics.Rect(0, 0, targetBitmap.width, targetBitmap.height), null, targetPage, doc)
                 }
@@ -524,9 +551,7 @@ class SelectionManager(
                 )
             }
 
-            // Lanciamo il salvataggio su DB in parallelo su thread IO
             launch(Dispatchers.IO) {
-                // Noterai che stiamo passando "targetPage.dbId" così il database saprà del cambio pagina!
                 selection.images.forEach { repository.updateImage(targetPage.dbId, it) }
                 selection.strokes.forEach { repository.updateStroke(targetPage.dbId, it) }
                 selection.texts.forEach { repository.updateText(targetPage.dbId, it) }

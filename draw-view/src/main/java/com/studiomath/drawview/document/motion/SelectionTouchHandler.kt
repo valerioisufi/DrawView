@@ -30,17 +30,38 @@ class SelectionTouchHandler(
 
         val drawManager = drawViewModel.drawManager
 
-        // 1. Troviamo la pagina per la proiezione base (se non c'è ed è ancorato, ignoriamo)
+        // 1. Troviamo la pagina Bersaglio (o dedurremo matematicamente dalle matrici salvate)
         val pageInfo = drawManager.pagesRectOnWindow.find { it.index == selection.pageIndex }
         if (pageInfo == null && !selection.isFloating) return false
 
-        // 2. Calcoliamo la Matrice LIVE per proiettare il Bounding Box sullo schermo
+        // 2. Calcoliamo la Matrice MM -> Schermo per la pagina bersaglio
         val mmToScreenMatrix = Matrix()
         if (pageInfo != null) {
             val page = drawViewModel.documentData!!.pages[pageInfo.index]
             mmToScreenMatrix.setRectToRect(page.rect(), pageInfo.rect, Matrix.ScaleToFit.CENTER)
         }
+
+        // 3. Calcoliamo la Matrice LIVE (che include il trascinamento)
         val liveMatrix = selection.getLiveScreenMatrix(mmToScreenMatrix)
+
+        // --- FASE 1 & FASE 3 FIX: GEOMETRIA REPLICATA DAL RENDERER ---
+
+        // Estraiamo la scala attuale per il padding inverso
+        val matrixValues = FloatArray(9)
+        selection.transformMatrix.getValues(matrixValues)
+        val currentScaleMm = hypot(matrixValues[Matrix.MSCALE_X].toDouble(), matrixValues[Matrix.MSKEW_Y].toDouble()).toFloat().coerceAtLeast(0.01f)
+
+        // Calcoliamo i perni in pixel per Scala e Rotazione
+        val centerPts = floatArrayOf(selection.boundingBox.centerX(), selection.boundingBox.centerY())
+        liveMatrix.mapPoints(centerPts)
+        pivotXPx = centerPts[0]
+        pivotYPx = centerPts[1]
+
+        // --- FIX CRITICO: APPLICHIAMO IL PADDING INVERSO PRIMA DI MAPPARE ---
+        val paddingMm = 4f / currentScaleMm
+        val boxMmWithPadding = RectF(selection.boundingBox)
+        boxMmWithPadding.inset(-paddingMm, -paddingMm)
+        // ------------------------------------------------------------------
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
@@ -49,23 +70,15 @@ class SelectionTouchHandler(
                 }
 
                 // --- SCREEN-SPACE HIT TESTING ---
-                // Mappiamo il centro in pixel per usarlo come perno dei calcoli
-                val centerPts = floatArrayOf(selection.boundingBox.centerX(), selection.boundingBox.centerY())
-                liveMatrix.mapPoints(centerPts)
-                pivotXPx = centerPts[0]
-                pivotYPx = centerPts[1]
-
-                val baseBox = selection.boundingBox
+                // Mappiamo gli angoli del riquadro CON PADDING
                 val pts = FloatArray(8)
-
-                // Mappiamo gli angoli (Maniglie Scala)
-                pts[0] = baseBox.left; pts[1] = baseBox.top
-                pts[2] = baseBox.right; pts[3] = baseBox.top
-                pts[4] = baseBox.right; pts[5] = baseBox.bottom
-                pts[6] = baseBox.left; pts[7] = baseBox.bottom
+                pts[0] = boxMmWithPadding.left; pts[1] = boxMmWithPadding.top
+                pts[2] = boxMmWithPadding.right; pts[3] = boxMmWithPadding.top
+                pts[4] = boxMmWithPadding.right; pts[5] = boxMmWithPadding.bottom
+                pts[6] = boxMmWithPadding.left; pts[7] = boxMmWithPadding.bottom
                 liveMatrix.mapPoints(pts)
 
-                val handleRadiusPx = 60f // Area di tocco in pixel perfetta per il dito
+                val handleRadiusPx = 60f // Tolleranza ergonomica fissa per il dito
 
                 var hitScale = false
                 for (i in 0 until 4) {
@@ -74,18 +87,19 @@ class SelectionTouchHandler(
                     }
                 }
 
-                // Mappiamo la maniglia di Rotazione
-                val rotPts = floatArrayOf(baseBox.centerX(), baseBox.top - 12f)
+                // Mappiamo la maniglia di Rotazione (distanza 12mm cuocetuta con la scala inversa)
+                val rotHandleOffsetMm = 12f / currentScaleMm
+                val rotPts = floatArrayOf(selection.boundingBox.centerX(), boxMmWithPadding.top - rotHandleOffsetMm)
                 liveMatrix.mapPoints(rotPts)
                 val hitRot = hypot(event.x - rotPts[0], event.y - rotPts[1]) <= handleRadiusPx
 
-                // Mappiamo le maniglie del Testo (se applicabile)
+                // Maniglie Testo (se applicabile)
                 var hitTextLeft = false
                 var hitTextRight = false
                 val isSingleText = selection.images.isEmpty() && selection.strokes.isEmpty() && selection.texts.size == 1
                 if (isSingleText) {
-                    val textLeftPts = floatArrayOf(baseBox.left, baseBox.centerY())
-                    val textRightPts = floatArrayOf(baseBox.right, baseBox.centerY())
+                    val textLeftPts = floatArrayOf(selection.boundingBox.left, selection.boundingBox.centerY())
+                    val textRightPts = floatArrayOf(selection.boundingBox.right, selection.boundingBox.centerY())
                     liveMatrix.mapPoints(textLeftPts)
                     liveMatrix.mapPoints(textRightPts)
                     hitTextLeft = hypot(event.x - textLeftPts[0], event.y - textLeftPts[1]) <= handleRadiusPx
@@ -94,8 +108,7 @@ class SelectionTouchHandler(
 
                 // Corpo Centrale (Panning)
                 val mappedBox = RectF()
-                liveMatrix.mapRect(mappedBox, baseBox)
-                mappedBox.inset(20f, 20f) // Margine interno per non sovrapporsi ai bordi
+                liveMatrix.mapRect(mappedBox, boxMmWithPadding)
                 val hitBody = mappedBox.contains(event.x, event.y)
 
                 // --- ASSEGNAZIONE STATO ---

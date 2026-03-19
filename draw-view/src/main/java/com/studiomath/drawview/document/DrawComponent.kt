@@ -306,15 +306,23 @@ fun DrawComponent(
             var currentBoxWidthMm by remember { mutableFloatStateOf(initialWidthMm) }
             var actualTextHeightPx by remember { mutableFloatStateOf(10f) }
 
-            // 2. FUNZIONE HELP: Applica uno stile alla porzione di testo selezionata dall'utente
+            // 2. FUNZIONE HELP: Applica uno stile
             fun applyStyleToSelection(style: SpanStyle) {
-                if (textValue.selection.collapsed) return // Nessun testo selezionato
+                // FIX UX: Se non evidenzi nulla, colora tutto il testo nella casella
+                val start = if (textValue.selection.collapsed) 0 else textValue.selection.start
+                val end = if (textValue.selection.collapsed) textValue.text.length else textValue.selection.end
+
+                if (start == end) return // Casella vuota
+
                 val newAnnotatedString = buildAnnotatedString {
                     append(textValue.annotatedString)
-                    addStyle(style, textValue.selection.start, textValue.selection.end)
+                    addStyle(style, start, end)
                 }
                 textValue = textValue.copy(annotatedString = newAnnotatedString)
             }
+
+            // Estraiamo il vero colore di default dal Tema corrente
+            val defaultTextColor = MaterialTheme.colorScheme.onSurface.toArgb()
 
             BoxWithConstraints(
                 modifier = Modifier
@@ -323,12 +331,12 @@ fun DrawComponent(
                         detectTapGestures(onTap = {
                             keyboardController?.hide()
                             val heightMm = actualTextHeightPx / scale
-                            // Quando chiudiamo, convertiamo l'AnnotatedString in HTML!
+
                             val finalHtml = RichTextUtil.toHtml(textValue.annotatedString)
                             drawViewModel.finishTextEditing(
                                 finalHtml,
                                 false,
-                                android.graphics.Color.BLACK,
+                                defaultTextColor, // FIX: Usa il colore del tema, non Color.BLACK!
                                 defaultFontSizePt,
                                 currentBoxWidthMm,
                                 heightMm

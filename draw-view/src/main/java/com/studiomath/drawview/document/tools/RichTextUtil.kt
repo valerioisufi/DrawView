@@ -31,10 +31,16 @@ object RichTextUtil {
                 spannable.setSpan(StyleSpan(Typeface.ITALIC), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             }
             if (span.item.color != Color.Unspecified) {
-                spannable.setSpan(ForegroundColorSpan(span.item.color.toArgb()), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                // FIX ALPHA: Forza l'opacità al 100% per non far crashare il parser HTML
+                val solidColorInt = span.item.color.toArgb() or -0x1000000
+                spannable.setSpan(ForegroundColorSpan(solidColorInt), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             }
         }
-        return HtmlCompat.toHtml(spannable, HtmlCompat.TO_HTML_PARAGRAPH_LINES_CONSECUTIVE)
+
+        var html = HtmlCompat.toHtml(spannable, HtmlCompat.TO_HTML_PARAGRAPH_LINES_CONSECUTIVE)
+        // FIX A CAPO: Rimuove i paragrafi forzati di Android che sballano l'altezza del testo
+        html = html.replace("<p dir=\"ltr\">", "").replace("</p>", "").replace("\n", "<br>")
+        return html
     }
 
     /** Dal Database (HTML) a Compose */

@@ -98,8 +98,9 @@ class SelectionTouchHandler(
                 var hitTextRight = false
                 val isSingleText = selection.images.isEmpty() && selection.strokes.isEmpty() && selection.texts.size == 1
                 if (isSingleText) {
-                    val textLeftPts = floatArrayOf(selection.boundingBox.left, selection.boundingBox.centerY())
-                    val textRightPts = floatArrayOf(selection.boundingBox.right, selection.boundingBox.centerY())
+                    // FIX: Usiamo boxMmWithPadding per allinearci perfettamente al Renderer!
+                    val textLeftPts = floatArrayOf(boxMmWithPadding.left, boxMmWithPadding.centerY())
+                    val textRightPts = floatArrayOf(boxMmWithPadding.right, boxMmWithPadding.centerY())
                     liveMatrix.mapPoints(textLeftPts)
                     liveMatrix.mapPoints(textRightPts)
                     hitTextLeft = hypot(event.x - textLeftPts[0], event.y - textLeftPts[1]) <= handleRadiusPx

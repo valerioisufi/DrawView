@@ -384,17 +384,29 @@ class SelectionManager(
                 selection.transformMatrix.invert(inverseTransform)
                 inverseTransform.mapPoints(pts)
 
+                // --- FIX: Calcoliamo il padding inverso per compensare il trascinamento ---
+                val matrixValues = FloatArray(9)
+                selection.transformMatrix.getValues(matrixValues)
+                val currentScale = hypot(matrixValues[Matrix.MSCALE_X].toDouble(), matrixValues[Matrix.MSKEW_Y].toDouble()).toFloat().coerceAtLeast(0.01f)
+
+                // Questo è lo spazio vuoto tra il testo reale e il dito dell'utente
+                val paddingMm = 4f / currentScale
+
                 val touchLocalX = pts[0]
                 val minWidthMm = 20f
 
                 if (isRightEdge) {
-                    val newWidth = touchLocalX - txt.x
+                    // Il dito è sulla maniglia DESTRA (+padding). Il vero bordo del testo è un po' più a sinistra.
+                    val newRightEdge = touchLocalX - paddingMm
+                    val newWidth = newRightEdge - txt.x
                     txt.width = kotlin.math.max(minWidthMm, newWidth)
                 } else {
+                    // Il dito è sulla maniglia SINISTRA (-padding). Il vero bordo del testo è un po' più a destra.
+                    val newLeftEdge = touchLocalX + paddingMm
                     val rightEdge = txt.x + txt.width
-                    val newWidth = rightEdge - touchLocalX
+                    val newWidth = rightEdge - newLeftEdge
                     if (newWidth >= minWidthMm) {
-                        txt.x = touchLocalX
+                        txt.x = newLeftEdge
                         txt.width = newWidth
                     }
                 }
@@ -489,33 +501,53 @@ class SelectionManager(
                 txt.x = pts[0] - (txt.width / 2f); txt.y = pts[1] - (txt.height / 2f)
             }
 
-            // --- FASE 2: RICALCOLO ISOLATO DEL BOUNDING BOX ---
+            // ==========================================================
+            // FIX CRITICO: Ricalcolo intelligente del Bounding Box
+            // ==========================================================
             val newBox = RectF()
             var isFirst = true
-            val tempMatrix = Matrix()
             val tempRect = RectF()
+            val tempMatrix = Matrix()
 
-            // Immagini: Ricalcolo matematicamente perfetto, 0 crescita infinita
+            // 1. Immagini (Calcolo AABB perfetto senza loop infinito)
             selection.images.forEach { img ->
                 tempRect.set(img.x, img.y, img.x + img.width, img.y + img.height)
+                tempMatrix.reset()
                 tempMatrix.setRotate(img.rotation, tempRect.centerX(), tempRect.centerY())
                 tempMatrix.mapRect(tempRect)
                 if (isFirst) { newBox.set(tempRect); isFirst = false } else newBox.union(tempRect)
             }
 
-            // Testi: Ricalcolo matematicamente perfetto, 0 crescita infinita
+            // 2. Testi (Calcolo AABB perfetto)
             selection.texts.forEach { txt ->
                 tempRect.set(txt.x, txt.y, txt.x + txt.width, txt.y + txt.height)
+                tempMatrix.reset()
                 tempMatrix.setRotate(txt.rotation, tempRect.centerX(), tempRect.centerY())
                 tempMatrix.mapRect(tempRect)
                 if (isFirst) { newBox.set(tempRect); isFirst = false } else newBox.union(tempRect)
             }
 
-            // Tratti: Utilizziamo la matrice AABB base (essendo percorsi liberi è necessaria una tolleranza)
+            // 3. Tratti (Bypassiamo la rotazione sul riquadro per evitare la crescita infinita)
             if (selection.strokes.isNotEmpty()) {
-                val oldStrokeBox = RectF(selection.boundingBox)
-                finalTransform.mapRect(oldStrokeBox)
-                if (isFirst) { newBox.set(oldStrokeBox) } else newBox.union(oldStrokeBox)
+                val strokeBox = RectF(selection.boundingBox)
+
+                // Troviamo il vecchio centro e lo mappiamo con la trasformazione
+                val centerPts = floatArrayOf(strokeBox.centerX(), strokeBox.centerY())
+                finalTransform.mapPoints(centerPts)
+
+                // Applichiamo solo la SCALA (ignorando la rotazione per il riquadro)
+                val newWidth = strokeBox.width() * scale
+                val newHeight = strokeBox.height() * scale
+
+                // Creiamo un nuovo riquadro dritto
+                val updatedStrokeBox = RectF(
+                    centerPts[0] - newWidth / 2f,
+                    centerPts[1] - newHeight / 2f,
+                    centerPts[0] + newWidth / 2f,
+                    centerPts[1] + newHeight / 2f
+                )
+
+                if (isFirst) { newBox.set(updatedStrokeBox) } else newBox.union(updatedStrokeBox)
             }
 
             selection.boundingBox.set(newBox)

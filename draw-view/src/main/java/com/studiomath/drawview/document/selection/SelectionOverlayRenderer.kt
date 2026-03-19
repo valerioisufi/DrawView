@@ -64,30 +64,21 @@ class SelectionOverlayRenderer(private val drawViewModel: DrawViewModel) {
         val selection = drawViewModel.currentSelection ?: return
         if (selection.isEmpty()) return
 
-        // --- FIX CRITICO: MAGIA DEL GALLEGGIAMENTO INDIPENDENTE ---
-        val finalOverlayMatrix = Matrix()
+        val document = drawViewModel.documentData ?: return
+        val pageInfo = pagesRectOnWindow.find { it.index == selection.pageIndex }
 
-        if (drawViewModel.isFloatingSelection) {
-            // 1. MODALITÀ VOLANTE: Ignoriamo completamente le pagine a schermo!
-            // Usiamo la matrice fissa che avevamo salvato al momento del tocco,
-            // e ci sommiamo sopra il movimento in pixel del dito.
-            finalOverlayMatrix.set(selection.transformMatrix)
-            finalOverlayMatrix.postConcat(drawViewModel.floatingSelectionBaseMatrix)
-            finalOverlayMatrix.postConcat(drawViewModel.floatingSelectionScreenMatrix)
-        } else {
-            // 2. MODALITÀ NORMALE (Ancorata al documento)
-            // Se NON sta galleggiando, DEVE esserci la pagina a schermo, altrimenti abortiamo.
-            val targetPageIndex = selection.pageIndex
-            val pageInfo = pagesRectOnWindow.find { it.index == targetPageIndex } ?: return
-            val document = drawViewModel.documentData ?: return
+        // Se la pagina non è sullo schermo E la selezione non sta galleggiando, non disegniamo nulla
+        if (pageInfo == null && !selection.isFloating) return
+
+        // Calcoliamo la proiezione base (identità se fuori schermo ma volante)
+        val mmToScreenMatrix = Matrix()
+        if (pageInfo != null) {
             val page = document.pages.getOrNull(pageInfo.index) ?: return
-
-            val mmToScreenMatrix = Matrix().apply {
-                setRectToRect(page.rect(), pageInfo.rect, Matrix.ScaleToFit.CENTER)
-            }
-            finalOverlayMatrix.set(selection.transformMatrix)
-            finalOverlayMatrix.postConcat(mmToScreenMatrix)
+            mmToScreenMatrix.setRectToRect(page.rect(), pageInfo.rect, Matrix.ScaleToFit.CENTER)
         }
+
+        // MAGIA DELLA FASE 1: Il SelectionGroup ci dà la matrice finale perfetta!
+        val finalOverlayMatrix = selection.getLiveScreenMatrix(mmToScreenMatrix)
 
         canvas.withSave {
             canvas.clipRect(windowRect)
@@ -189,7 +180,6 @@ class SelectionOverlayRenderer(private val drawViewModel: DrawViewModel) {
             val isSingleText = selection.images.isEmpty() && selection.strokes.isEmpty() && selection.texts.size == 1
             val sideHandlesMm = floatArrayOf(boxMm.left, boxMm.centerY(), boxMm.right, boxMm.centerY())
 
-            // Mappiamo i punti usando la matrice finale (che include il galleggiamento se attivo)
             finalOverlayMatrix.mapPoints(cornersPx, cornersMm)
             finalOverlayMatrix.mapPoints(rotationHandlePx, rotationHandleMm)
             if (isSingleText) finalOverlayMatrix.mapPoints(sideHandlesPx, sideHandlesMm)

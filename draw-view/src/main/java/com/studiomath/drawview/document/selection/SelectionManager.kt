@@ -16,6 +16,7 @@ import com.studiomath.drawview.data.repository.DrawDocumentRepository
 import com.studiomath.drawview.document.DrawManager
 import com.studiomath.drawview.document.history.HistoryManager
 import com.studiomath.drawview.document.history.TransformSelectionAction
+import com.studiomath.drawview.document.page.CalcPage
 import com.studiomath.drawview.document.page.Document
 import com.studiomath.drawview.document.page.Image
 import com.studiomath.drawview.document.page.PageMaker
@@ -27,7 +28,6 @@ import kotlinx.coroutines.launch
 import kotlin.math.atan2
 import kotlin.math.hypot
 
-// Spostiamo qui le classi dati per la selezione
 data class SelectionGroup(
     val images: MutableList<Image> = mutableListOf(),
     val strokes: MutableList<Stroke> = mutableListOf(),
@@ -42,10 +42,33 @@ data class SelectionGroup(
     var oldTextStates: List<FloatArray>? = null
     var oldStrokeNative: List<androidx.ink.strokes.Stroke?>? = null
 
+    // ==========================================================
+    // --- FASE 1: STATO MATEMATICO INCAPSULATO ---
+    // ==========================================================
+    var isFloating = false
+    val floatingScreenMatrix = Matrix()
+    val initialCameraMatrix = Matrix()
+    val floatingBaseMatrix = Matrix()
+
     fun captureOriginalStates() {
         oldImageStates = images.map { floatArrayOf(it.x, it.y, it.width, it.height, it.rotation) }
         oldTextStates = texts.map { floatArrayOf(it.x, it.y, it.width, it.height, it.rotation, it.fontSize) }
         oldStrokeNative = strokes.map { it.stroke }
+    }
+
+    /**
+     * Calcola la matrice finale per disegnare questo gruppo sullo schermo.
+     * Questa singola funzione sostituisce enormi blocchi di codice sparsi per l'app!
+     */
+    fun getLiveScreenMatrix(mmToScreenMatrix: Matrix): Matrix {
+        val finalMatrix = Matrix(transformMatrix)
+        if (isFloating) {
+            finalMatrix.postConcat(floatingBaseMatrix)
+            finalMatrix.postConcat(floatingScreenMatrix)
+        } else {
+            finalMatrix.postConcat(mmToScreenMatrix)
+        }
+        return finalMatrix
     }
 }
 
@@ -256,27 +279,29 @@ class SelectionManager(
     // METODI DELEGATI DAL SELECTION TOUCH HANDLER
     // ==========================================================
 
-    fun startPanning(pageInfo: com.studiomath.drawview.document.page.CalcPage.PageRectWithIndex) {
+    fun startPanning(pageInfo: CalcPage.PageRectWithIndex) {
+        val selection = currentSelection ?: return
         val drawViewModel = getDrawManager().drawViewModel
         val doc = drawViewModel.documentData ?: return
 
-        drawViewModel.isFloatingSelection = true
-        drawViewModel.floatingSelectionScreenMatrix.reset()
-        drawViewModel.initialSelectionCameraMatrix.set(getDrawManager().cameraPhysics.getRenderMatrix())
+        // Usiamo il nuovo stato incapsulato!
+        selection.isFloating = true
+        selection.floatingScreenMatrix.reset()
+        selection.initialCameraMatrix.set(getDrawManager().cameraPhysics.getRenderMatrix())
 
         val page = doc.pages[pageInfo.index]
         val mmToScreen = Matrix().apply {
             setRectToRect(page.rect(), pageInfo.rect, Matrix.ScaleToFit.CENTER)
         }
-        drawViewModel.floatingSelectionBaseMatrix.set(mmToScreen)
+        selection.floatingBaseMatrix.set(mmToScreen)
         getDrawManager().cameraPhysics.stopAllAnimations()
     }
 
     fun updatePanning(view: View, dxPx: Float, dyPx: Float, scrollDelta: Float) {
-        val drawViewModel = getDrawManager().drawViewModel
+        val selection = currentSelection ?: return
 
         synchronized(getDrawManager().renderLock) {
-            drawViewModel.floatingSelectionScreenMatrix.postTranslate(dxPx, dyPx)
+            selection.floatingScreenMatrix.postTranslate(dxPx, dyPx)
         }
 
         attachedView = view
@@ -292,6 +317,45 @@ class SelectionManager(
                 view.removeCallbacks(autoScrollRunnable)
             }
         }
+    }
+
+    fun finalizeTransformation(view: View, wasPanning: Boolean) {
+        isAutoScrollingSelection = false
+        view.removeCallbacks(autoScrollRunnable)
+
+        val drawManager = getDrawManager()
+        val drawViewModel = drawManager.drawViewModel
+        val selection = currentSelection ?: return
+
+        if (wasPanning && selection.isFloating) {
+            val finalOverlayMatrix = Matrix(selection.transformMatrix)
+            finalOverlayMatrix.postConcat(selection.floatingBaseMatrix)
+            finalOverlayMatrix.postConcat(selection.floatingScreenMatrix)
+
+            val invInitialCam = Matrix()
+            selection.initialCameraMatrix.invert(invInitialCam)
+
+            val currentMmToScreenMatrix = Matrix(selection.floatingBaseMatrix)
+            currentMmToScreenMatrix.postConcat(invInitialCam)
+            currentMmToScreenMatrix.postConcat(drawManager.cameraPhysics.getRenderMatrix())
+
+            val inverseCurrentMmToScreen = Matrix()
+            currentMmToScreenMatrix.invert(inverseCurrentMmToScreen)
+
+            val newTransformMatrixInMm = Matrix(finalOverlayMatrix)
+            newTransformMatrixInMm.postConcat(inverseCurrentMmToScreen)
+
+            synchronized(drawManager.renderLock) {
+                selection.transformMatrix.set(newTransformMatrixInMm)
+            }
+        }
+
+        selection.isFloating = false
+        applySelectionTransformation(drawViewModel.documentData)
+
+        drawManager.requestDraw(
+            DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.SCALE_TRANSLATE)
+        )
     }
 
     fun updateScaling(scaleFactor: Float, pivotX: Float, pivotY: Float) {
@@ -339,46 +403,6 @@ class SelectionManager(
         }
     }
 
-    fun finalizeTransformation(view: View, wasPanning: Boolean) {
-        isAutoScrollingSelection = false
-        view.removeCallbacks(autoScrollRunnable)
-
-        val drawViewModel = getDrawManager().drawViewModel
-        val drawManager = getDrawManager()
-        val selection = currentSelection
-
-        if (wasPanning && drawViewModel.isFloatingSelection && selection != null) {
-            val finalOverlayMatrix = Matrix(selection.transformMatrix)
-            finalOverlayMatrix.postConcat(drawViewModel.floatingSelectionBaseMatrix)
-            finalOverlayMatrix.postConcat(drawViewModel.floatingSelectionScreenMatrix)
-
-            val invInitialCam = Matrix()
-            drawViewModel.initialSelectionCameraMatrix.invert(invInitialCam)
-
-            val currentMmToScreenMatrix = Matrix(drawViewModel.floatingSelectionBaseMatrix)
-            currentMmToScreenMatrix.postConcat(invInitialCam)
-            currentMmToScreenMatrix.postConcat(drawManager.cameraPhysics.getRenderMatrix())
-
-            val inverseCurrentMmToScreen = Matrix()
-            currentMmToScreenMatrix.invert(inverseCurrentMmToScreen)
-
-            val newTransformMatrixInMm = Matrix(finalOverlayMatrix)
-            newTransformMatrixInMm.postConcat(inverseCurrentMmToScreen)
-
-            synchronized(drawManager.renderLock) {
-                selection.transformMatrix.set(newTransformMatrixInMm)
-            }
-        }
-
-        drawViewModel.isFloatingSelection = false
-
-        applySelectionTransformation(drawViewModel.documentData)
-
-        drawManager.requestDraw(
-            DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.SCALE_TRANSLATE)
-        )
-    }
-
     // ==========================================================
     // METODO ORIGINALE (CON I TUOI FIX CRITICI)
     // ==========================================================
@@ -388,6 +412,7 @@ class SelectionManager(
         val doc = documentData ?: return
         val drawManager = getDrawManager()
 
+        // 1. MATH RESOLUTION: Trova la posizione esatta dal vivo
         val currentRenderMatrix = drawManager.cameraPhysics.getRenderMatrix()
         val livePagesRects = drawManager.calcPage.getPagesRectOnWindowTransformation(
             drawManager.windowRect, currentRenderMatrix
@@ -397,22 +422,24 @@ class SelectionManager(
         val oldPageInfo = livePagesRects.find { it.index == oldPageIndex }
         val oldPage = doc.pages.getOrNull(oldPageIndex) ?: return
 
-        val drawViewModel = getDrawManager().drawViewModel
-
         val oldMmToScreenMatrix = if (oldPageInfo != null) {
             Matrix().apply { setRectToRect(oldPage.rect(), oldPageInfo.rect, Matrix.ScaleToFit.CENTER) }
         } else {
             val invInitialCam = Matrix()
-            drawViewModel.initialSelectionCameraMatrix.invert(invInitialCam)
-            Matrix(drawViewModel.floatingSelectionBaseMatrix).apply {
+            selection.initialCameraMatrix.invert(invInitialCam)
+            Matrix(selection.floatingBaseMatrix).apply {
                 postConcat(invInitialCam)
                 postConcat(currentRenderMatrix)
             }
         }
 
+        // --- FIX 1: CALCOLO DEL BOUNDING BOX REALE (COMPRESO IL TRASCINAMENTO) ---
         val screenBoundingBox = RectF()
-        oldMmToScreenMatrix.mapRect(screenBoundingBox, selection.boundingBox)
+        val trueMmToScreen = Matrix(selection.transformMatrix)
+        trueMmToScreen.postConcat(oldMmToScreenMatrix)
+        trueMmToScreen.mapRect(screenBoundingBox, selection.boundingBox)
 
+        // Ora troviamo la VERA pagina sotto la selezione
         val targetPageInfo = livePagesRects.find { it.rect.contains(screenBoundingBox.centerX(), screenBoundingBox.centerY()) }
             ?: livePagesRects.minByOrNull { Math.hypot((it.rect.centerX() - screenBoundingBox.centerX()).toDouble(), (it.rect.centerY() - screenBoundingBox.centerY()).toDouble()) }
 
@@ -420,12 +447,11 @@ class SelectionManager(
 
         val targetPageIndex = targetPageInfo.index
         val targetPage = doc.pages.getOrNull(targetPageIndex) ?: return
-
         val isPageChanged = oldPageIndex != targetPageIndex
         val finalTransform = Matrix(selection.transformMatrix)
 
+        // 2. RAM UPDATE: Sincronizzato per evitare glitch sul Canvas
         synchronized(drawManager.renderLock) {
-
             if (isPageChanged) {
                 val screenToNewMmMatrix = Matrix()
                 Matrix().apply { setRectToRect(targetPage.rect(), targetPageInfo.rect, Matrix.ScaleToFit.CENTER) }.invert(screenToNewMmMatrix)
@@ -437,7 +463,6 @@ class SelectionManager(
                 finalTransform.postConcat(oldMmToNewMmMatrix)
 
                 selection.pageIndex = targetPageIndex
-
                 oldPage.imageData.removeAll(selection.images)
                 oldPage.strokeData.removeAll(selection.strokes)
                 oldPage.textData.removeAll(selection.texts)
@@ -451,8 +476,8 @@ class SelectionManager(
 
             val values = FloatArray(9)
             finalTransform.getValues(values)
-            val scale = hypot(values[Matrix.MSCALE_X].toDouble(), values[Matrix.MSKEW_Y].toDouble()).toFloat()
-            val angle = Math.toDegrees(atan2(values[Matrix.MSKEW_Y].toDouble(), values[Matrix.MSCALE_X].toDouble())).toFloat()
+            val scale = Math.hypot(values[Matrix.MSCALE_X].toDouble(), values[Matrix.MSKEW_Y].toDouble()).toFloat()
+            val angle = Math.toDegrees(Math.atan2(values[Matrix.MSKEW_Y].toDouble(), values[Matrix.MSCALE_X].toDouble())).toFloat()
             val pts = FloatArray(2)
 
             selection.images.forEach { img ->
@@ -469,36 +494,45 @@ class SelectionManager(
                 txt.x = pts[0] - (txt.width / 2f); txt.y = pts[1] - (txt.height / 2f)
             }
 
+            // Cuociamo il bounding box e resettiamo
             finalTransform.mapRect(selection.boundingBox)
             selection.transformMatrix.reset()
+        }
 
-        } // FINE BLOCCO SINCRONIZZATO
-
-        if (isPageChanged) {
-            coroutineScope.launch(Dispatchers.Default) {
+        // 3. PERSISTENCE: Tutto in una singola Coroutine organizzata
+        coroutineScope.launch(Dispatchers.Default) {
+            if (isPageChanged) {
+                // Aggiorniamo la bitmap della VECCHIA pagina per cancellarli visivamente
                 oldPage.bitmapPage?.let { oldBitmap ->
                     oldPage.bitmapPage = pageMaker.makePage(android.graphics.Rect(0, 0, oldBitmap.width, oldBitmap.height), null, oldPage, doc)
                 }
-                requestRedraw()
+                // --- FIX 2: AGGIORNIAMO LA BITMAP DELLA NUOVA PAGINA PER DISEGNARLI ---
+                targetPage.bitmapPage?.let { targetBitmap ->
+                    targetPage.bitmapPage = pageMaker.makePage(android.graphics.Rect(0, 0, targetBitmap.width, targetBitmap.height), null, targetPage, doc)
+                }
             }
-        }
 
-        if (selection.oldImageStates != null) {
-            historyManager.addHistoryAction(
-                TransformSelectionAction(
-                    oldPage.dbId, oldPageIndex, targetPage.dbId, targetPageIndex,
-                    selection.images.toList(), selection.texts.toList(), selection.strokes.toList(),
-                    selection.oldImageStates!!, selection.images.map { floatArrayOf(it.x, it.y, it.width, it.height, it.rotation) },
-                    selection.oldTextStates!!, selection.texts.map { floatArrayOf(it.x, it.y, it.width, it.height, it.rotation, it.fontSize) },
-                    selection.oldStrokeNative!!, selection.strokes.map { it.stroke }
+            if (selection.oldImageStates != null) {
+                historyManager.addHistoryAction(
+                    TransformSelectionAction(
+                        oldPage.dbId, oldPageIndex, targetPage.dbId, targetPageIndex,
+                        selection.images.toList(), selection.texts.toList(), selection.strokes.toList(),
+                        selection.oldImageStates!!, selection.images.map { floatArrayOf(it.x, it.y, it.width, it.height, it.rotation) },
+                        selection.oldTextStates!!, selection.texts.map { floatArrayOf(it.x, it.y, it.width, it.height, it.rotation, it.fontSize) },
+                        selection.oldStrokeNative!!, selection.strokes.map { it.stroke }
+                    )
                 )
-            )
-        }
+            }
 
-        coroutineScope.launch(Dispatchers.IO) {
-            selection.images.forEach { repository.updateImage(targetPage.dbId, it) }
-            selection.strokes.forEach { repository.updateStroke(targetPage.dbId, it) }
-            selection.texts.forEach { repository.updateText(targetPage.dbId, it) }
+            // Lanciamo il salvataggio su DB in parallelo su thread IO
+            launch(Dispatchers.IO) {
+                // Noterai che stiamo passando "targetPage.dbId" così il database saprà del cambio pagina!
+                selection.images.forEach { repository.updateImage(targetPage.dbId, it) }
+                selection.strokes.forEach { repository.updateStroke(targetPage.dbId, it) }
+                selection.texts.forEach { repository.updateText(targetPage.dbId, it) }
+            }
+
+            requestRedraw()
         }
     }
 

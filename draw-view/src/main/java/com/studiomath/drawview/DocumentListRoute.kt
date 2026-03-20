@@ -9,20 +9,17 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 @Composable
 fun DocumentListRoute(
     modifier: Modifier = Modifier,
-    onNavigateToDocument: (Int) -> Unit // Deleghiamo la navigazione all'esterno!
+    onNavigateToDocument: (Int) -> Unit
 ) {
-    // Istanziamento standard del ViewModel (AndroidViewModel richiede solo questa riga)
     val viewModel: DocumentListViewModel = viewModel()
 
-    // Osserviamo i dati dal ViewModel
+    // Magia di Jetpack Compose: questo valore si aggiorna da solo
+    // ogni volta che il DB cambia, scatenando una ricomposizione della UI.
     val documents by viewModel.documents.collectAsState()
-    val isLoading by viewModel.isLoading.collectAsState()
 
-    // Chiamiamo la UI pura passando i dati e gestendo le azioni
     DocumentListScreen(
         modifier = modifier,
         documents = documents,
-        isLoading = isLoading,
         onCreateNewClick = { onNavigateToDocument(-1) },
         onDocumentClick = { id -> onNavigateToDocument(id) },
         onDeleteDocument = { doc -> viewModel.deleteDocument(doc) },

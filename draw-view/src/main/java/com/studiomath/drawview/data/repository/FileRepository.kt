@@ -7,6 +7,7 @@ import com.studiomath.drawview.data.db.DrawDatabase
 import com.studiomath.drawview.data.db.FolderEntity
 import com.studiomath.drawview.data.db.ResourceEntity
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -173,6 +174,10 @@ class FileRepository(context: Context) {
     suspend fun updateLastOpened(documentId: Int) = documentDao.updateLastOpened(documentId)
 
     suspend fun getRecentDocuments(limit: Int): List<DocumentEntity> = documentDao.getRecentDocuments(limit)
+
+    fun getRecentDocumentsFlow(limit: Int): Flow<List<DocumentEntity>> {
+        return documentDao.getRecentDocumentsFlow(limit)
+    }
 
     suspend fun getFolderById(folderId: Int): FolderEntity? = folderDao.getFolderById(folderId)
 

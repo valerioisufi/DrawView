@@ -9,6 +9,7 @@ import androidx.room.Query
 import androidx.room.Relation
 import androidx.room.Transaction
 import androidx.room.Update
+import kotlinx.coroutines.flow.Flow
 
 /**
  * ---------------------------------------------------------
@@ -141,6 +142,9 @@ interface DocumentDao {
 
     @Query("SELECT * FROM documents ORDER BY lastOpenedAt DESC LIMIT :limit")
     suspend fun getRecentDocuments(limit: Int): List<DocumentEntity>
+
+    @Query("SELECT * FROM documents ORDER BY modifiedAt DESC LIMIT :limit")
+    fun getRecentDocumentsFlow(limit: Int): Flow<List<DocumentEntity>>
 
     @Query("UPDATE documents SET modifiedAt = :timestamp WHERE id = :documentId")
     suspend fun touchDocument(documentId: Int, timestamp: Long = System.currentTimeMillis())

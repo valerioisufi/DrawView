@@ -4,18 +4,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -23,29 +12,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.outlined.Description
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberSwipeToDismissBoxState
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
@@ -63,7 +31,6 @@ import java.util.Locale
 fun DocumentListScreen(
     modifier: Modifier = Modifier,
     documents: List<DocumentEntity>,
-    isLoading: Boolean,
     onDocumentClick: (Int) -> Unit,
     onCreateNewClick: () -> Unit,
     onDeleteDocument: (DocumentEntity) -> Unit,
@@ -89,12 +56,7 @@ fun DocumentListScreen(
         }
     ) { innerPadding ->
 
-        // --- GESTIONE STATI (Loading, Vuoto, Lista) ---
-        if (isLoading) {
-            Box(modifier = Modifier.fillMaxSize().padding(innerPadding), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
-        } else if (documents.isEmpty()) {
+        if (documents.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize().padding(innerPadding), contentAlignment = Alignment.Center) {
                 Text(
                     text = "Nessun documento presente.\nUsa il pulsante + per crearne uno nuovo!",
@@ -109,6 +71,8 @@ fun DocumentListScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                // IL KEY È FONDAMENTALE QUI: aiuta Compose a capire quale elemento viene eliminato
+                // o aggiunto con un'animazione fluida, senza ricaricare tutta la lista.
                 items(items = documents, key = { it.id }) { doc ->
                     var showRenameDialog by remember { mutableStateOf(false) }
 
@@ -117,11 +81,11 @@ fun DocumentListScreen(
                             when (dismissValue) {
                                 SwipeToDismissBoxValue.EndToStart -> {
                                     onDeleteDocument(doc)
-                                    true
+                                    true // Conferma lo scorrimento
                                 }
                                 SwipeToDismissBoxValue.StartToEnd -> {
                                     showRenameDialog = true
-                                    false
+                                    false // Respinge lo scorrimento, mostriamo solo il dialog
                                 }
                                 else -> false
                             }
@@ -133,17 +97,15 @@ fun DocumentListScreen(
                         backgroundContent = {
                             val direction = dismissState.dismissDirection
 
-                            // Uso i colori "Container" per uno sfondo più morbido e moderno
                             val color by animateColorAsState(
                                 targetValue = when (dismissState.targetValue) {
                                     SwipeToDismissBoxValue.Settled -> MaterialTheme.colorScheme.background
-                                    SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.secondaryContainer // Rinomina
-                                    SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer // Elimina
+                                    SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.secondaryContainer
+                                    SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
                                 },
                                 label = "color"
                             )
 
-                            // Tint dinamico per le icone basato sul Container
                             val iconTint = when (direction) {
                                 SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.onSecondaryContainer
                                 SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.onErrorContainer
@@ -178,7 +140,7 @@ fun DocumentListScreen(
                                     imageVector = icon,
                                     contentDescription = "Swipe Action",
                                     modifier = Modifier.scale(scale),
-                                    tint = iconTint // Usiamo il tint calcolato sopra
+                                    tint = iconTint
                                 )
                             }
                         },
@@ -207,6 +169,7 @@ fun DocumentListScreen(
                                 TextButton(
                                     onClick = {
                                         showRenameDialog = false
+                                        // La modifica arriverà al ViewModel -> DB -> e tornerà istantaneamente qui tramite il Flow!
                                         onRenameDocument(doc, newName)
                                         coroutineScope.launch { dismissState.reset() }
                                     }

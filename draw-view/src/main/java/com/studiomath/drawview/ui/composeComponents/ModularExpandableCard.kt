@@ -86,12 +86,14 @@ fun ModularExpandableCard(
                     // Applichiamo lo sfondo e la forma
                     .background(color = backgroundColor, shape = shape)
                     .clip(shape) // Tagliamo il contenuto interno per seguire la forma
-                    // MAGIA: Anima la dimensione del Box in base al contenuto, senza tagliare l'ombra
+                    // MAGIA: Anima la dimensione del Box in base al contenuto, senza tagliare l'ombra.
+                    // Allineiamo il contenuto animato alla direzione di espansione per evitare la traslazione!
                     .animateContentSize(
                         animationSpec = spring(
                             dampingRatio = Spring.DampingRatioNoBouncy,
                             stiffness = Spring.StiffnessMediumLow
-                        )
+                        ),
+                        alignment = expandedAlignment // <-- MODIFICA CRUCIALE QUI
                     )
             ) {
                 // --- AnimatedContent interno ---
@@ -106,7 +108,8 @@ fun ModularExpandableCard(
                                 // al padre .animateContentSize()
                                 SizeTransform { _, _ -> tween(0) }
                     },
-                    contentAlignment = Alignment.Center,
+                    // <-- MODIFICA CRUCIALE QUI: Evita che i testi saltino durante il crossfade
+                    contentAlignment = expandedAlignment,
                     label = "content_crossfade"
                 ) { targetExpanded ->
                     if (targetExpanded) {
@@ -120,9 +123,7 @@ fun ModularExpandableCard(
     }
 }
 
-// ==========================================
-// ESEMPIO DI UTILIZZO
-// ==========================================
+
 @Preview(showBackground = true)
 @Composable
 fun PreviewModularCard() {

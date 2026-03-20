@@ -138,8 +138,6 @@ class SelectionTouchHandler(
 
                     if (pageInfo != null) drawViewModel.selectionManager.startPanning(pageInfo)
                     return true
-                } else if (drawViewModel.selectedTool == Tool.SELECT_OBJECT || drawViewModel.selectedTool == Tool.LAZO) {
-                    drawViewModel.clearSelection()
                 }
             }
 

@@ -18,7 +18,6 @@ class InkTouchHandler(private val drawViewModel: DrawViewModel) {
             MotionEvent.ACTION_DOWN -> {
                 drawViewModel.drawManager.cameraPhysics.stopAllAnimations()
                 view.requestUnbufferedDispatch(event)
-                drawViewModel.clearSelection()
 
                 lastEraserX = event.x
                 lastEraserY = event.y

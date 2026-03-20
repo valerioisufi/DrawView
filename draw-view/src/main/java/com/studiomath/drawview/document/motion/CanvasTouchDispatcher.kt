@@ -59,7 +59,9 @@ class CanvasTouchDispatcher(
 
         // B. Rilevamento Gesture (Tap / Long Press) per UI e Menu
         if (gestureHandler.handleGesture(view, event)) {
-            // Se il gesture detector consuma l'evento (es. ha aperto il menu), ci fermiamo qui
+            // Se il gesture detector consuma l'evento (es. deselezione al tap),
+            // annulliamo eventuali tratti iniziati per sbaglio al DOWN.
+            inkHandler.cancelCurrentStroke(event)
             return@OnTouchListener true
         }
 

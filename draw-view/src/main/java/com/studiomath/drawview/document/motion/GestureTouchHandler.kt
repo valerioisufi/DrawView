@@ -9,6 +9,7 @@ import com.studiomath.drawview.document.DrawManager
 import com.studiomath.drawview.document.DrawViewModel
 import com.studiomath.drawview.document.selection.SelectionGroup
 import com.studiomath.drawview.document.tools.Tool
+import kotlin.math.hypot
 
 class GestureTouchHandler(private val drawViewModel: DrawViewModel) {
     private var gestureDetector: GestureDetector? = null
@@ -52,6 +53,7 @@ class GestureTouchHandler(private val drawViewModel: DrawViewModel) {
                 }
 
                 override fun onSingleTapUp(e: MotionEvent): Boolean {
+                    // Logica Tool Testo esistente
                     if (drawViewModel.selectedTool == Tool.TEXT) {
                         val pageInfo = drawViewModel.drawManager.pagesRectOnWindow.find { it.rect.contains(e.x, e.y) }
                         if (pageInfo != null) {
@@ -87,6 +89,43 @@ class GestureTouchHandler(private val drawViewModel: DrawViewModel) {
                             return true
                         }
                     }
+
+                    // --- NUOVA LOGICA: Deselezione oggetti al tap all'esterno ---
+                    val selection = drawViewModel.currentSelection
+                    if (selection != null && !selection.isEmpty()) {
+                        val pageInfo = drawViewModel.drawManager.pagesRectOnWindow.find { it.index == selection.pageIndex }
+                        if (pageInfo != null) {
+                            val page = drawViewModel.documentData!!.pages[pageInfo.index]
+                            val mmToScreenMatrix = Matrix().apply {
+                                setRectToRect(page.rect(), pageInfo.rect, Matrix.ScaleToFit.CENTER)
+                            }
+                            val liveMatrix = selection.getLiveScreenMatrix(mmToScreenMatrix)
+
+                            // Replica la logica di padding usata nel hit testing di SelectionTouchHandler
+                            val matrixValues = FloatArray(9)
+                            selection.transformMatrix.getValues(matrixValues)
+                            val currentScaleMm = hypot(matrixValues[Matrix.MSCALE_X].toDouble(), matrixValues[Matrix.MSKEW_Y].toDouble()).toFloat().coerceAtLeast(0.01f)
+
+                            val paddingMm = 4f / currentScaleMm
+                            val boxMmWithPadding = RectF(selection.boundingBox)
+                            boxMmWithPadding.inset(-paddingMm, -paddingMm)
+
+                            val mappedBox = RectF()
+                            liveMatrix.mapRect(mappedBox, boxMmWithPadding)
+
+                            // Tolleranza per le maniglie (60px) in modo da non deselezionare se l'utente sbaglia mira di poco
+                            mappedBox.inset(-60f, -60f)
+
+                            if (!mappedBox.contains(e.x, e.y)) {
+                                drawViewModel.clearSelection()
+                                drawViewModel.drawManager.requestDraw(
+                                    DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE)
+                                )
+                                return true // Consumiamo il tap per non farlo scivolare ai tool di disegno
+                            }
+                        }
+                    }
+
                     return false
                 }
             })

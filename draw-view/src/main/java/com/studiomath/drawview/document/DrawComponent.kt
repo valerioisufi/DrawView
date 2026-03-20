@@ -72,6 +72,7 @@ import kotlin.math.min
 
 @Composable
 fun DrawComponent(
+    modifier: Modifier = Modifier,
     drawViewModel: DrawViewModel,
     inProgressStrokesView: InProgressStrokesView
 ) {
@@ -103,7 +104,7 @@ fun DrawComponent(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = modifier.fillMaxSize()) {
 
         if (!drawViewModel.isDocumentLoaded || !drawViewModel.isDocumentShowed) {
             LinearProgressIndicator(

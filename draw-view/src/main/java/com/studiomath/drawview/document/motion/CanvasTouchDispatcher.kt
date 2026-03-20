@@ -42,7 +42,9 @@ class CanvasTouchDispatcher(
                 // Spegniamo forzatamente il Pan prima di decidere cosa fare con questo tocco!
                 viewportHandler.resetTransformState()
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_OUTSIDE -> drawViewModel.drawManager.isUserTouching = false
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_OUTSIDE -> {
+                drawViewModel.drawManager.isUserTouching = false
+            }
         }
 
         motionEventPredictor?.record(event)

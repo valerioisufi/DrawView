@@ -3,9 +3,8 @@ package com.studiomath.drawview
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.sqlite.db.SimpleSQLiteQuery
 import com.studiomath.drawview.data.db.DocumentEntity
-import com.studiomath.drawview.data.db.DrawDatabase
+import com.studiomath.drawview.data.repository.FileRepository // IMPORTANTE: Usa il Repository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -13,7 +12,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 class DocumentListViewModel(application: Application) : AndroidViewModel(application) {
-    private val db = DrawDatabase.getInstance(application)
+
+    // Inizializza il Repository invece del Database diretto
+    private val fileRepository = FileRepository(application)
 
     private val _documents = MutableStateFlow<List<DocumentEntity>>(emptyList())
     val documents: StateFlow<List<DocumentEntity>> = _documents.asStateFlow()
@@ -29,24 +30,10 @@ class DocumentListViewModel(application: Application) : AndroidViewModel(applica
         viewModelScope.launch(Dispatchers.IO) {
             _isLoading.value = true
             try {
-                // (In futuro, ti consiglio di spostare questa query direttamente nel DocumentDao!)
-                val query = SimpleSQLiteQuery("SELECT * FROM documents ORDER BY modifiedAt DESC")
-                db.query(query).use { cursor ->
-                    val list = mutableListOf<DocumentEntity>()
-                    while (cursor.moveToNext()) {
-                        val id = cursor.getInt(cursor.getColumnIndexOrThrow("id"))
-                        val name = cursor.getString(cursor.getColumnIndexOrThrow("name"))
-                        val modifiedAt = cursor.getLong(cursor.getColumnIndexOrThrow("modifiedAt"))
-                        list.add(
-                            DocumentEntity(
-                                id=id,
-                                name = name,
-                                modifiedAt = modifiedAt
-                            )
-                        )
-                    }
-                    _documents.value = list
-                }
+                // Usiamo il repository.
+                // Puoi usare getRecentDocuments(50) o getDocumentsInFolder(null) se vuoi solo la root
+                val list = fileRepository.getRecentDocuments(100)
+                _documents.value = list
             } catch (e: Exception) {
                 e.printStackTrace()
             } finally {
@@ -57,16 +44,23 @@ class DocumentListViewModel(application: Application) : AndroidViewModel(applica
 
     fun deleteDocument(document: DocumentEntity) {
         viewModelScope.launch(Dispatchers.IO) {
-            db.documentDao().delete(document)
-            loadDocuments() // Ricarica la lista
+            // QUESTO è fondamentale: chiama il repository, che si occuperà
+            // di fare la Garbage Collection dei file PDF e Immagini!
+            val success = fileRepository.deleteDocument(document.id)
+            if (success) {
+                loadDocuments() // Ricarica la lista solo se l'eliminazione ha successo
+            }
         }
     }
 
     fun renameDocument(document: DocumentEntity, newName: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            val updatedDoc = document.copy(name = newName, modifiedAt = System.currentTimeMillis())
-            db.documentDao().insert(updatedDoc)
-            loadDocuments() // Ricarica la lista
+            // Usa il repository, che farà anche i controlli per evitare nomi duplicati
+            // e aggiornerà automaticamente il modifiedAt grazie ai Trigger SQLite!
+            val success = fileRepository.renameDocument(document.id, newName)
+            if (success) {
+                loadDocuments() // Ricarica la lista
+            }
         }
     }
 }

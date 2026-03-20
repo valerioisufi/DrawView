@@ -141,6 +141,9 @@ interface DocumentDao {
 
     @Query("SELECT * FROM documents ORDER BY lastOpenedAt DESC LIMIT :limit")
     suspend fun getRecentDocuments(limit: Int): List<DocumentEntity>
+
+    @Query("UPDATE documents SET modifiedAt = :timestamp WHERE id = :documentId")
+    suspend fun touchDocument(documentId: Int, timestamp: Long = System.currentTimeMillis())
 }
 
 @Dao

@@ -2,7 +2,6 @@ package com.studiomath.drawview.document.io
 
 import android.app.Application
 import android.graphics.BitmapFactory
-import android.graphics.Matrix
 import android.graphics.Rect
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
@@ -16,6 +15,7 @@ import com.studiomath.drawview.document.page.mm
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.UUID
 
 class MediaImporter(
     private val application: Application,
@@ -28,20 +28,23 @@ class MediaImporter(
      */
     suspend fun importPdf(uri: Uri, currentDoc: Document): List<Page> = withContext(Dispatchers.IO) {
         val newPages = mutableListOf<Page>()
-        val fileName = "pdf_${System.currentTimeMillis()}.pdf"
+        // USO DI UUID: Garantisce un nome file unico al 100%
+        val fileName = "pdf_${UUID.randomUUID()}.pdf"
         val destFile = File(application.filesDir, fileName)
 
-        // 1. Copia il file
+        // 1. Copia il file nella memoria interna
         application.contentResolver.openInputStream(uri)?.use { input ->
             destFile.outputStream().use { output -> input.copyTo(output) }
         }
 
-        // 2. Registra la Risorsa
-        val resourceIdStr = repository.addResource(currentDoc.dbId, "PDF", fileName).toString()
+        // 2. Registra la Risorsa usando il PERCORSO ASSOLUTO per il Garbage Collector
+        // NOTA: Assicurati che il tipo ("PDF") corrisponda a quello gestito nel tuo repository/enum
+        val resourceIdStr = repository.addResource(currentDoc.dbId, "PDF", destFile.absolutePath).toString()
+
         val resource = com.studiomath.drawview.document.page.Resource(
             id = resourceIdStr,
             type = com.studiomath.drawview.document.page.Resource.ResourceType.PDF
-        ).apply { content = fileName }
+        ).apply { content = destFile.absolutePath } // Anche in memoria teniamo il path completo
         currentDoc.resources.add(resource)
 
         // 3. Estrae le pagine con PdfRenderer
@@ -93,7 +96,7 @@ class MediaImporter(
         imgX: Float,
         imgY: Float
     ): Image? = withContext(Dispatchers.IO) {
-        val fileName = "img_${System.currentTimeMillis()}.png"
+        val fileName = "img_${UUID.randomUUID()}.png"
         val destFile = File(application.filesDir, fileName)
 
         application.contentResolver.openInputStream(uri)?.use { input ->
@@ -109,11 +112,12 @@ class MediaImporter(
         val imgWidthMm = defaultPhysicalWidthMm
         val imgHeightMm = defaultPhysicalWidthMm * ratio
 
-        val resourceIdStr = repository.addResource(currentDoc.dbId, "IMAGE", fileName).toString()
+        // Registra usando il PERCORSO ASSOLUTO
+        val resourceIdStr = repository.addResource(currentDoc.dbId, "IMAGE", destFile.absolutePath).toString()
         val resource = com.studiomath.drawview.document.page.Resource(
             id = resourceIdStr,
             type = com.studiomath.drawview.document.page.Resource.ResourceType.IMAGE
-        ).apply { content = fileName }
+        ).apply { content = destFile.absolutePath }
         currentDoc.resources.add(resource)
 
         val newImage = Image(zIndex = targetPage.imageData.size).apply {

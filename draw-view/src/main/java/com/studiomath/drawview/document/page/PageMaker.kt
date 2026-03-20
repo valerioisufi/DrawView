@@ -108,7 +108,7 @@ class PageMaker(
 
                     if (resource != null && resource.type == Resource.ResourceType.PDF && resource.content.isNotEmpty()) {
                         try {
-                            val fileTemp = File(filesDir, resource.content)
+                            val fileTemp = File(resource.content)
                             if (fileTemp.exists()) {
                                 val fd = ParcelFileDescriptor.open(
                                     fileTemp,
@@ -196,7 +196,7 @@ class PageMaker(
                     if (image.bitmapCache == null) {
                         val resource = document.resources.find { it.id == image.id }
                         if (resource != null && resource.type == Resource.ResourceType.IMAGE && resource.content.isNotEmpty()) {
-                            val fileTemp = File(filesDir, resource.content)
+                            val fileTemp = File(resource.content)
                             if (fileTemp.exists()) {
                                 image.bitmapCache = BitmapFactory.decodeFile(fileTemp.absolutePath)
                             }

@@ -31,21 +31,12 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 
-/**
- * Componente modulare che si espande sul posto senza spostare gli elementi adiacenti.
- * La sua dimensione è calcolata automaticamente in base al contenuto.
- * Usa [expandedAlignment] per decidere in quale direzione si espanderà l'elemento.
- */
-/**
- * Componente modulare che si espande sul posto senza spostare gli elementi adiacenti.
- * Gestisce automaticamente l'ombra e lo sfondo animandoli durante l'espansione.
- */
 @Composable
 fun ModularExpandableCard(
     isExpanded: Boolean,
     modifier: Modifier = Modifier,
     expandedAlignment: Alignment = Alignment.Center,
-    // Parametri per lo sfondo e la forma della card (ora gestiti qui internamente)
+
     shape: Shape = RoundedCornerShape(12.dp),
     backgroundColor: Color = MaterialTheme.colorScheme.surface,
     elevation: Dp = if (isExpanded) 8.dp else 0.dp,

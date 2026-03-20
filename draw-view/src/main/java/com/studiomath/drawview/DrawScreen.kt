@@ -114,6 +114,7 @@ fun DrawScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .zIndex(1f)
                     .height(44.dp)
                     .padding(horizontal = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,

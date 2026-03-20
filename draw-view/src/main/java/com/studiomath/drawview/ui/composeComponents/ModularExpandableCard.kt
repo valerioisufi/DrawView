@@ -23,23 +23,27 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 
 /**
  * Componente modulare che si espande sul posto senza spostare gli elementi adiacenti.
  * La sua dimensione è calcolata automaticamente in base al contenuto.
+ * Usa [expandedAlignment] per decidere in quale direzione si espanderà l'elemento.
  */
 @Composable
 fun ModularExpandableCard(
     isExpanded: Boolean,
     modifier: Modifier = Modifier,
+    expandedAlignment: Alignment = Alignment.Center, // <-- NUOVO PARAMETRO (Default: Centro)
     collapsedContent: @Composable () -> Unit,
     expandedContent: @Composable () -> Unit
 ) {
     Box(
         modifier = modifier.zIndex(if (isExpanded) 10f else 0f),
-        contentAlignment = Alignment.Center
+        // L'allineamento sul Box radice dice al layout dove posizionare il "punto 0x0" dell'overlay
+        contentAlignment = expandedAlignment
     ) {
         // 1. L'ANCORA (Anchor):
         // Viene sempre misurata con il contenuto 'collapsed'.
@@ -63,8 +67,15 @@ fun ModularExpandableCard(
                     val placeable = measurable.measure(Constraints())
                     // Riporta al padre una dimensione di 0x0
                     layout(0, 0) {
-                        // Posiziona l'elemento in modo che il suo centro coincida con l'ancora
-                        placeable.place(-placeable.width / 2, -placeable.height / 2)
+                        // Usa il parametro Alignment per calcolare automaticamente di quanto
+                        // deve traslare l'elemento in base alla direzione scelta.
+                        val offset = expandedAlignment.align(
+                            size = IntSize(placeable.width, placeable.height),
+                            space = IntSize(0, 0),
+                            layoutDirection = layoutDirection
+                        )
+                        // Posiziona l'elemento usando le coordinate dinamiche
+                        placeable.place(offset.x, offset.y)
                     }
                 }
         ) {
@@ -84,7 +95,8 @@ fun ModularExpandableCard(
                                 )
                             }
                 },
-                contentAlignment = Alignment.Center,
+                // Assicuriamoci che anche i contenuti durante l'animazione rispettino l'allineamento
+                contentAlignment = expandedAlignment,
                 label = "expand_collapse_animation"
             ) { targetExpanded ->
                 // Scegliamo quale contenuto mostrare in base allo stato target
@@ -104,56 +116,83 @@ fun ModularExpandableCard(
 @Preview(showBackground = true)
 @Composable
 fun PreviewModularCard() {
-    var expanded by remember { mutableStateOf(false) }
+    var expandedCenter by remember { mutableStateOf(false) }
+    var expandedTopStart by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(48.dp)
     ) {
-        Text("Elemento sopra (non si sposta)")
 
-        ModularExpandableCard(
-            isExpanded = expanded,
-            // Versione Chiusa (Piccola e compatta)
-            collapsedContent = {
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color(0xFF6200EE))
-                        .clickable { expanded = true }
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                ) {
-                    Text("Tocca per espandere", color = Color.White)
+        // ESEMPIO 1: ESPANSIONE DAL CENTRO (Default)
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("Espansione Centrale", color = Color.Gray, modifier = Modifier.padding(bottom = 8.dp))
+            ModularExpandableCard(
+                isExpanded = expandedCenter,
+                expandedAlignment = Alignment.Center,
+                collapsedContent = {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF6200EE))
+                            .clickable { expandedCenter = true }
+                            .padding(16.dp)
+                    ) {
+                        Text("Centro", color = Color.White)
+                    }
+                },
+                expandedContent = {
+                    Column(
+                        modifier = Modifier
+                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(16.dp))
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable { expandedCenter = false }
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("Titolo Espanso", style = MaterialTheme.typography.titleLarge)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("Questa card si è allargata in tutte le direzioni.")
+                    }
                 }
-            },
-            // Versione Espansa (Grande, con più testo e controlli)
-            expandedContent = {
-                Column(
-                    modifier = Modifier
-                        // Aggiungiamo un'ombra e uno sfondo per farla staccare dal resto
-                        .background(
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            shape = RoundedCornerShape(16.dp)
-                        )
-                        .clip(RoundedCornerShape(16.dp))
-                        .clickable { expanded = false }
-                        .padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text("Titolo Espanso", style = MaterialTheme.typography.titleLarge)
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("Questo è un contenuto molto più grande.")
-                    Text("La card si è adattata automaticamente")
-                    Text("alla dimensione di queste scritte!")
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("Tocca per chiudere", color = Color.Gray)
-                }
-            }
-        )
+            )
+        }
 
-        Text("Elemento sotto (non si sposta)")
+        // ESEMPIO 2: ESPANSIONE DA IN ALTO A SINISTRA
+        Column(horizontalAlignment = Alignment.Start, modifier = Modifier.fillMaxWidth()) {
+            Text("Espansione da Top-Start", color = Color.Gray, modifier = Modifier.padding(bottom = 8.dp))
+            ModularExpandableCard(
+                isExpanded = expandedTopStart,
+                expandedAlignment = Alignment.TopStart, // <-- Usa TopStart per espandere verso destra/basso
+                collapsedContent = {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF03DAC5))
+                            .clickable { expandedTopStart = true }
+                            .padding(16.dp)
+                    ) {
+                        Text("Top-Start", color = Color.Black)
+                    }
+                },
+                expandedContent = {
+                    Column(
+                        modifier = Modifier
+                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(16.dp))
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable { expandedTopStart = false }
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.Start
+                    ) {
+                        Text("Espanso Verso il Basso", style = MaterialTheme.typography.titleLarge)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("Mantenendo fisso l'angolo in alto a sinistra!")
+                    }
+                }
+            )
+        }
     }
 }

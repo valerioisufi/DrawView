@@ -36,10 +36,12 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -66,7 +68,6 @@ import com.studiomath.drawview.document.selection.LassoMode
 import com.studiomath.drawview.document.tools.Tool
 import com.studiomath.drawview.ui.composeComponents.ColorWheel
 import com.studiomath.drawview.ui.composeComponents.DocumentInfoSelector
-import com.studiomath.drawview.ui.composeComponents.PreviewModularCard
 import com.studiomath.drawview.ui.composeComponents.SizeSlider
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class,
@@ -111,409 +112,431 @@ fun DrawScreen(
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .zIndex(1f)
-                    .height(44.dp)
-                    .padding(horizontal = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
                 Row(
                     modifier = Modifier
+                        .fillMaxWidth()
+                        .zIndex(1f)
+                        .height(44.dp)
+                        .padding(horizontal = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        modifier = Modifier
+                    ) {
+                        ToolButton(
+                            onClick = onNavigateBack
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                                contentDescription = "Back",
+                            )
+                        }
+                        ToolButton {
+                            Icon(
+                                imageVector = Icons.Outlined.GridView,
+                                contentDescription = "Grid View",
+                            )
+                        }
+                    }
+
+                    DocumentInfoSelector(
+                        documentName = drawViewModel.documentData?.name ?: "Loading...",
+                        modifier = Modifier
+                    )
+
+                    Row(
+                        modifier = Modifier
+                    ) {
+                        ToolButton {
+                            Icon(
+                                imageVector = Icons.Outlined.Draw,
+                                contentDescription = "Draw",
+                            )
+                        }
+                        ToolButton {
+                            Icon(
+                                imageVector = Icons.Outlined.MoreHoriz,
+                                contentDescription = "More options",
+                            )
+                        }
+                    }
+                }
+
+                HorizontalDivider()
+
+                val scrollState = rememberScrollState()
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .padding(horizontal = 4.dp)
+                        .horizontalScroll(scrollState),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     ToolButton(
-                        onClick = onNavigateBack
-                    ){
+                        onClick = {
+                            drawViewModel.undo()
+                        },
+                        enabled = drawViewModel.canUndo // Disabilita il click se non c'è nulla da annullare
+                    ) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                            contentDescription = "Back",
+                            imageVector = Icons.AutoMirrored.Outlined.Undo,
+                            contentDescription = "Undo",
+                            // Ingrigisce visivamente l'icona se lo stack è vuoto
+                            tint = if (drawViewModel.canUndo) {
+                                MaterialTheme.colorScheme.onSurface
+                            } else {
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                            }
                         )
                     }
-                    ToolButton{
+
+                    ToolButton(
+                        onClick = {
+                            drawViewModel.redo()
+                        },
+                        enabled = drawViewModel.canRedo // Disabilita il click se non c'è nulla da ripristinare
+                    ) {
                         Icon(
-                            imageVector = Icons.Outlined.GridView,
-                            contentDescription = "Grid View",
+                            imageVector = Icons.AutoMirrored.Outlined.Redo,
+                            contentDescription = "Redo",
+                            // Ingrigisce visivamente l'icona se lo stack è vuoto
+                            tint = if (drawViewModel.canRedo) {
+                                MaterialTheme.colorScheme.onSurface
+                            } else {
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                            }
                         )
                     }
-                }
 
-                DocumentInfoSelector(
-                    documentName = drawViewModel.documentData?.name ?: "Loading...",
-                    modifier = Modifier
-                )
-
-                Row(
-                    modifier = Modifier
-                ) {
-                    ToolButton{
-                        Icon(
-                            imageVector = Icons.Outlined.Draw,
-                            contentDescription = "Draw",
-                        )
-                    }
-                    ToolButton{
-                        Icon(
-                            imageVector = Icons.Outlined.MoreHoriz,
-                            contentDescription = "More options",
-                        )
-                    }
-                }
-            }
-
-            HorizontalDivider()
-
-            val scrollState = rememberScrollState()
-
-//            PreviewModularCard()
-
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .padding(horizontal = 4.dp)
-                    .horizontalScroll(scrollState),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                ToolButton(
-                    onClick = {
-                        drawViewModel.undo()
-                    },
-                    enabled = drawViewModel.canUndo // Disabilita il click se non c'è nulla da annullare
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Outlined.Undo,
-                        contentDescription = "Undo",
-                        // Ingrigisce visivamente l'icona se lo stack è vuoto
-                        tint = if (drawViewModel.canUndo) {
-                            MaterialTheme.colorScheme.onSurface
-                        } else {
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                        }
+                    VerticalDivider(
+                        modifier = Modifier
+                            .padding(8.dp),
+                        thickness = 2.dp
                     )
-                }
 
-                ToolButton(
-                    onClick = {
-                        drawViewModel.redo()
-                    },
-                    enabled = drawViewModel.canRedo // Disabilita il click se non c'è nulla da ripristinare
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Outlined.Redo,
-                        contentDescription = "Redo",
-                        // Ingrigisce visivamente l'icona se lo stack è vuoto
-                        tint = if (drawViewModel.canRedo) {
-                            MaterialTheme.colorScheme.onSurface
-                        } else {
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                        }
-                    )
-                }
-
-                VerticalDivider(
-                    modifier = Modifier
-                        .padding(8.dp),
-                    thickness = 2.dp
-                )
-
-                var penSettingsExpanded by remember { mutableStateOf(false) }
-                ToolButton(
-                    onClick = {
-                        if (drawViewModel.selectedTool == Tool.INK_PEN) {
-                            penSettingsExpanded = true
-                        } else {
+                    var penSettingsExpanded by remember { mutableStateOf(false) }
+                    ToolButton(
+                        onClick = {
+                            if (drawViewModel.selectedTool == Tool.INK_PEN) {
+                                penSettingsExpanded = true
+                            } else {
+                                drawViewModel.selectedTool = Tool.INK_PEN
+                            }
+                        },
+                        onLongClick = {
                             drawViewModel.selectedTool = Tool.INK_PEN
-                        }
-                    },
-                    onLongClick = {
-                        drawViewModel.selectedTool = Tool.INK_PEN
-                        penSettingsExpanded = true
-                    },
-                    selected = drawViewModel.selectedTool == Tool.INK_PEN,
-                    dropDownMenu = {
-                        var size by remember { mutableFloatStateOf(drawViewModel.activeBrush.size) }
+                            penSettingsExpanded = true
+                        },
+                        selected = drawViewModel.selectedTool == Tool.INK_PEN,
+                        dropDownMenu = {
+                            var size by remember { mutableFloatStateOf(drawViewModel.activeBrush.size) }
 
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(text = "Color", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(text = "Color", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.height(8.dp))
 
-                            ColorWheel(
-                                color = Color(drawViewModel.activeBrush.colorIntArgb),
-                                onColorChanged = {
-                                    drawViewModel.activeBrush = drawViewModel.activeBrush.copyWithColorIntArgb(
-                                        colorIntArgb = it.toArgb()
-                                    )
-                                }
-                            )
+                                ColorWheel(
+                                    color = Color(drawViewModel.activeBrush.colorIntArgb),
+                                    onColorChanged = {
+                                        drawViewModel.activeBrush =
+                                            drawViewModel.activeBrush.copyWithColorIntArgb(
+                                                colorIntArgb = it.toArgb()
+                                            )
+                                    }
+                                )
 
-                            Spacer(modifier = Modifier.height(16.dp))
+                                Spacer(modifier = Modifier.height(16.dp))
 
-                            Text(text = "Brush Size", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                            Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "Brush Size",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
 
-                            SizeSlider(
-                                modifier = Modifier.padding(8.dp),
-                                size = size.pt,
-                                onSizeChanged = {
-                                    size = it.pt
-                                    drawViewModel.activeBrush = drawViewModel.activeBrush.copy(
+                                SizeSlider(
+                                    modifier = Modifier.padding(8.dp),
+                                    size = size.pt,
+                                    onSizeChanged = {
                                         size = it.pt
-                                    )
-                                }
-                            )
-                        }
-                    },
-                    expanded = penSettingsExpanded,
-                    onDismissRequest = { penSettingsExpanded = false }
-                ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.icon_ink_pen),
-                        contentDescription = "Ink Pen",
-                    )
-                }
+                                        drawViewModel.activeBrush = drawViewModel.activeBrush.copy(
+                                            size = it.pt
+                                        )
+                                    }
+                                )
+                            }
+                        },
+                        expanded = penSettingsExpanded,
+                        onDismissRequest = { penSettingsExpanded = false }
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.icon_ink_pen),
+                            contentDescription = "Ink Pen",
+                        )
+                    }
 
-                var highlighterSettingsExpanded by remember { mutableStateOf(false) }
-                ToolButton(
-                    onClick = {
-                        if (drawViewModel.selectedTool == Tool.INK_HIGHLIGHTER) {
-                            highlighterSettingsExpanded = true
-                        } else {
+                    var highlighterSettingsExpanded by remember { mutableStateOf(false) }
+                    ToolButton(
+                        onClick = {
+                            if (drawViewModel.selectedTool == Tool.INK_HIGHLIGHTER) {
+                                highlighterSettingsExpanded = true
+                            } else {
+                                drawViewModel.selectedTool = Tool.INK_HIGHLIGHTER
+                            }
+                        },
+                        onLongClick = {
                             drawViewModel.selectedTool = Tool.INK_HIGHLIGHTER
-                        }
-                    },
-                    onLongClick = {
-                        drawViewModel.selectedTool = Tool.INK_HIGHLIGHTER
-                        highlighterSettingsExpanded = true
-                    },
-                    selected = drawViewModel.selectedTool == Tool.INK_HIGHLIGHTER,
-                    dropDownMenu = {
-                        var size by remember { mutableFloatStateOf(drawViewModel.activeBrush.size) }
+                            highlighterSettingsExpanded = true
+                        },
+                        selected = drawViewModel.selectedTool == Tool.INK_HIGHLIGHTER,
+                        dropDownMenu = {
+                            var size by remember { mutableFloatStateOf(drawViewModel.activeBrush.size) }
 
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(text = "Highlighter Color", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "Highlighter Color",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
 
-                            ColorWheel(
-                                color = Color(drawViewModel.activeBrush.colorIntArgb),
-                                onColorChanged = {
-                                    drawViewModel.activeBrush = drawViewModel.activeBrush.copyWithColorIntArgb(
-                                        colorIntArgb = it.toArgb()
-                                    )
-                                }
-                            )
+                                ColorWheel(
+                                    color = Color(drawViewModel.activeBrush.colorIntArgb),
+                                    onColorChanged = {
+                                        drawViewModel.activeBrush =
+                                            drawViewModel.activeBrush.copyWithColorIntArgb(
+                                                colorIntArgb = it.toArgb()
+                                            )
+                                    }
+                                )
 
-                            Spacer(modifier = Modifier.height(16.dp))
+                                Spacer(modifier = Modifier.height(16.dp))
 
-                            Text(text = "Highlighter Size", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                            Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "Highlighter Size",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
 
-                            SizeSlider(
-                                modifier = Modifier.padding(8.dp),
-                                size = size.pt,
-                                onSizeChanged = {
-                                    size = it.pt
-                                    drawViewModel.activeBrush = drawViewModel.activeBrush.copy(
+                                SizeSlider(
+                                    modifier = Modifier.padding(8.dp),
+                                    size = size.pt,
+                                    onSizeChanged = {
                                         size = it.pt
-                                    )
-                                }
-                            )
-                        }
-                    },
-                    expanded = highlighterSettingsExpanded,
-                    onDismissRequest = { highlighterSettingsExpanded = false }
-                ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.icon_ink_highlighter),
-                        contentDescription = "Ink Highlighter",
-                    )
-                }
+                                        drawViewModel.activeBrush = drawViewModel.activeBrush.copy(
+                                            size = it.pt
+                                        )
+                                    }
+                                )
+                            }
+                        },
+                        expanded = highlighterSettingsExpanded,
+                        onDismissRequest = { highlighterSettingsExpanded = false }
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.icon_ink_highlighter),
+                            contentDescription = "Ink Highlighter",
+                        )
+                    }
 
-                var eraserSettingsExpanded by remember { mutableStateOf(false) }
-                ToolButton(
-                    onClick = {
-                        if (drawViewModel.selectedTool == Tool.ERASER) {
-                            eraserSettingsExpanded = true
-                        } else {
+                    var eraserSettingsExpanded by remember { mutableStateOf(false) }
+                    ToolButton(
+                        onClick = {
+                            if (drawViewModel.selectedTool == Tool.ERASER) {
+                                eraserSettingsExpanded = true
+                            } else {
+                                drawViewModel.selectedTool = Tool.ERASER
+                            }
+                        },
+                        onLongClick = {
                             drawViewModel.selectedTool = Tool.ERASER
-                        }
-                    },
-                    onLongClick = {
-                        drawViewModel.selectedTool = Tool.ERASER
-                        eraserSettingsExpanded = true
-                    },
-                    selected = drawViewModel.selectedTool == Tool.ERASER,
-                    dropDownMenu = {
-                        var size by remember { mutableFloatStateOf(drawViewModel.activeBrush.size) }
+                            eraserSettingsExpanded = true
+                        },
+                        selected = drawViewModel.selectedTool == Tool.ERASER,
+                        dropDownMenu = {
+                            var size by remember { mutableFloatStateOf(drawViewModel.activeBrush.size) }
 
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(text = "Eraser Size", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "Eraser Size",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
 
-                            SizeSlider(
-                                modifier = Modifier.padding(8.dp),
-                                size = size.pt,
-                                onSizeChanged = {
-                                    size = it.pt
-                                    drawViewModel.activeBrush = drawViewModel.activeBrush.copy(
+                                SizeSlider(
+                                    modifier = Modifier.padding(8.dp),
+                                    size = size.pt,
+                                    onSizeChanged = {
                                         size = it.pt
-                                    )
-                                }
-                            )
-                        }
-                    },
-                    expanded = eraserSettingsExpanded,
-                    onDismissRequest = { eraserSettingsExpanded = false }
-                ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.icon_ink_eraser),
-                        contentDescription = "Eraser",
-                    )
-                }
+                                        drawViewModel.activeBrush = drawViewModel.activeBrush.copy(
+                                            size = it.pt
+                                        )
+                                    }
+                                )
+                            }
+                        },
+                        expanded = eraserSettingsExpanded,
+                        onDismissRequest = { eraserSettingsExpanded = false }
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.icon_ink_eraser),
+                            contentDescription = "Eraser",
+                        )
+                    }
 
-                var lazoSettingsExpanded by remember { mutableStateOf(false) }
+                    var lazoSettingsExpanded by remember { mutableStateOf(false) }
 
-                ToolButton(
-                    onClick = {
-                        if (drawViewModel.selectedTool == Tool.LAZO) {
-                            lazoSettingsExpanded = true
-                        } else {
+                    ToolButton(
+                        onClick = {
+                            if (drawViewModel.selectedTool == Tool.LAZO) {
+                                lazoSettingsExpanded = true
+                            } else {
+                                drawViewModel.selectedTool = Tool.LAZO
+                            }
+                        },
+                        onLongClick = {
                             drawViewModel.selectedTool = Tool.LAZO
-                        }
-                    },
-                    onLongClick = {
-                        drawViewModel.selectedTool = Tool.LAZO
-                        lazoSettingsExpanded = true
-                    },
-                    selected = drawViewModel.selectedTool == Tool.LAZO,
-                    dropDownMenu = {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            horizontalAlignment = Alignment.Start // L'allineamento a sinistra è più elegante per i menu a scelta
-                        ) {
-                            Text(
-                                text = "Modalità Lazo",
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(bottom = 12.dp)
-                            )
+                            lazoSettingsExpanded = true
+                        },
+                        selected = drawViewModel.selectedTool == Tool.LAZO,
+                        dropDownMenu = {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                horizontalAlignment = Alignment.Start // L'allineamento a sinistra è più elegante per i menu a scelta
+                            ) {
+                                Text(
+                                    text = "Modalità Lazo",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(bottom = 12.dp)
+                                )
 
-                            // Opzione 1: Seleziona Tutto (Tratti + Immagini)
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(MaterialTheme.shapes.small)
-                                    .combinedClickable(
+                                // Opzione 1: Seleziona Tutto (Tratti + Immagini)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(MaterialTheme.shapes.small)
+                                        .combinedClickable(
+                                            onClick = { drawViewModel.lassoMode = LassoMode.ALL }
+                                        )
+                                        .padding(vertical = 8.dp, horizontal = 4.dp)
+                                ) {
+                                    androidx.compose.material3.RadioButton(
+                                        selected = drawViewModel.lassoMode == LassoMode.ALL,
                                         onClick = { drawViewModel.lassoMode = LassoMode.ALL }
                                     )
-                                    .padding(vertical = 8.dp, horizontal = 4.dp)
-                            ) {
-                                androidx.compose.material3.RadioButton(
-                                    selected = drawViewModel.lassoMode == LassoMode.ALL,
-                                    onClick = { drawViewModel.lassoMode = LassoMode.ALL }
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(text = "Seleziona Tutto")
-                            }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(text = "Seleziona Tutto")
+                                }
 
-                            // Opzione 2: Solo Immagini
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(MaterialTheme.shapes.small)
-                                    .combinedClickable(
-                                        onClick = { drawViewModel.lassoMode = LassoMode.IMAGES_ONLY }
+                                // Opzione 2: Solo Immagini
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(MaterialTheme.shapes.small)
+                                        .combinedClickable(
+                                            onClick = {
+                                                drawViewModel.lassoMode = LassoMode.IMAGES_ONLY
+                                            }
+                                        )
+                                        .padding(vertical = 8.dp, horizontal = 4.dp)
+                                ) {
+                                    androidx.compose.material3.RadioButton(
+                                        selected = drawViewModel.lassoMode == LassoMode.IMAGES_ONLY,
+                                        onClick = {
+                                            drawViewModel.lassoMode = LassoMode.IMAGES_ONLY
+                                        }
                                     )
-                                    .padding(vertical = 8.dp, horizontal = 4.dp)
-                            ) {
-                                androidx.compose.material3.RadioButton(
-                                    selected = drawViewModel.lassoMode == LassoMode.IMAGES_ONLY,
-                                    onClick = { drawViewModel.lassoMode = LassoMode.IMAGES_ONLY }
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(text = "Solo Immagini")
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(text = "Solo Immagini")
+                                }
                             }
+                        },
+                        expanded = lazoSettingsExpanded,
+                        onDismissRequest = { lazoSettingsExpanded = false }
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.icon_lasso_select),
+                            contentDescription = "Lasso Select",
+                        )
+                    }
+
+                    ToolButton(
+                        onClick = {
+                            drawViewModel.selectedTool = Tool.TEXT
+                        },
+                        selected = drawViewModel.selectedTool == Tool.TEXT
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.icon_text_fields),
+                            contentDescription = "Text Field",
+                        )
+                    }
+
+                    ToolButton(
+                        onClick = {
+                            drawViewModel.selectedTool = Tool.PAN
+                        },
+                        selected = drawViewModel.selectedTool == Tool.PAN
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.icon_pan_tool),
+                            contentDescription = "Pan Tool",
+                        )
+                    }
+
+                    VerticalDivider(
+                        modifier = Modifier
+                            .padding(8.dp),
+                        thickness = 2.dp
+                    )
+
+                    // Pulsante Importa PDF
+                    ToolButton(
+                        onClick = {
+                            pdfPickerLauncher.launch("application/pdf")
                         }
-                    },
-                    expanded = lazoSettingsExpanded,
-                    onDismissRequest = { lazoSettingsExpanded = false }
-                ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.icon_lasso_select),
-                        contentDescription = "Lasso Select",
-                    )
-                }
-
-                ToolButton(
-                    onClick = {
-                        drawViewModel.selectedTool = Tool.TEXT
-                    },
-                    selected = drawViewModel.selectedTool == Tool.TEXT
-                ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.icon_text_fields),
-                        contentDescription = "Text Field",
-                    )
-                }
-
-                ToolButton(
-                    onClick = {
-                        drawViewModel.selectedTool = Tool.PAN
-                    },
-                    selected = drawViewModel.selectedTool == Tool.PAN
-                ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.icon_pan_tool),
-                        contentDescription = "Pan Tool",
-                    )
-                }
-
-                VerticalDivider(
-                    modifier = Modifier
-                        .padding(8.dp),
-                    thickness = 2.dp
-                )
-
-                // Pulsante Importa PDF
-                ToolButton(
-                    onClick = {
-                        pdfPickerLauncher.launch("application/pdf")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PictureAsPdf,
+                            contentDescription = "Importa PDF",
+                        )
                     }
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PictureAsPdf,
-                        contentDescription = "Importa PDF",
-                    )
-                }
 
-                // NUOVO: Pulsante Importa Immagine
-                ToolButton(
-                    onClick = {
-                        imagePickerLauncher.launch("image/*")
+                    // NUOVO: Pulsante Importa Immagine
+                    ToolButton(
+                        onClick = {
+                            imagePickerLauncher.launch("image/*")
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Image,
+                            contentDescription = "Importa Immagine",
+                        )
                     }
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Image,
-                        contentDescription = "Importa Immagine",
-                    )
+
                 }
 
+
+                HorizontalDivider()
             }
-
-            HorizontalDivider()
         }
 
         DrawComponent(

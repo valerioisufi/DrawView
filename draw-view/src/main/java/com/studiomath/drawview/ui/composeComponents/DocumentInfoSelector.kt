@@ -43,8 +43,11 @@ fun DocumentInfoSelector(
     ModularExpandableCard(
         isExpanded = expanded,
         modifier = modifier,
-        // Impostiamo l'espansione in modo che il top rimanga ancorato e il resto scenda giù
         expandedAlignment = Alignment.TopCenter,
+        // Definiamo qui lo stile della card
+        shape = RoundedCornerShape(16.dp),
+        backgroundColor = MaterialTheme.colorScheme.surface,
+        elevation = if (expanded) 8.dp else 0.dp, // L'elevazione si anima automaticamente
 
         // --- 1. STATO CHIUSO ---
         collapsedContent = {
@@ -69,69 +72,63 @@ fun DocumentInfoSelector(
 
         // --- 2. STATO ESPANSO ---
         expandedContent = {
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 6.dp,
-                shadowElevation = 8.dp,
-                modifier = Modifier.widthIn(max = 300.dp)
+            Column(
+                // Manteniamo i vincoli di larghezza e padding che servono al contenuto
+                modifier = Modifier
+                    .widthIn(max = 300.dp)
+                    .wrapContentWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Column(
-                    modifier = Modifier.wrapContentWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                TextButton(
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                    onClick = { expanded = false },
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    // Intestazione (Sostituisce il bottone cliccato in precedenza)
-                    TextButton(
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                        onClick = { expanded = false },
-                        modifier = Modifier.fillMaxWidth() // Per centrare bene il contenuto
-                    ) {
-                        Text(
-                            modifier = Modifier.padding(end = 8.dp),
-                            text = documentName ?: "Caricamento...",
-                            style = MaterialTheme.typography.titleMedium,
-                            overflow = TextOverflow.Ellipsis,
-                            maxLines = 1
-                        )
-                        Icon(
-                            imageVector = Icons.Outlined.KeyboardArrowUp,
-                            contentDescription = "Chiudi info",
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
+                    Text(
+                        modifier = Modifier.padding(end = 8.dp),
+                        text = documentName ?: "Caricamento...",
+                        style = MaterialTheme.typography.titleMedium,
+                        overflow = TextOverflow.Ellipsis,
+                        maxLines = 1
+                    )
+                    Icon(
+                        imageVector = Icons.Outlined.KeyboardArrowUp,
+                        contentDescription = "Chiudi info",
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
 
-                    HorizontalDivider(
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
+                HorizontalDivider(
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
+                )
+
+                // Dettagli Animati Insieme al Contenitore
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalAlignment = Alignment.Start
+                ) {
+                    Text(
+                        text = "Dettagli Documento",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary
                     )
 
-                    // Dettagli Animati Insieme al Contenitore
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalAlignment = Alignment.Start
-                    ) {
-                        Text(
-                            text = "Dettagli Documento",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "Nome: ${documentName ?: "Sconosciuto"}",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
 
-                        Text(
-                            text = "Nome: ${documentName ?: "Sconosciuto"}",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
+                    Spacer(modifier = Modifier.height(4.dp))
 
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        Text(
-                            text = "Stato: Sincronizzato",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
+                    Text(
+                        text = "Stato: Sincronizzato",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
                 }
             }
         }

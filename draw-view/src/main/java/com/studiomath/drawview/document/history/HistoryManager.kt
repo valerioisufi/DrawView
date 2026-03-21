@@ -13,7 +13,8 @@ import kotlin.text.clear
 import kotlin.text.compareTo
 
 class HistoryManager (
-    private val coroutineScope: CoroutineScope
+    private val coroutineScope: CoroutineScope,
+    private val onDocumentModified: () -> Unit
 ) {
     private val MAX_HISTORY_SIZE = 50
 
@@ -41,6 +42,8 @@ class HistoryManager (
         if (undoStack.size > MAX_HISTORY_SIZE) {
             undoStack.removeAt(0)
         }
+
+        onDocumentModified()
     }
 
     /**

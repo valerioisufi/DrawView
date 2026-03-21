@@ -184,6 +184,7 @@ data class Document(val name: String) {
 
     var createdAt: Long = System.currentTimeMillis()
     var modifiedAt: Long = System.currentTimeMillis()
+    var lastOpenedAt: Long? = null
 
     val pages = mutableListOf<Page>()
     val resources = mutableListOf<Resource>()

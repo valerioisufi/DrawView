@@ -73,7 +73,20 @@ class DrawViewModel(
     var themeColors by mutableStateOf(DrawThemeColors())
 
     // --- MOTORE UNDO / REDO ---
-    val historyManager = HistoryManager(viewModelScope)
+    val historyManager = HistoryManager(
+        coroutineScope = viewModelScope,
+        onDocumentModified = {
+            viewModelScope.launch {
+                val currentTime = System.currentTimeMillis()
+
+                // 1. Aggiorniamo lo stato in RAM per la UI (il DocumentInfoSelector rifletterà il cambiamento)
+                documentData?.modifiedAt = currentTime
+
+                // 2. Salviamo il nuovo timestamp nel Database in background
+                repository.touchDocument(documentId, currentTime)
+            }
+        }
+    )
 
     // Esponiamo queste proprietà/funzioni per non rompere la UI di Compose
     val canUndo: Boolean get() = historyManager.canUndo
@@ -246,6 +259,10 @@ class DrawViewModel(
             if (doc == null) {
                 doc = repository.createNewDefaultDocument()
             }
+
+            val currentTime = System.currentTimeMillis()
+            doc.lastOpenedAt = currentTime
+            repository.updateLastOpened(doc.dbId, currentTime)
 
             documentData = doc
             isDocumentLoaded = documentData != null

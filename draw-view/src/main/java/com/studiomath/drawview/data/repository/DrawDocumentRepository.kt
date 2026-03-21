@@ -68,6 +68,7 @@ class DrawDocumentRepository(context: Context) {
 
                 this.createdAt = dbDocWithPages.document.createdAt
                 this.modifiedAt = dbDocWithPages.document.modifiedAt
+                this.lastOpenedAt = dbDocWithPages.document.lastOpenedAt
             }
 
             // 3. Map Resources
@@ -183,6 +184,20 @@ class DrawDocumentRepository(context: Context) {
         domainDocument.pages.add(domainPage)
 
         return@withContext domainDocument
+    }
+
+    /**
+     * Aggiorna la data di ultima modifica del documento nel database.
+     */
+    suspend fun touchDocument(documentId: Int, timestamp: Long) = withContext(Dispatchers.IO) {
+        documentDao.touchDocument(documentId, timestamp)
+    }
+
+    /**
+     * Aggiorna la data di ultimo accesso al documento.
+     */
+    suspend fun updateLastOpened(documentId: Int, timestamp: Long = System.currentTimeMillis()) = withContext(Dispatchers.IO) {
+        documentDao.updateLastOpened(documentId, timestamp)
     }
 
     // =================================================================================

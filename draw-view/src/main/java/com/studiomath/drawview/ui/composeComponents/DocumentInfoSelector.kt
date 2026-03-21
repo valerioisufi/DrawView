@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AspectRatio
@@ -41,20 +40,17 @@ import java.util.Locale
 
 @Composable
 fun DocumentInfoSelector(
-    document: Document?, // RICEVIAMO L'INTERO DOCUMENTO
+    document: Document?,
     modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
-
-    // Formattatore per le date (memorizzato per non ricrearlo a ogni frame)
     val dateFormat = remember { SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()) }
 
-    // Calcoliamo i metadati al volo
+    // Calcolo metadati
     val totalPages = document?.pages?.size ?: 0
     val firstPage = document?.pages?.firstOrNull()
     val dimensionsStr = firstPage?.let { "${it.width.toInt()} x ${it.height.toInt()} mm" } ?: "N/D"
 
-    // Contiamo tutti gli elementi sparsi per le pagine
     var totalElements = 0
     document?.pages?.forEach { page ->
         totalElements += page.strokeData.size + page.imageData.size + page.textData.size + page.pdfData.size
@@ -63,6 +59,7 @@ fun DocumentInfoSelector(
     ModularExpandableCard(
         isExpanded = expanded,
         modifier = modifier,
+        onDismissRequest = { expanded = false }, // Chiusura automatica cliccando fuori
         expandedAlignment = Alignment.TopCenter,
         shape = RoundedCornerShape(16.dp),
         backgroundColor = MaterialTheme.colorScheme.surface,
@@ -96,11 +93,11 @@ fun DocumentInfoSelector(
         expandedContent = {
             Column(
                 modifier = Modifier
-                    .widthIn(min = 250.dp, max = 320.dp)
-                    .wrapContentWidth(),
+                    // wrapContentSize rimosso o semplificato per evitare shift indesiderati
+                    .widthIn(min = 260.dp, max = 320.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Header (Cliccabile per chiudere)
+                // Header
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -128,7 +125,6 @@ fun DocumentInfoSelector(
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
                 )
 
-                // Corpo con i Metadati
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -170,7 +166,6 @@ fun DocumentInfoSelector(
     )
 }
 
-// Piccolo componente di supporto per allineare perfettamente Icona, Etichetta e Valore
 @Composable
 private fun InfoRow(icon: ImageVector, label: String, value: String) {
     Row(

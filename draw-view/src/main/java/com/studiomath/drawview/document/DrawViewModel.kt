@@ -416,7 +416,7 @@ class DrawViewModel(
 
 
     // --- GESTIONE STRUMENTI (TOOLS) ---
-    val toolManager = ToolManager()
+    val toolManager = ToolManager(application.applicationContext)
 
     // Esponiamo lo stato per la UI in modo trasparente
     var selectedTool: Tool
@@ -446,8 +446,8 @@ class DrawViewModel(
  * Usiamo i colori di default per evitare crash prima che Compose inietti quelli reali.
  */
 data class DrawThemeColors(
-    @ColorInt val backgroundColor: Int = Color.LTGRAY, // Sfondo dell'app (dietro le pagine)
-    @ColorInt val surfaceColor: Int = Color.WHITE,     // Colore del foglio/pagina
-    @ColorInt val primaryColor: Int = Color.BLACK,     // Colore primario (es. per il lazo o bordi)
-    @ColorInt val onSurfaceColor: Int = Color.BLACK    // Colore testo o tratto di default
+    @param:ColorInt val backgroundColor: Int = Color.LTGRAY, // Sfondo dell'app (dietro le pagine)
+    @param:ColorInt val surfaceColor: Int = Color.WHITE,     // Colore del foglio/pagina
+    @param:ColorInt val primaryColor: Int = Color.BLACK,     // Colore primario (es. per il lazo o bordi)
+    @param:ColorInt val onSurfaceColor: Int = Color.BLACK    // Colore testo o tratto di default
 )

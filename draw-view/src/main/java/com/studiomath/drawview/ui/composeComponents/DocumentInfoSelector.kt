@@ -38,6 +38,18 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/**
+ * A composable component that displays an interactive, expandable card containing document metadata.
+ * * In its collapsed state, the component shows the document's name and serves as a compact
+ * header element. When expanded by the user, it calculates and displays detailed properties
+ * of the provided [Document], including timestamps, total page count, physical dimensions,
+ * and a cumulative count of all drawable elements (strokes, images, text, and PDF layers)
+ * across the document structure.
+ *
+ * @param document The [Document] object containing the metadata and page content to be analyzed.
+ * Can be null to indicate a loading or uninitialized state.
+ * @param modifier The [Modifier] to be applied to the root container of this component.
+ */
 @Composable
 fun DocumentInfoSelector(
     document: Document?,
@@ -46,7 +58,6 @@ fun DocumentInfoSelector(
     var expanded by remember { mutableStateOf(false) }
     val dateFormat = remember { SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()) }
 
-    // Calcolo metadati
     val totalPages = document?.pages?.size ?: 0
     val firstPage = document?.pages?.firstOrNull()
     val dimensionsStr = firstPage?.let { "${it.width.toInt()} x ${it.height.toInt()} mm" } ?: "N/D"
@@ -59,13 +70,12 @@ fun DocumentInfoSelector(
     ModularExpandableCard(
         isExpanded = expanded,
         modifier = modifier,
-        onDismissRequest = { expanded = false }, // Chiusura automatica cliccando fuori
+        onDismissRequest = { expanded = false },
         expandedAlignment = Alignment.TopCenter,
         shape = RoundedCornerShape(16.dp),
         backgroundColor = MaterialTheme.colorScheme.surface,
         elevation = if (expanded) 8.dp else 0.dp,
 
-        // --- 1. STATO CHIUSO ---
         collapsedContent = {
             Row(
                 modifier = Modifier
@@ -89,15 +99,12 @@ fun DocumentInfoSelector(
             }
         },
 
-        // --- 2. STATO ESPANSO ---
         expandedContent = {
             Column(
                 modifier = Modifier
-                    // wrapContentSize rimosso o semplificato per evitare shift indesiderati
                     .widthIn(min = 260.dp, max = 320.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Header
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -166,6 +173,16 @@ fun DocumentInfoSelector(
     )
 }
 
+/**
+ * A private helper composable that renders a standardized row of information within the expanded card.
+ *
+ * It formats a specific piece of document metadata by pairing an identifying vector icon and label
+ * with the corresponding value string.
+ *
+ * @param icon The [ImageVector] representing the graphical icon to display at the start of the row.
+ * @param label The descriptive text label for the given data point.
+ * @param value The string representation of the data value to display at the end of the row.
+ */
 @Composable
 private fun InfoRow(icon: ImageVector, label: String, value: String) {
     Row(

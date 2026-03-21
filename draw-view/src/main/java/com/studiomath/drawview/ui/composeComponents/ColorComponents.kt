@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
@@ -47,8 +46,21 @@ import androidx.compose.ui.unit.dp
 import com.studiomath.drawview.R
 import kotlin.math.*
 
+/**
+ * Defines the specific interactive region of the color wheel that is currently being targeted by a user's gesture.
+ */
 private enum class WheelDragTarget { NONE, HUE, SAT_VAL }
 
+/**
+ * A Jetpack Compose UI component that renders an interactive HSV color wheel and an adjacent alpha (transparency) slider.
+ * It translates user pointer interactions into HSV color space updates, emitting the resulting color via a callback.
+ *
+ * @param modifier The [Modifier] to be applied to the layout.
+ * @param color The initial [Color] to be parsed and displayed by the wheel.
+ * @param onColorChanged Callback triggered whenever the user interacts with the wheel or slider, emitting the updated [Color].
+ * @param hueRingRadius The visual thickness of the outer hue selection ring.
+ * @param alphaWidth The width of the vertical alpha (transparency) slider.
+ */
 @Preview
 @Composable
 fun ColorWheel(
@@ -67,18 +79,6 @@ fun ColorWheel(
     var hsvValue by remember { mutableFloatStateOf(initialHsv[2]) }
     var alpha by remember { mutableFloatStateOf(color.alpha) }
 
-//    // Sincronizza lo stato interno se il colore cambia dall'esterno (es. selezione di un tool diverso)
-//    LaunchedEffect(color) {
-//        val newHsv = rgbToHsv(color.red, color.green, color.blue)
-//        // Evitiamo update continui per differenze di approssimazione decimale minime
-//        if (abs(hue - newHsv[0]) > 1f || abs(sat - newHsv[1]) > 0.01f || abs(hsvValue - newHsv[2]) > 0.01f) {
-//            hue = newHsv[0]
-//            sat = newHsv[1]
-//            hsvValue = newHsv[2]
-//            alpha = color.alpha
-//        }
-//    }
-
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -86,13 +86,11 @@ fun ColorWheel(
             .padding(8.dp),
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        // --- BLOCCO 1: RUOTA DEI COLORI ---
         Spacer(
             modifier = Modifier
                 .weight(1f)
                 .aspectRatio(1f)
                 .drawWithCache {
-                    // Pre-calcolo variabili geometriche per evitare allocazioni in onDrawBehind
                     val width = size.width
                     val hueRadius = width / 2f
                     val internalHueRadius = hueRadius - hueRingRadius.toPx()
@@ -122,7 +120,6 @@ fun ColorWheel(
                     )
 
                     onDrawBehind {
-                        // Disegno dell'anello Hue (con ritaglio centrale)
                         drawIntoCanvas { canvas ->
                             canvas.saveLayer(boundsRect, layerPaint)
                             drawCircle(hueBrush, hueRadius, centerOffset)
@@ -135,7 +132,6 @@ fun ColorWheel(
                             canvas.restore()
                         }
 
-                        // Sfondo dell'area Saturation/Value e Maschera
                         drawCircle(Color.hsv(hue, 1f, 1f), valSatRadius - 1, centerOffset)
                         drawImage(
                             image = colorWheelMask,
@@ -143,7 +139,6 @@ fun ColorWheel(
                             dstSize = maskSize
                         )
 
-                        // Disegno dei Tracker (i pallini bianchi)
                         val hueTrackerRadius = (hueRadius - internalHueRadius) / 2
                         val pHue = hueToPoint(hue, hueRadius - hueTrackerRadius, centerOffset)
                         drawCircle(Color.hsv(hue, 1f, 1f), hueTrackerRadius, pHue)
@@ -165,7 +160,6 @@ fun ColorWheel(
 
                         val dist = (down.position - center).getDistance()
 
-                        // Determina quale sezione sta venendo trascinata
                         var dragTarget = WheelDragTarget.NONE
                         if (dist in internalRad..radius) {
                             dragTarget = WheelDragTarget.HUE
@@ -186,7 +180,6 @@ fun ColorWheel(
                             onColorChanged(Color.hsv(hue, sat, hsvValue, alpha))
                         }
 
-                        // Gestione continua del movimento
                         do {
                             val event = awaitPointerEvent()
                             val drag = event.changes.firstOrNull()
@@ -207,7 +200,6 @@ fun ColorWheel(
                 }
         )
 
-        // --- BLOCCO 2: SLIDER TRASPARENZA (ALPHA) ---
         Spacer(
             modifier = Modifier
                 .padding(start = 16.dp)
@@ -223,7 +215,6 @@ fun ColorWheel(
                         end = Offset(0f, alphaHeight)
                     )
 
-                    // Ottimizzazione: Creiamo un singolo Path vettoriale per la scacchiera!
                     val checkerPath = Path()
                     val squareSize = 4.dp.toPx()
                     val cols = (size.width / squareSize).toInt() + 1
@@ -244,14 +235,13 @@ fun ColorWheel(
                         }
                     }
 
-                    val checkerColor = Color(0x4D808080) // Equivalente a Color.hsv(0f, 0f, 0.5f, 0.3f)
+                    val checkerColor = Color(0x4D808080)
                     val clipRectPath = Path().apply {
                         addRoundRect(RoundRect(Rect(Offset.Zero, size), CornerRadius(alphaWidth.toPx())))
                     }
 
                     onDrawBehind {
                         clipPath(clipRectPath) {
-                            // Disegna in un solo colpo tutto lo sfondo a scacchiera
                             drawPath(checkerPath, color = checkerColor, style = Fill)
                         }
 
@@ -263,7 +253,6 @@ fun ColorWheel(
                             style = Fill
                         )
 
-                        // Tracker
                         val pAlphaY = (1f - alpha) * alphaHeight
                         val trackerHeight = alphaWidth.toPx() / 2
                         drawRoundRect(
@@ -297,6 +286,13 @@ fun ColorWheel(
     }
 }
 
+/**
+ * A Jetpack Compose UI component that presents a circular preview of a given [Color].
+ * It draws a white border stroke around the colored circle to maintain contrast against any background.
+ *
+ * @param modifier The [Modifier] to be applied to the preview indicator.
+ * @param color The [Color] to be rendered inside the circular indicator.
+ */
 @Preview
 @Composable
 fun ShowColor(
@@ -310,7 +306,6 @@ fun ShowColor(
             .aspectRatio(1f)
             .drawBehind {
                 val strokeWidth = 4.dp.toPx()
-                // Centriamo i cerchi compensando lo spessore della traccia
                 drawCircle(
                     Color.White,
                     radius = (size.width / 2) - (strokeWidth / 2),
@@ -326,21 +321,25 @@ fun ShowColor(
     )
 }
 
-// =========================================================================
-// FUNZIONI MATEMATICHE ESTRATTE E OTTIMIZZATE (Completamente indipendenti dalla UI)
-// =========================================================================
-
+/**
+ * Converts distinct RGB components into the HSV (Hue, Saturation, Value) color model.
+ *
+ * @param red The red channel value ranging from 0.0 to 1.0.
+ * @param green The green channel value ranging from 0.0 to 1.0.
+ * @param blue The blue channel value ranging from 0.0 to 1.0.
+ * @return A [FloatArray] of size 3 where index 0 is Hue [0-360), index 1 is Saturation [0-1], and index 2 is Value [0-1].
+ */
 private fun rgbToHsv(red: Float, green: Float, blue: Float): FloatArray {
     val max = maxOf(red, green, blue)
     val min = minOf(red, green, blue)
     val delta = max - min
 
     val hsv = FloatArray(3)
-    hsv[2] = max // Value (V)
+    hsv[2] = max
 
     if (delta == 0f) {
-        hsv[0] = 0f // Hue
-        hsv[1] = 0f // Saturation
+        hsv[0] = 0f
+        hsv[1] = 0f
     } else {
         hsv[1] = if (max != 0f) delta / max else 0f
         val hue = when (max) {
@@ -354,21 +353,45 @@ private fun rgbToHsv(red: Float, green: Float, blue: Float): FloatArray {
     return hsv
 }
 
+/**
+ * Maps a hue angle to a 2D coordinate on the color wheel canvas.
+ *
+ * @param hue The current hue value in degrees [0-360).
+ * @param radius The radius at which the hue tracker should be drawn.
+ * @param center The central [Offset] point of the color wheel.
+ * @return The corresponding [Offset] indicating the physical pixel position on the canvas.
+ */
 private fun hueToPoint(hue: Float, radius: Float, center: Offset): Offset {
     val angleRad = Math.toRadians(hue.toDouble()).toFloat()
     val x = center.x + cos(angleRad) * radius
-    val y = center.y - sin(angleRad) * radius // Asse Y invertito
+    val y = center.y - sin(angleRad) * radius
     return Offset(x, y)
 }
 
+/**
+ * Resolves a 2D touch coordinate on the outer ring back to a hue angle.
+ *
+ * @param point The specific [Offset] coordinate triggered by a touch/drag gesture.
+ * @param center The central [Offset] point of the color wheel.
+ * @return The calculated hue angle in degrees [0-360).
+ */
 private fun pointToHue(point: Offset, center: Offset): Float {
     val dx = point.x - center.x
-    val dy = -(point.y - center.y) // Asse Y invertito
+    val dy = -(point.y - center.y)
     val angleRad = atan2(dy, dx)
     val angleDeg = Math.toDegrees(angleRad.toDouble()).toFloat()
     return if (angleDeg < 0) angleDeg + 360f else angleDeg
 }
 
+/**
+ * Converts a saturation and value combination to a 2D coordinate within the inner selection area.
+ *
+ * @param sat The current saturation value ranging from 0.0 to 1.0.
+ * @param value The current brightness/value ranging from 0.0 to 1.0.
+ * @param radius The radius defining the boundaries of the inner saturation/value selection area.
+ * @param center The central [Offset] point of the color wheel.
+ * @return The corresponding [Offset] indicating the pixel position of the inner tracker.
+ */
 private fun satValToPoint(sat: Float, value: Float, radius: Float, center: Offset): Offset {
     val x = sat * 2 - 1
     val y = value * 2 - 1
@@ -377,13 +400,21 @@ private fun satValToPoint(sat: Float, value: Float, radius: Float, center: Offse
     val v = (y * sqrt(1 - 0.5 * x.pow(2))).toFloat()
 
     val px = center.x + u * radius
-    val py = center.y - v * radius // Asse Y invertito
+    val py = center.y - v * radius
     return Offset(px, py)
 }
 
+/**
+ * Interprets a 2D touch coordinate inside the central region into saturation and value components.
+ *
+ * @param point The specific [Offset] coordinate triggered by a touch/drag gesture.
+ * @param center The central [Offset] point of the color wheel.
+ * @param radius The radius defining the boundaries of the inner saturation/value selection area.
+ * @return A [Pair] containing the calculated saturation and value components, both bounded between 0.0 and 1.0.
+ */
 private fun pointToSatVal(point: Offset, center: Offset, radius: Float): Pair<Float, Float> {
     val dx = point.x - center.x
-    val dy = -(point.y - center.y) // Asse Y invertito
+    val dy = -(point.y - center.y)
 
     val angleRad = atan2(dy, dx)
     var u = dx / radius
@@ -406,6 +437,13 @@ private fun pointToSatVal(point: Offset, center: Offset, radius: Float): Pair<Fl
     return Pair(sat, value)
 }
 
+/**
+ * Computes the alpha (transparency) percentage based on a vertical touch position along the alpha slider.
+ *
+ * @param y The vertical Y coordinate of the touch event.
+ * @param height The total height of the slider component.
+ * @return An alpha float value clamped between 0.0 (fully transparent) and 1.0 (fully opaque).
+ */
 private fun yToAlpha(y: Float, height: Float): Float {
     return (1f - (y / height)).coerceIn(0f, 1f)
 }

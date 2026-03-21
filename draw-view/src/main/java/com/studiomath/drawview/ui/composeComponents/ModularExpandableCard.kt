@@ -32,14 +32,29 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 
 /**
- * Componente modulare che si espande in sovraimpressione (In-Place Overlay).
- * Calcola dinamicamente le dimensioni dello schermo per il backdrop di chiusura.
+ * A modular component that provides an in-place expanding overlay interface.
+ *
+ * This composable manages the seamless transition between a collapsed inline state and an
+ * expanded overlay state. When expanded, it preserves its original position in the layout
+ * hierarchy while elevating the expanded content above the standard UI layer. It dynamically
+ * calculates screen dimensions to render a transparent backdrop that intercepts outside
+ * touch events, allowing for intuitive dismissal.
+ *
+ * @param isExpanded Determines the current state of the component. If true, the expanded content is shown.
+ * @param modifier The [Modifier] to be applied to the root container.
+ * @param onDismissRequest Callback invoked when a tap gesture is detected outside the bounds of the expanded card.
+ * @param expandedAlignment Specifies the positional alignment of the expanded overlay relative to its original anchor.
+ * @param shape Defines the clipping shape and border radius of the expandable card.
+ * @param backgroundColor The background [Color] applied to the surface of the card.
+ * @param elevation The shadow elevation applied to the card, typically adjusting based on the expansion state.
+ * @param collapsedContent The composable UI emitted when the component is in its collapsed state.
+ * @param expandedContent The composable UI emitted when the component is in its expanded state.
  */
 @Composable
 fun ModularExpandableCard(
     isExpanded: Boolean,
     modifier: Modifier = Modifier,
-    onDismissRequest: () -> Unit = {}, // Callback per la chiusura cliccando fuori
+    onDismissRequest: () -> Unit = {},
     expandedAlignment: Alignment = Alignment.TopCenter,
     shape: Shape = RoundedCornerShape(12.dp),
     backgroundColor: Color = MaterialTheme.colorScheme.surface,
@@ -47,40 +62,33 @@ fun ModularExpandableCard(
     collapsedContent: @Composable () -> Unit,
     expandedContent: @Composable () -> Unit
 ) {
-    // Il Box principale usa expandedAlignment per posizionare coerentemente l'ancora e l'overlay
     Box(
         modifier = modifier.zIndex(if (isExpanded) 10f else 0f),
         contentAlignment = expandedAlignment
     ) {
-        // 1. L'ANCORA (Sempre visibile per mantenere lo spazio nel layout padre)
         Box(
             modifier = Modifier.alpha(if (isExpanded) 0f else 1f)
         ) {
             collapsedContent()
         }
 
-        // 2. BACKDROP ELEGANTE (Sostituisce il Popup)
         if (isExpanded) {
             Box(
                 modifier = Modifier
-                    .zIndex(9f) // Appena sotto la card animata, sopra il resto della UI
+                    .zIndex(9f)
                     .layout { measurable, _ ->
                         val placeable = measurable.measure(Constraints())
                         layout(0, 0) {
-                            // Centra perfettamente il backdrop sull'ancora
                             placeable.place(-placeable.width / 2, -placeable.height / 2)
                         }
                     }
             ) {
-                // Leggiamo la dimensione reale dello schermo dal contesto
                 val config = LocalConfiguration.current
                 val screenWidth = config.screenWidthDp.dp
                 val screenHeight = config.screenHeightDp.dp
 
                 Spacer(
                     modifier = Modifier
-                        // Moltiplichiamo per 2 per avere la certezza matematica di coprire l'intero
-                        // schermo a prescindere da dove sia posizionato l'ancora nei margini
                         .size(screenWidth * 2, screenHeight * 2)
                         .pointerInput(Unit) {
                             detectTapGestures(onTap = { onDismissRequest() })
@@ -89,14 +97,12 @@ fun ModularExpandableCard(
             }
         }
 
-        // 3. OVERLAY ANIMATO (L'espansione vera e propria In-Place)
         Box(
             modifier = Modifier
-                .zIndex(10f) // Sta sopra al backdrop
+                .zIndex(10f)
                 .layout { measurable, _ ->
                     val placeable = measurable.measure(Constraints())
                     layout(0, 0) {
-                        // Usa l'allineamento per posizionarsi perfettamente rispetto all'ancora
                         val offset = expandedAlignment.align(
                             size = IntSize(placeable.width, placeable.height),
                             space = IntSize(0, 0),
@@ -111,9 +117,8 @@ fun ModularExpandableCard(
                     .shadow(elevation = elevation, shape = shape)
                     .background(color = backgroundColor, shape = shape)
                     .clip(shape)
-                    // Assorbiamo i tocchi *sulla card* per non farli filtrare fino al backdrop di chiusura
                     .pointerInput(Unit) {
-                        detectTapGestures(onTap = { /* tocco consumato, non fa nulla */ })
+                        detectTapGestures(onTap = {})
                     }
                     .animateContentSize(
                         animationSpec = spring(

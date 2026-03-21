@@ -17,37 +17,55 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
 
+/**
+ * Facilitates the importation of external media files into the application's internal storage
+ * and integrates them into the document structure.
+ *
+ * This class handles operations such as copying files from external content URIs to the app's
+ * local files directory, extracting PDF pages using [android.graphics.pdf.PdfRenderer], decoding
+ * images, and persisting the associated metadata via the [DrawDocumentRepository].
+ *
+ * @property application The application context used for accessing the content resolver and internal file directory.
+ * @property repository The repository handling database operations for documents, pages, and resources.
+ * @property pageMaker The utility responsible for generating or updating the visual bitmap representation of a page.
+ */
 class MediaImporter(
     private val application: Application,
     private val repository: DrawDocumentRepository,
     private val pageMaker: PageMaker
 ) {
+
     /**
-     * Importa un PDF: copia il file, estrae le pagine, le salva nel DB e genera la cache.
-     * Ritorna la lista delle nuove pagine create.
+     * Imports a PDF document from a given URI, extracts its pages, and appends them to the specified document.
+     *
+     * This function performs the following steps in an IO dispatcher:
+     * 1. Copies the PDF file from the provided URI to a uniquely named file in internal storage.
+     * 2. Registers the new PDF file as a resource within the database and the current document object.
+     * 3. Iterates through the PDF pages using [android.graphics.pdf.PdfRenderer] to calculate physical dimensions.
+     * 4. Generates a new [Page] instance for each PDF page, persists it, and links the PDF data.
+     * 5. Triggers a cache render for each newly created page.
+     *
+     * @param uri The uniform resource identifier of the source PDF file.
+     * @param currentDoc The target [Document] where the extracted pages and resources will be added.
+     * @return A list of newly generated [Page] objects representing the imported PDF pages.
      */
     suspend fun importPdf(uri: Uri, currentDoc: Document): List<Page> = withContext(Dispatchers.IO) {
         val newPages = mutableListOf<Page>()
-        // USO DI UUID: Garantisce un nome file unico al 100%
         val fileName = "pdf_${UUID.randomUUID()}.pdf"
         val destFile = File(application.filesDir, fileName)
 
-        // 1. Copia il file nella memoria interna
         application.contentResolver.openInputStream(uri)?.use { input ->
             destFile.outputStream().use { output -> input.copyTo(output) }
         }
 
-        // 2. Registra la Risorsa usando il PERCORSO ASSOLUTO per il Garbage Collector
-        // NOTA: Assicurati che il tipo ("PDF") corrisponda a quello gestito nel tuo repository/enum
         val resourceIdStr = repository.addResource(currentDoc.dbId, "PDF", destFile.absolutePath).toString()
 
         val resource = com.studiomath.drawview.document.page.Resource(
             id = resourceIdStr,
             type = com.studiomath.drawview.document.page.Resource.ResourceType.PDF
-        ).apply { content = destFile.absolutePath } // Anche in memoria teniamo il path completo
+        ).apply { content = destFile.absolutePath }
         currentDoc.resources.add(resource)
 
-        // 3. Estrae le pagine con PdfRenderer
         val fd = ParcelFileDescriptor.open(destFile, ParcelFileDescriptor.MODE_READ_ONLY)
         val renderer = PdfRenderer(fd)
         val startIndex = currentDoc.pages.size
@@ -73,7 +91,6 @@ class MediaImporter(
             repository.addPdfToPage(newPage.dbId, pdfObj)
 
             newPage.prepare()
-            // Disegna la cache
             newPage.bitmapPage?.let { bmp ->
                 newPage.bitmapPage = pageMaker.makePage(Rect(0, 0, bmp.width, bmp.height), null, newPage, currentDoc)
             }
@@ -86,8 +103,21 @@ class MediaImporter(
     }
 
     /**
-     * Importa un'immagine: copia il file, decodifica la bitmap, calcola le dimensioni fisiche
-     * e la salva nel database associata alla pagina bersaglio.
+     * Imports an image from a given URI and places it onto a specific page within the document.
+     *
+     * This function executes on an IO dispatcher to perform the following operations:
+     * 1. Copies the image from the provided URI to internal storage with a generated unique filename.
+     * 2. Decodes the file into a [android.graphics.Bitmap] to determine its pixel dimensions.
+     * 3. Calculates the physical dimensions (in millimeters) preserving the original aspect ratio based on a default width.
+     * 4. Registers the image file as a document resource in both the database and the document instance.
+     * 5. Creates a new [Image] object positioned at the provided coordinates and links it to the target page.
+     *
+     * @param uri The uniform resource identifier of the source image file.
+     * @param currentDoc The target [Document] receiving the image resource.
+     * @param targetPage The specific [Page] where the image will be placed.
+     * @param imgX The initial horizontal coordinate (X) for the image placement.
+     * @param imgY The initial vertical coordinate (Y) for the image placement.
+     * @return The newly created [Image] instance, or null if the image decoding fails.
      */
     suspend fun importImage(
         uri: Uri,
@@ -112,7 +142,6 @@ class MediaImporter(
         val imgWidthMm = defaultPhysicalWidthMm
         val imgHeightMm = defaultPhysicalWidthMm * ratio
 
-        // Registra usando il PERCORSO ASSOLUTO
         val resourceIdStr = repository.addResource(currentDoc.dbId, "IMAGE", destFile.absolutePath).toString()
         val resource = com.studiomath.drawview.document.page.Resource(
             id = resourceIdStr,

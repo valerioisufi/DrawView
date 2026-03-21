@@ -142,7 +142,7 @@ fun DrawScreen(
                     }
 
                     DocumentInfoSelector(
-                        documentName = drawViewModel.documentData?.name ?: "Loading...",
+                        document = drawViewModel.documentData,
                         modifier = Modifier
                     )
 

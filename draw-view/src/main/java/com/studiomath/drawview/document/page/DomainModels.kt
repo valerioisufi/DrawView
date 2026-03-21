@@ -181,6 +181,10 @@ class Page(var index: Int) {
 
 data class Document(val name: String) {
     var dbId: Int = 0
+
+    var createdAt: Long = System.currentTimeMillis()
+    var modifiedAt: Long = System.currentTimeMillis()
+
     val pages = mutableListOf<Page>()
     val resources = mutableListOf<Resource>()
 }

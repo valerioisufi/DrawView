@@ -65,6 +65,9 @@ class DrawDocumentRepository(context: Context) {
             // 2. Map Document Entity to Domain Document
             val domainDocument = Document(dbDocWithPages.document.name).apply {
                 this.dbId = dbDocWithPages.document.id
+
+                this.createdAt = dbDocWithPages.document.createdAt
+                this.modifiedAt = dbDocWithPages.document.modifiedAt
             }
 
             // 3. Map Resources
@@ -165,7 +168,11 @@ class DrawDocumentRepository(context: Context) {
         )
         val newPageId = pageDao.insert(dbPage).toInt()
 
-        val domainDocument = Document(dbDoc.name).apply { this.dbId = newDocId }
+        val domainDocument = Document(dbDoc.name).apply {
+            this.dbId = newDocId
+            this.createdAt = dbDoc.createdAt
+            this.modifiedAt = dbDoc.modifiedAt
+        }
         val domainPage = Page(0).apply {
             this.dbId = newPageId
             this.width = dbPage.width

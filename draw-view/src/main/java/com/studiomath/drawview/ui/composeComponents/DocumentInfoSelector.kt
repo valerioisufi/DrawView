@@ -2,20 +2,24 @@ package com.studiomath.drawview.ui.composeComponents
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AspectRatio
+import androidx.compose.material.icons.outlined.DateRange
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.InsertPageBreak
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.KeyboardArrowUp
+import androidx.compose.material.icons.outlined.ShapeLine
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -27,49 +31,55 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.studiomath.drawview.document.page.Document
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
-/**
- * A composable that displays an expandable card containing document information.
- *
- * In its collapsed state, it shows the document name with an expansion icon.
- * When expanded, it reveals additional details such as the full name and synchronization status.
- *
- * @param documentName The name of the document to display. If null, a loading placeholder is shown.
- * @param modifier The [Modifier] to be applied to the component.
- */
 @Composable
 fun DocumentInfoSelector(
-    documentName: String?,
+    document: Document?, // RICEVIAMO L'INTERO DOCUMENTO
     modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
 
-    // Utilizziamo il nostro componente super modulare!
+    // Formattatore per le date (memorizzato per non ricrearlo a ogni frame)
+    val dateFormat = remember { SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()) }
+
+    // Calcoliamo i metadati al volo
+    val totalPages = document?.pages?.size ?: 0
+    val firstPage = document?.pages?.firstOrNull()
+    val dimensionsStr = firstPage?.let { "${it.width.toInt()} x ${it.height.toInt()} mm" } ?: "N/D"
+
+    // Contiamo tutti gli elementi sparsi per le pagine
+    var totalElements = 0
+    document?.pages?.forEach { page ->
+        totalElements += page.strokeData.size + page.imageData.size + page.textData.size + page.pdfData.size
+    }
+
     ModularExpandableCard(
         isExpanded = expanded,
         modifier = modifier,
         expandedAlignment = Alignment.TopCenter,
-        // Definiamo qui lo stile della card
         shape = RoundedCornerShape(16.dp),
         backgroundColor = MaterialTheme.colorScheme.surface,
-        elevation = if (expanded) 8.dp else 0.dp, // L'elevazione si anima automaticamente
+        elevation = if (expanded) 8.dp else 0.dp,
 
         // --- 1. STATO CHIUSO ---
         collapsedContent = {
             Row(
                 modifier = Modifier
                     .clickable { expanded = true }
-                    // Puoi abbassare o alzare il padding verticale per decidere l'altezza millimetrica
                     .padding(horizontal = 16.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center
             ) {
                 Text(
                     modifier = Modifier.padding(end = 8.dp),
-                    text = documentName ?: "Caricamento...",
+                    text = document?.name ?: "Caricamento...",
                     style = MaterialTheme.typography.titleMedium,
                     overflow = TextOverflow.Ellipsis,
                     maxLines = 1
@@ -85,12 +95,12 @@ fun DocumentInfoSelector(
         // --- 2. STATO ESPANSO ---
         expandedContent = {
             Column(
-                // Manteniamo i vincoli di larghezza e padding che servono al contenuto
                 modifier = Modifier
-                    .widthIn(max = 300.dp)
+                    .widthIn(min = 250.dp, max = 320.dp)
                     .wrapContentWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                // Header (Cliccabile per chiudere)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -101,7 +111,7 @@ fun DocumentInfoSelector(
                 ) {
                     Text(
                         modifier = Modifier.padding(end = 8.dp),
-                        text = documentName ?: "Caricamento...",
+                        text = document?.name ?: "Caricamento...",
                         style = MaterialTheme.typography.titleMedium,
                         overflow = TextOverflow.Ellipsis,
                         maxLines = 1
@@ -118,31 +128,41 @@ fun DocumentInfoSelector(
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
                 )
 
-                // Dettagli Animati Insieme al Contenitore
+                // Corpo con i Metadati
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
-                    horizontalAlignment = Alignment.Start
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text(
-                        text = "Dettagli Documento",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.primary
+                    InfoRow(
+                        icon = Icons.Outlined.DateRange,
+                        label = "Creato il",
+                        value = document?.createdAt?.let { dateFormat.format(Date(it)) } ?: "N/D"
                     )
 
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Text(
-                        text = "Nome: ${documentName ?: "Sconosciuto"}",
-                        style = MaterialTheme.typography.bodyMedium
+                    InfoRow(
+                        icon = Icons.Outlined.Edit,
+                        label = "Modificato",
+                        value = document?.modifiedAt?.let { dateFormat.format(Date(it)) } ?: "N/D"
                     )
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                    InfoRow(
+                        icon = Icons.Outlined.InsertPageBreak,
+                        label = "Pagine",
+                        value = totalPages.toString()
+                    )
 
-                    Text(
-                        text = "Stato: Sincronizzato",
-                        style = MaterialTheme.typography.bodyMedium
+                    InfoRow(
+                        icon = Icons.Outlined.AspectRatio,
+                        label = "Formato",
+                        value = dimensionsStr
+                    )
+
+                    InfoRow(
+                        icon = Icons.Outlined.ShapeLine,
+                        label = "Elementi",
+                        value = totalElements.toString()
                     )
                 }
             }
@@ -150,32 +170,30 @@ fun DocumentInfoSelector(
     )
 }
 
-@Preview(showBackground = true, backgroundColor = 0xFFF8F9FA) // Sfondo leggermente grigio per far risaltare l'ombra
+// Piccolo componente di supporto per allineare perfettamente Icona, Etichetta e Valore
 @Composable
-fun PreviewDocumentInfoSelector() {
-    MaterialTheme { // Fondamentale per far funzionare correttamente MaterialTheme.colorScheme
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(400.dp) // Diamo spazio sufficiente in basso per l'espansione
-                .padding(16.dp),
-            contentAlignment = Alignment.TopCenter
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(48.dp)
-            ) {
-                // Test 1: Nome standard
-                DocumentInfoSelector(
-                    documentName = "Appunti_Fisica_1.pdf"
-                )
-
-
-                // Test 2: Nome molto lungo per verificare l'effetto "Ellipsis" (...)
-                DocumentInfoSelector(
-                    documentName = "Questo_è_un_nome_di_documento_estremamente_lungo_che_sicuramente_verra_tagliato.pdf"
-                )
-            }
-        }
+private fun InfoRow(icon: ImageVector, label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
     }
 }

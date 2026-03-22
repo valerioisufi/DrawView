@@ -168,7 +168,6 @@ fun DrawComponent(
                 canvasTouchDispatcher.motionEventPredictor =
                     MotionEventPredictor.newInstance(rootView)
                 rootView.setOnTouchListener(canvasTouchDispatcher.onTouchListener)
-//                rootView.setOnHoverListener(onTouchHover.onHoverListener)
 
                 rootView.addView(inProgressStrokesView)
                 rootView

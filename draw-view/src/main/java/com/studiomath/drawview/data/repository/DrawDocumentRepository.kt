@@ -7,6 +7,7 @@ import androidx.ink.brush.StockBrushes
 import androidx.ink.storage.decode
 import androidx.ink.storage.encode
 import androidx.ink.strokes.StrokeInputBatch
+import com.studiomath.drawview.R
 import com.studiomath.drawview.data.db.*
 import com.studiomath.drawview.document.page.Document
 import com.studiomath.drawview.document.page.Image
@@ -16,45 +17,77 @@ import com.studiomath.drawview.document.page.Resource
 import com.studiomath.drawview.document.page.Stroke
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 
 /**
- * Repository responsible for handling document data operations.
- * It acts as a bridge between the Room Database (Data Layer) and the Domain Models.
- * IMPORTANT: This class contains NO UI logic, NO Compose states, and NO references to ViewModels.
- * It strictly returns and accepts standard Kotlin objects.
+ * Acts as the single source of truth for document-related data operations within the application's architecture.
+ * This repository mediates between the local Room database (data layer) and the in-memory domain models,
+ * ensuring separation of concerns by containing no UI logic or state management.
+ *
+ * @property context The Android Context used to access application resources and initialize the database.
  */
 class DrawDocumentRepository(context: Context) {
+
+    /**
+     * The singleton instance of the local Room database.
+     */
     private val db = DrawDatabase.getInstance(context)
+
+    /**
+     * Data Access Object for handling Document entity operations.
+     */
     private val documentDao = db.documentDao()
+
+    /**
+     * Data Access Object for handling Page entity operations.
+     */
     private val pageDao = db.pageDao()
+
+    /**
+     * Data Access Object for handling Stroke entity operations.
+     */
     private val strokeDao = db.strokeDao()
+
+    /**
+     * Data Access Object for handling Text entity operations.
+     */
     private val textDao = db.textDao()
+
+    /**
+     * Data Access Object for handling Resource entity operations.
+     */
     private val resourceDao = db.resourceDao()
+
+    /**
+     * Data Access Object for handling Image entity operations.
+     */
     private val imageDao = db.imageDao()
+
+    /**
+     * Data Access Object for handling PDF entity operations.
+     */
     private val pdfDao = db.pdfDao()
 
+    /**
+     * Contains class-level constants.
+     */
     companion object {
+        /**
+         * Tag used for logging repository operations.
+         */
         private const val TAG = "DrawDocumentRepository"
     }
 
-    // =================================================================================
-    // --- DOCUMENT OPERATIONS ---
-    // =================================================================================
-
     /**
-     * Loads a full document tree (Document -> Pages -> Strokes/Images/PDFs) from the database
-     * and maps it to the domain models in memory.
+     * Retrieves a complete document hierarchy from the local database and maps it to the domain model representation.
+     * This includes the parent document, its associated resources, pages, and all nested drawable elements (strokes, text, images, PDFs).
      *
-     * @param documentId The ID of the document to load.
-     * @return The fully populated [Document] domain model, or null if not found.
+     * @param documentId The unique database identifier of the document to retrieve.
+     * @return A fully populated [Document] instance, or null if the document cannot be found or an error occurs during mapping.
      */
     suspend fun loadDocument(documentId: Int): Document? = withContext(Dispatchers.IO) {
         try {
-            // 1. Fetch the entire relational tree in one swift SQL transaction
             val dbDocWithPages = documentDao.getFullDocumentWithPages(documentId)
 
             if (dbDocWithPages == null) {
@@ -62,7 +95,6 @@ class DrawDocumentRepository(context: Context) {
                 return@withContext null
             }
 
-            // 2. Map Document Entity to Domain Document
             val domainDocument = Document(dbDocWithPages.document.name).apply {
                 this.dbId = dbDocWithPages.document.id
 
@@ -71,13 +103,12 @@ class DrawDocumentRepository(context: Context) {
                 this.lastOpenedAt = dbDocWithPages.document.lastOpenedAt
             }
 
-            // 3. Map Resources
             val dbResources = resourceDao.getResourcesForDocument(documentId)
             dbResources.forEach { dbRes ->
                 val type = try {
                     Resource.ResourceType.valueOf(dbRes.type)
-                } catch (e: IllegalArgumentException) {
-                    Resource.ResourceType.COLOR // Fallback
+                } catch (_: IllegalArgumentException) {
+                    Resource.ResourceType.COLOR
                 }
 
                 domainDocument.resources.add(Resource(dbRes.id.toString(), type).apply {
@@ -85,7 +116,6 @@ class DrawDocumentRepository(context: Context) {
                 })
             }
 
-            // 4. Map Pages and their Content
             dbDocWithPages.pages.forEach { pageWithContent ->
                 val dbPage = pageWithContent.page
 
@@ -95,7 +125,6 @@ class DrawDocumentRepository(context: Context) {
                     this.height = dbPage.height
                 }
 
-                // 4a. Map Strokes (Decode JSON inputs back to StrokeInput objects)
                 pageWithContent.strokes.forEach { dbStroke ->
                     val domainStroke = mapStrokeEntityToDomain(dbStroke)
                     if (domainStroke != null) {
@@ -103,7 +132,6 @@ class DrawDocumentRepository(context: Context) {
                     }
                 }
 
-                // 4b. Map Texts
                 pageWithContent.texts.forEach { textEntity ->
                     val textObj = com.studiomath.drawview.document.page.Text(textEntity.zIndex).apply {
                         dbId = textEntity.id
@@ -120,7 +148,6 @@ class DrawDocumentRepository(context: Context) {
                     domainPage.textData.add(textObj)
                 }
 
-                // 4c. Map Images
                 pageWithContent.images.forEach { dbImage ->
                     domainPage.imageData.add(
                         Image(dbImage.zIndex).apply {
@@ -135,12 +162,10 @@ class DrawDocumentRepository(context: Context) {
                     )
                 }
 
-                // 4d. Map PDFs
                 pageWithContent.pdfs.forEach { dbPdf ->
                     domainPage.pdfData.add(Pdf(dbPdf.zIndex, dbPdf.pdfPageIndex).apply { id = dbPdf.resourceId })
                 }
 
-                // Prepare the page (generates Ink strokes and bitmap cache)
                 domainPage.prepare()
                 domainDocument.pages.add(domainPage)
             }
@@ -154,18 +179,19 @@ class DrawDocumentRepository(context: Context) {
     }
 
     /**
-     * Creates a new default document (with an empty A4 page) in the database
-     * and returns the domain model ready to be drawn.
+     * Initializes a new document structure in the database equipped with a single default A4-sized page.
+     *
+     * @return A newly created [Document] domain model ready for rendering and editing.
      */
-    suspend fun createNewDefaultDocument(): Document = withContext(Dispatchers.IO) {
-        val dbDoc = DocumentEntity(name = "Nuovo Documento")
+    suspend fun createNewDefaultDocument(defaultDocumentName: String): Document = withContext(Dispatchers.IO) {
+        val dbDoc = DocumentEntity(name = defaultDocumentName)
         val newDocId = documentDao.insert(dbDoc).toInt()
 
         val dbPage = PageEntity(
             documentId = newDocId,
             pageNumber = 0,
-            width = 210f, // A4 Width in mm
-            height = 297f // A4 Height in mm
+            width = 210f,
+            height = 297f
         )
         val newPageId = pageDao.insert(dbPage).toInt()
 
@@ -187,32 +213,35 @@ class DrawDocumentRepository(context: Context) {
     }
 
     /**
-     * Aggiorna la data di ultima modifica del documento nel database.
+     * Updates the last modified timestamp for a specific document.
+     *
+     * @param documentId The unique identifier of the document to update.
+     * @param timestamp The new modification time in milliseconds.
      */
     suspend fun touchDocument(documentId: Int, timestamp: Long) = withContext(Dispatchers.IO) {
         documentDao.touchDocument(documentId, timestamp)
     }
 
     /**
-     * Aggiorna la data di ultimo accesso al documento.
+     * Updates the last accessed timestamp for a specific document, typically invoked when the document is opened.
+     *
+     * @param documentId The unique identifier of the document to update.
+     * @param timestamp The access time in milliseconds, defaulting to the current system time.
      */
     suspend fun updateLastOpened(documentId: Int, timestamp: Long = System.currentTimeMillis()) = withContext(Dispatchers.IO) {
         documentDao.updateLastOpened(documentId, timestamp)
     }
 
-    // =================================================================================
-    // --- PAGE OPERATIONS ---
-    // =================================================================================
-
     /**
-     * Inserisce una nuova pagina in un punto specifico (o alla fine).
-     * Fa scorrere automaticamente in avanti le pagine successive.
+     * Inserts a new page into the database at a specific index, automatically shifting the indices of subsequent pages to maintain order.
+     *
+     * @param documentId The parent document's unique identifier.
+     * @param page The [Page] domain model containing the properties for the new page.
+     * @return The newly generated database ID for the inserted page.
      */
     suspend fun insertPageAt(documentId: Int, page: Page): Int = withContext(Dispatchers.IO) {
-        // 1. Fai spazio: sposta in avanti (+1) gli indici delle pagine successive
         pageDao.shiftPagesUp(documentId, page.index)
 
-        // 2. Inserisci la nuova pagina nel buco appena creato
         val dbPage = PageEntity(
             documentId = documentId,
             pageNumber = page.index,
@@ -226,40 +255,37 @@ class DrawDocumentRepository(context: Context) {
     }
 
     /**
-     * Rimuove una pagina e fa scalare all'indietro gli indici di quelle successive
-     * per non lasciare "buchi" nella numerazione.
-     * CASCADE eliminerà automaticamente tratti, immagini e testi associati.
+     * Removes a page from the database and recalculates the indices of the remaining pages to prevent sequence gaps.
+     * Associated page entities (strokes, text, etc.) are expected to be handled by SQL CASCADE deletion rules.
+     *
+     * @param documentId The parent document's unique identifier.
+     * @param pageDbId The unique database identifier of the page to be deleted.
+     * @param deletedIndex The ordinal index of the page being deleted.
      */
     suspend fun deletePageAtIndex(documentId: Int, pageDbId: Int, deletedIndex: Int) = withContext(Dispatchers.IO) {
-        // 1. Elimina fisicamente la pagina
         pageDao.deleteById(pageDbId)
-
-        // 2. Ricompatta il documento scalando all'indietro (-1) le pagine successive
         pageDao.shiftPagesDown(documentId, deletedIndex)
     }
 
     /**
-     * Riceve la lista delle pagine già riordinata in RAM (dopo il drag & drop)
-     * e sincronizza i nuovi indici massivamente nel Database.
+     * Synchronizes the database with an updated page ordering, typically after a user reordering action (e.g., drag and drop).
+     *
+     * @param pages The list of [Page] objects reflecting the new desired order.
      */
     suspend fun updatePagesOrder(pages: List<Page>) = withContext(Dispatchers.IO) {
-        // Cicliamo la lista: la posizione nella lista (newIndex) diventa il nuovo pageNumber ufficiale
         pages.forEachIndexed { newIndex, page ->
             if (page.index != newIndex) {
-                // Aggiorniamo prima il valore in memoria
                 page.index = newIndex
-                // E poi lo sincronizziamo nel DB
                 pageDao.updatePageNumber(page.dbId, newIndex)
             }
         }
     }
 
-    // =================================================================================
-    // --- STROKE OPERATIONS ---
-    // =================================================================================
-
     /**
-     * Saves a single stroke to the database using extreme fast binary encoding.
+     * Serializes a native stroke into a binary format and persists it to the database, updating the domain model with the resulting ID.
+     *
+     * @param pageId The unique identifier of the page where the stroke resides.
+     * @param domainStroke The [Stroke] domain model containing the native drawing data to be saved.
      */
     suspend fun saveNewStroke(pageId: Int, domainStroke: Stroke) = withContext(Dispatchers.IO) {
         try {
@@ -279,7 +305,6 @@ class DrawDocumentRepository(context: Context) {
                 inputs = byteArray
             )
 
-            // FIX: Catturiamo l'ID generato dal database e lo assegniamo al tratto in memoria!
             val newId = strokeDao.insert(strokeEntity).toInt()
             domainStroke.dbId = newId
 
@@ -288,6 +313,12 @@ class DrawDocumentRepository(context: Context) {
         }
     }
 
+    /**
+     * Updates an existing stroke record in the database by serializing its current state.
+     *
+     * @param pageId The unique identifier of the page where the stroke resides.
+     * @param domainStroke The [Stroke] domain model containing the updated drawing data.
+     */
     suspend fun updateStroke(pageId: Int, domainStroke: Stroke) = withContext(Dispatchers.IO) {
         try {
             val nativeStroke = domainStroke.stroke ?: return@withContext
@@ -295,7 +326,7 @@ class DrawDocumentRepository(context: Context) {
             nativeStroke.inputs.encode(outputStream)
 
             val strokeEntity = StrokeEntity(
-                id = domainStroke.dbId, // Usa l'ID esistente per sovrascrivere
+                id = domainStroke.dbId,
                 pageId = pageId,
                 zIndex = domainStroke.zIndex,
                 color = domainStroke.color,
@@ -304,8 +335,6 @@ class DrawDocumentRepository(context: Context) {
                 brushFamily = domainStroke.brush.name,
                 inputs = outputStream.toByteArray()
             )
-            // Se in StrokeDao hai @Insert(onConflict = OnConflictStrategy.REPLACE),
-            // usare insert() aggiornerà la riga esistente.
             strokeDao.insert(strokeEntity)
         } catch (e: Exception) {
             Log.e(TAG, "Error updating stroke in DB", e)
@@ -313,23 +342,26 @@ class DrawDocumentRepository(context: Context) {
     }
 
     /**
-     * Deletes a specific stroke from the database.
+     * Removes a specific stroke entity from the database.
+     *
+     * @param strokeId The unique database identifier of the stroke to delete.
      */
     suspend fun deleteStroke(strokeId: Int) = withContext(Dispatchers.IO) {
         strokeDao.deleteById(strokeId)
     }
 
     /**
-     * Maps a Database StrokeEntity into an in-memory Domain Stroke using binary decoding.
+     * Deserializes a database stroke entity back into an actionable domain model, reconstructing its native inputs and brush properties.
+     *
+     * @param entity The [StrokeEntity] retrieved from the database.
+     * @return The reconstructed [Stroke] domain model, or null if decoding fails.
      */
     private fun mapStrokeEntityToDomain(entity: StrokeEntity): Stroke? {
         return try {
-            // 1. Decodifica i byte raw direttamente nel batch nativo
             val inputStream = ByteArrayInputStream(entity.inputs)
             val batch = StrokeInputBatch.decode(inputStream)
 
-            // 2. Ricostruisci il Brush
-            val brushFamilyEnum = try { Stroke.BrushFamily.valueOf(entity.brushFamily) } catch (e: Exception) { Stroke.BrushFamily.PRESSURE_PEN }
+            val brushFamilyEnum = try { Stroke.BrushFamily.valueOf(entity.brushFamily) } catch (_: Exception) { Stroke.BrushFamily.PRESSURE_PEN }
             val nativeFamily = when (brushFamilyEnum) {
                 Stroke.BrushFamily.PRESSURE_PEN -> StockBrushes.pressurePen()
                 Stroke.BrushFamily.HIGHLIGHTER -> StockBrushes.highlighter()
@@ -342,15 +374,13 @@ class DrawDocumentRepository(context: Context) {
                 epsilon = 0.005f
             )
 
-            // 3. Ricostruisci il Tratto Ink completo
             val nativeStroke = androidx.ink.strokes.Stroke(targetBrush, batch)
 
-            // 4. Restituisci il modello di dominio
             Stroke(entity.zIndex).apply {
                 dbId = entity.id
                 color = entity.color
                 size = entity.size
-                toolType = try { Stroke.ToolType.valueOf(entity.toolType) } catch (e: Exception) { Stroke.ToolType.UNKNOWN }
+                toolType = try { Stroke.ToolType.valueOf(entity.toolType) } catch (_: Exception) { Stroke.ToolType.UNKNOWN }
                 brush = brushFamilyEnum
                 stroke = nativeStroke
             }
@@ -360,10 +390,13 @@ class DrawDocumentRepository(context: Context) {
         }
     }
 
-    // =================================================================================
-    // --- TEXT OPERATIONS ---
-    // =================================================================================
-
+    /**
+     * Persists a new text element into the database and updates the domain model with the assigned ID.
+     *
+     * @param pageId The unique identifier of the parent page.
+     * @param textObj The [com.studiomath.drawview.document.page.Text] domain model to save.
+     * @return The newly assigned database ID for the text element.
+     */
     suspend fun saveNewText(pageId: Int, textObj: com.studiomath.drawview.document.page.Text): Int = withContext(Dispatchers.IO) {
         val entity = TextEntity(
             pageId = pageId,
@@ -383,9 +416,15 @@ class DrawDocumentRepository(context: Context) {
         return@withContext id
     }
 
+    /**
+     * Updates the properties of an existing text element within the database.
+     *
+     * @param pageId The unique identifier of the parent page.
+     * @param textObj The [com.studiomath.drawview.document.page.Text] domain model containing the updated properties.
+     */
     suspend fun updateText(pageId: Int, textObj: com.studiomath.drawview.document.page.Text) = withContext(Dispatchers.IO) {
         val entity = TextEntity(
-            id = textObj.dbId, // FONDAMENTALE per aggiornare la riga corretta!
+            id = textObj.dbId,
             pageId = pageId,
             zIndex = textObj.zIndex,
             text = textObj.text,
@@ -401,16 +440,20 @@ class DrawDocumentRepository(context: Context) {
         textDao.update(entity)
     }
 
+    /**
+     * Removes a text element from the database.
+     *
+     * @param textId The unique database identifier of the text element to delete.
+     */
     suspend fun deleteText(textId: Int) = withContext(Dispatchers.IO) {
         textDao.deleteById(textId)
     }
 
-    // =================================================================================
-    // --- IMAGE OPERATIONS ---
-    // =================================================================================
-
     /**
-     * Links a newly imported Image to a specific document page in the database.
+     * Persists a new image element to the database, associating it with a specific page and storing its spatial properties.
+     *
+     * @param pageDbId The unique database identifier of the parent page.
+     * @param image The [Image] domain model to be stored.
      */
     suspend fun addImageToPage(pageDbId: Int, image: Image) = withContext(Dispatchers.IO) {
         val dbImage = ImageEntity(
@@ -427,11 +470,12 @@ class DrawDocumentRepository(context: Context) {
     }
 
     /**
-     * Updates an existing Image (e.g., after the user drags or resizes it).
+     * Updates an existing image record in the database with new spatial or structural properties.
+     *
+     * @param pageDbId The unique database identifier of the parent page.
+     * @param image The [Image] domain model containing the updated data.
      */
     suspend fun updateImage(pageDbId: Int, image: Image) = withContext(Dispatchers.IO) {
-        // Since we use OnConflictStrategy.REPLACE in our Dao, insert() functions as an update
-        // if the primary key (id) already exists.
         val dbImage = ImageEntity(
             id = image.dbId,
             pageId = pageDbId,
@@ -447,18 +491,21 @@ class DrawDocumentRepository(context: Context) {
     }
 
     /**
-     * Deletes a specific image from the database.
+     * Removes an image element from the database.
+     *
+     * @param imageId The unique database identifier of the image element to delete.
      */
     suspend fun deleteImage(imageId: Int) = withContext(Dispatchers.IO) {
         imageDao.deleteById(imageId)
     }
 
-    // =================================================================================
-    // --- RESOURCES & PDF OPERATIONS ---
-    // =================================================================================
-
     /**
-     * Adds a generic resource (like a Color, PDF File, or Image File) to the document.
+     * Registers a generic external resource (e.g., file path or URI) into the database, associating it with a parent document.
+     *
+     * @param documentId The unique identifier of the document to link the resource to.
+     * @param type A string representation denoting the type of the resource.
+     * @param uri The uniform resource identifier pointing to the actual resource data.
+     * @return The resulting database ID for the stored resource.
      */
     suspend fun addResource(documentId: Int, type: String, uri: String): Int = withContext(Dispatchers.IO) {
         val dbRes = ResourceEntity(
@@ -470,7 +517,10 @@ class DrawDocumentRepository(context: Context) {
     }
 
     /**
-     * Links a PDF page to a specific document page in the database.
+     * Binds a PDF data structure to a specific page within the database.
+     *
+     * @param pageDbId The unique database identifier of the page receiving the PDF element.
+     * @param pdf The [Pdf] domain model to associate with the page.
      */
     suspend fun addPdfToPage(pageDbId: Int, pdf: Pdf) = withContext(Dispatchers.IO) {
         val dbPdf = PdfEntity(

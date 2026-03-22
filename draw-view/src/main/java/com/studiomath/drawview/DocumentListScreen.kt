@@ -17,6 +17,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -42,7 +43,7 @@ fun DocumentListScreen(
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text("I Miei Appunti", style = MaterialTheme.typography.titleLarge) },
+                title = { Text(stringResource(R.string.document_list_title_main), style = MaterialTheme.typography.titleLarge) },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
@@ -51,15 +52,17 @@ fun DocumentListScreen(
         },
         floatingActionButton = {
             FloatingActionButton(onClick = onCreateNewClick) {
-                Icon(Icons.Filled.Add, contentDescription = "Crea Nuovo")
+                Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.document_list_action_create))
             }
         }
     ) { innerPadding ->
 
         if (documents.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize().padding(innerPadding), contentAlignment = Alignment.Center) {
+            Box(modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding), contentAlignment = Alignment.Center) {
                 Text(
-                    text = "Nessun documento presente.\nUsa il pulsante + per crearne uno nuovo!",
+                    text = stringResource(R.string.document_list_state_empty),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
@@ -67,7 +70,9 @@ fun DocumentListScreen(
             }
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(innerPadding),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -76,21 +81,23 @@ fun DocumentListScreen(
                 items(items = documents, key = { it.id }) { doc ->
                     var showRenameDialog by remember { mutableStateOf(false) }
 
-                    val dismissState = rememberSwipeToDismissBoxState(
-                        confirmValueChange = { dismissValue ->
-                            when (dismissValue) {
-                                SwipeToDismissBoxValue.EndToStart -> {
-                                    onDeleteDocument(doc)
-                                    true // Conferma lo scorrimento
-                                }
-                                SwipeToDismissBoxValue.StartToEnd -> {
-                                    showRenameDialog = true
-                                    false // Respinge lo scorrimento, mostriamo solo il dialog
-                                }
-                                else -> false
+                    val dismissState = rememberSwipeToDismissBoxState()
+
+                    LaunchedEffect(dismissState.currentValue) {
+                        when (dismissState.currentValue) {
+                            SwipeToDismissBoxValue.EndToStart -> {
+                                onDeleteDocument(doc)
+                            }
+                            SwipeToDismissBoxValue.StartToEnd -> {
+                                showRenameDialog = true
+                                // Respinge lo scorrimento animando il ritorno allo stato Settled (sostituisce il return false)
+                                dismissState.reset()
+                            }
+                            SwipeToDismissBoxValue.Settled -> {
+                                // Nessuna azione
                             }
                         }
-                    )
+                    }
 
                     SwipeToDismissBox(
                         state = dismissState,
@@ -138,7 +145,7 @@ fun DocumentListScreen(
                             ) {
                                 Icon(
                                     imageVector = icon,
-                                    contentDescription = "Swipe Action",
+                                    contentDescription = stringResource(R.string.document_list_action_swipe),
                                     modifier = Modifier.scale(scale),
                                     tint = iconTint
                                 )
@@ -156,13 +163,13 @@ fun DocumentListScreen(
                                 showRenameDialog = false
                                 coroutineScope.launch { dismissState.reset() }
                             },
-                            title = { Text("Rinomina Documento") },
+                            title = { Text(stringResource(R.string.document_list_title_rename_dialog)) },
                             text = {
                                 OutlinedTextField(
                                     value = newName,
                                     onValueChange = { newName = it },
                                     singleLine = true,
-                                    label = { Text("Nuovo Nome") }
+                                    label = { Text(stringResource(R.string.document_list_input_rename_hint)) }
                                 )
                             },
                             confirmButton = {
@@ -173,7 +180,7 @@ fun DocumentListScreen(
                                         onRenameDocument(doc, newName)
                                         coroutineScope.launch { dismissState.reset() }
                                     }
-                                ) { Text("Rinomina") }
+                                ) { Text(stringResource(R.string.common_button_rename)) }
                             },
                             dismissButton = {
                                 TextButton(
@@ -181,7 +188,7 @@ fun DocumentListScreen(
                                         showRenameDialog = false
                                         coroutineScope.launch { dismissState.reset() }
                                     }
-                                ) { Text("Annulla") }
+                                ) { Text(stringResource(R.string.common_button_cancel)) }
                             }
                         )
                     }
@@ -225,7 +232,7 @@ fun DocumentCard(document: DocumentEntity, onClick: () -> Unit) {
                     SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(document.modifiedAt))
                 }
                 Text(
-                    text = "Ultima modifica: $dateString",
+                    text = stringResource(R.string.document_list_label_last_modified, dateString),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

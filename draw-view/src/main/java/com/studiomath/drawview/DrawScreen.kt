@@ -54,6 +54,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -130,13 +131,13 @@ fun DrawScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                                contentDescription = "Back",
+                                contentDescription = stringResource(R.string.common_action_back),
                             )
                         }
                         ToolButton {
                             Icon(
                                 imageVector = Icons.Outlined.GridView,
-                                contentDescription = "Grid View",
+                                contentDescription = stringResource(R.string.draw_toolbar_action_grid_view),
                             )
                         }
                     }
@@ -152,13 +153,13 @@ fun DrawScreen(
                         ToolButton {
                             Icon(
                                 imageVector = Icons.Outlined.Draw,
-                                contentDescription = "Draw",
+                                contentDescription = stringResource(R.string.draw_toolbar_action_draw),
                             )
                         }
                         ToolButton {
                             Icon(
                                 imageVector = Icons.Outlined.MoreHoriz,
-                                contentDescription = "More options",
+                                contentDescription = stringResource(R.string.common_action_more_options),
                             )
                         }
                     }
@@ -184,7 +185,7 @@ fun DrawScreen(
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.Undo,
-                            contentDescription = "Undo",
+                            contentDescription = stringResource(R.string.common_action_undo),
                             // Ingrigisce visivamente l'icona se lo stack è vuoto
                             tint = if (drawViewModel.canUndo) {
                                 MaterialTheme.colorScheme.onSurface
@@ -202,7 +203,7 @@ fun DrawScreen(
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.Redo,
-                            contentDescription = "Redo",
+                            contentDescription = stringResource(R.string.common_action_redo),
                             // Ingrigisce visivamente l'icona se lo stack è vuoto
                             tint = if (drawViewModel.canRedo) {
                                 MaterialTheme.colorScheme.onSurface
@@ -239,7 +240,7 @@ fun DrawScreen(
                                 modifier = Modifier.padding(16.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Text(text = "Color", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Text(text = stringResource(R.string.common_label_color), fontSize = 16.sp, fontWeight = FontWeight.Bold)
                                 Spacer(modifier = Modifier.height(8.dp))
 
                                 ColorWheel(
@@ -255,7 +256,7 @@ fun DrawScreen(
                                 Spacer(modifier = Modifier.height(16.dp))
 
                                 Text(
-                                    text = "Brush Size",
+                                    text = stringResource(R.string.draw_toolbar_label_brush_size),
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -278,7 +279,7 @@ fun DrawScreen(
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.icon_ink_pen),
-                            contentDescription = "Ink Pen",
+                            contentDescription = stringResource(R.string.draw_toolbar_action_ink_pen),
                         )
                     }
 
@@ -304,7 +305,7 @@ fun DrawScreen(
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Text(
-                                    text = "Highlighter Color",
+                                    text = stringResource(R.string.draw_toolbar_label_highlighter_color),
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -323,7 +324,7 @@ fun DrawScreen(
                                 Spacer(modifier = Modifier.height(16.dp))
 
                                 Text(
-                                    text = "Highlighter Size",
+                                    text = stringResource(R.string.draw_toolbar_label_highlighter_size),
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -346,7 +347,7 @@ fun DrawScreen(
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.icon_ink_highlighter),
-                            contentDescription = "Ink Highlighter",
+                            contentDescription = stringResource(R.string.draw_toolbar_action_highlighter),
                         )
                     }
 
@@ -372,7 +373,7 @@ fun DrawScreen(
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Text(
-                                    text = "Eraser Size",
+                                    text = stringResource(R.string.draw_toolbar_label_eraser_size),
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -395,7 +396,7 @@ fun DrawScreen(
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.icon_ink_eraser),
-                            contentDescription = "Eraser",
+                            contentDescription = stringResource(R.string.draw_toolbar_action_eraser),
                         )
                     }
 
@@ -420,7 +421,7 @@ fun DrawScreen(
                                 horizontalAlignment = Alignment.Start // L'allineamento a sinistra è più elegante per i menu a scelta
                             ) {
                                 Text(
-                                    text = "Modalità Lazo",
+                                    text = stringResource(R.string.draw_toolbar_title_lasso_mode),
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold,
                                     modifier = Modifier.padding(bottom = 12.dp)
@@ -442,7 +443,7 @@ fun DrawScreen(
                                         onClick = { drawViewModel.lassoMode = LassoMode.ALL }
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text(text = "Seleziona Tutto")
+                                    Text(text = stringResource(R.string.draw_toolbar_option_select_all))
                                 }
 
                                 // Opzione 2: Solo Immagini
@@ -465,7 +466,7 @@ fun DrawScreen(
                                         }
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text(text = "Solo Immagini")
+                                    Text(text = stringResource(R.string.draw_toolbar_option_images_only))
                                 }
                             }
                         },
@@ -474,7 +475,7 @@ fun DrawScreen(
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.icon_lasso_select),
-                            contentDescription = "Lasso Select",
+                            contentDescription = stringResource(R.string.draw_toolbar_action_lasso),
                         )
                     }
 
@@ -486,7 +487,7 @@ fun DrawScreen(
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.icon_text_fields),
-                            contentDescription = "Text Field",
+                            contentDescription = stringResource(R.string.draw_toolbar_action_text),
                         )
                     }
 
@@ -498,7 +499,7 @@ fun DrawScreen(
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.icon_pan_tool),
-                            contentDescription = "Pan Tool",
+                            contentDescription = stringResource(R.string.draw_toolbar_action_pan),
                         )
                     }
 
@@ -516,7 +517,7 @@ fun DrawScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Default.PictureAsPdf,
-                            contentDescription = "Importa PDF",
+                            contentDescription = stringResource(R.string.draw_toolbar_action_import_pdf),
                         )
                     }
 
@@ -528,7 +529,7 @@ fun DrawScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Image,
-                            contentDescription = "Importa Immagine",
+                            contentDescription = stringResource(R.string.draw_toolbar_action_import_image),
                         )
                     }
 

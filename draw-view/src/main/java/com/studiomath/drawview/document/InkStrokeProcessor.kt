@@ -24,6 +24,7 @@ import kotlin.math.min
 
 import androidx.ink.strokes.Stroke as InkStroke
 import com.studiomath.drawview.document.page.Stroke as DomainStroke
+import androidx.core.graphics.withMatrix
 
 class InkStrokeProcessor(
     private val drawViewModel: DrawViewModel,
@@ -191,16 +192,15 @@ class InkStrokeProcessor(
                     setRectToRect(pageRectWithIndex.rect, bitmapRect, Matrix.ScaleToFit.CENTER)
                 }
 
-                canvasCache.save()
-                canvasCache.concat(windowToPageMatrix)
-                strokes.values.forEach { stroke ->
-                    drawViewModel.pageMaker.canvasStrokeRenderer.draw(
-                        stroke = stroke,
-                        canvas = canvasCache,
-                        strokeToScreenTransform = windowToPageMatrix
-                    )
+                canvasCache.withMatrix(windowToPageMatrix) {
+                    strokes.values.forEach { stroke ->
+                        drawViewModel.pageMaker.canvasStrokeRenderer.draw(
+                            stroke = stroke,
+                            canvas = this,
+                            strokeToScreenTransform = windowToPageMatrix
+                        )
+                    }
                 }
-                canvasCache.restore()
             }
         }
 

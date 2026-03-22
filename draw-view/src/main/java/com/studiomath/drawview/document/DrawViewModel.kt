@@ -20,7 +20,9 @@ import androidx.compose.runtime.setValue
 import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.brush.Brush
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.application
 import androidx.lifecycle.viewModelScope
+import com.studiomath.drawview.R
 import com.studiomath.drawview.data.repository.DrawDocumentRepository
 import com.studiomath.drawview.document.history.DrawAction
 import com.studiomath.drawview.document.history.HistoryManager
@@ -257,7 +259,8 @@ class DrawViewModel(
 
             // Se il documento non esiste, creiamo un documento di default
             if (doc == null) {
-                doc = repository.createNewDefaultDocument()
+                val defaultName = application.getString(R.string.document_default_name)
+                doc = repository.createNewDefaultDocument(defaultName)
             }
 
             val currentTime = System.currentTimeMillis()

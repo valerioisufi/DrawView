@@ -31,8 +31,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.studiomath.drawview.R
 import com.studiomath.drawview.document.page.Document
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -60,7 +62,14 @@ fun DocumentInfoSelector(
 
     val totalPages = document?.pages?.size ?: 0
     val firstPage = document?.pages?.firstOrNull()
-    val dimensionsStr = firstPage?.let { "${it.width.toInt()} x ${it.height.toInt()} mm" } ?: "N/D"
+    val dimensionsStr = firstPage?.let {
+        stringResource(
+            R.string.document_info_value_dimensions,
+            it.width.toInt(),
+            it.height.toInt()
+        ) } ?: stringResource(
+        R.string.common_label_not_available
+    )
 
     var totalElements = 0
     document?.pages?.forEach { page ->
@@ -86,14 +95,14 @@ fun DocumentInfoSelector(
             ) {
                 Text(
                     modifier = Modifier.padding(end = 8.dp),
-                    text = document?.name ?: "Caricamento...",
+                    text = document?.name ?: stringResource(R.string.common_state_loading),
                     style = MaterialTheme.typography.titleMedium,
                     overflow = TextOverflow.Ellipsis,
                     maxLines = 1
                 )
                 Icon(
                     imageVector = Icons.Outlined.KeyboardArrowDown,
-                    contentDescription = "Espandi info",
+                    contentDescription = stringResource(R.string.document_info_action_expand),
                     modifier = Modifier.size(20.dp)
                 )
             }
@@ -115,14 +124,14 @@ fun DocumentInfoSelector(
                 ) {
                     Text(
                         modifier = Modifier.padding(end = 8.dp),
-                        text = document?.name ?: "Caricamento...",
+                        text = document?.name ?: stringResource(R.string.common_state_loading),
                         style = MaterialTheme.typography.titleMedium,
                         overflow = TextOverflow.Ellipsis,
                         maxLines = 1
                     )
                     Icon(
                         imageVector = Icons.Outlined.KeyboardArrowUp,
-                        contentDescription = "Chiudi info",
+                        contentDescription = stringResource(R.string.document_info_action_collapse),
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -140,31 +149,31 @@ fun DocumentInfoSelector(
                 ) {
                     InfoRow(
                         icon = Icons.Outlined.DateRange,
-                        label = "Creato il",
-                        value = document?.createdAt?.let { dateFormat.format(Date(it)) } ?: "N/D"
+                        label = stringResource(R.string.document_info_label_created_date),
+                        value = document?.createdAt?.let { dateFormat.format(Date(it)) } ?: stringResource(R.string.common_label_not_available)
                     )
 
                     InfoRow(
                         icon = Icons.Outlined.Edit,
-                        label = "Modificato",
-                        value = document?.modifiedAt?.let { dateFormat.format(Date(it)) } ?: "N/D"
+                        label = stringResource(R.string.document_info_label_modified_date),
+                        value = document?.modifiedAt?.let { dateFormat.format(Date(it)) } ?: stringResource(R.string.common_label_not_available)
                     )
 
                     InfoRow(
                         icon = Icons.Outlined.InsertPageBreak,
-                        label = "Pagine",
+                        label = stringResource(R.string.document_info_label_pages),
                         value = totalPages.toString()
                     )
 
                     InfoRow(
                         icon = Icons.Outlined.AspectRatio,
-                        label = "Formato",
+                        label = stringResource(R.string.document_info_label_format),
                         value = dimensionsStr
                     )
 
                     InfoRow(
                         icon = Icons.Outlined.ShapeLine,
-                        label = "Elementi",
+                        label = stringResource(R.string.document_info_label_elements_count),
                         value = totalElements.toString()
                     )
                 }

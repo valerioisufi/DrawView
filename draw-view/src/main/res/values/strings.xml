@@ -1,3 +1,45 @@
 <resources>
-    <string name="app_name">DrawView</string>
+    <string name="app_name" translatable="false">DrawView</string>
+    <string name="common_state_loading">Caricamento…</string>
+    <string name="common_label_not_available">N/D</string>
+    <string name="document_info_action_expand">Espandi info</string>
+    <string name="document_info_action_collapse">Chiudi info</string>
+    <string name="document_info_label_created_date">Creato il</string>
+    <string name="document_info_label_modified_date">Modificato</string>
+    <string name="document_info_label_pages">Pagine</string>
+    <string name="document_info_label_format">Formato</string>
+    <string name="document_info_label_elements_count">Elementi</string>
+    <string name="document_info_value_dimensions">%1$d x %2$d mm</string>
+    <string name="document_list_title_main">I Miei Appunti</string>
+    <string name="document_list_action_create">Crea Nuovo</string>
+    <string name="document_list_state_empty">Nessun documento presente.\nUsa il pulsante + per crearne uno nuovo!</string>
+    <string name="document_list_action_swipe">Swipe Action</string>
+    <string name="document_list_title_rename_dialog">Rinomina Documento</string>
+    <string name="document_list_input_rename_hint">Nuovo Nome</string>
+    <string name="common_button_rename">Rinomina</string>
+    <string name="common_button_cancel">Annulla</string>
+    <string name="document_list_label_last_modified">Ultima modifica: %1$s</string>
+    <string name="common_action_back">Back</string>
+    <string name="draw_toolbar_action_grid_view">Grid View</string>
+    <string name="draw_toolbar_action_draw">Draw</string>
+    <string name="common_action_more_options">More options</string>
+    <string name="common_action_undo">Undo</string>
+    <string name="common_action_redo">Redo</string>
+    <string name="common_label_color">Color</string>
+    <string name="draw_toolbar_label_brush_size">Brush Size</string>
+    <string name="draw_toolbar_action_ink_pen">Ink Pen</string>
+    <string name="draw_toolbar_label_highlighter_color">Highlighter Color</string>
+    <string name="draw_toolbar_label_highlighter_size">Highlighter Size</string>
+    <string name="draw_toolbar_action_highlighter">Ink Highlighter</string>
+    <string name="draw_toolbar_label_eraser_size">Eraser Size</string>
+    <string name="draw_toolbar_action_eraser">Eraser</string>
+    <string name="draw_toolbar_title_lasso_mode">Modalità Lazo</string>
+    <string name="draw_toolbar_option_select_all">Seleziona Tutto</string>
+    <string name="draw_toolbar_option_images_only">Solo Immagini</string>
+    <string name="draw_toolbar_action_lasso">Lasso Select</string>
+    <string name="draw_toolbar_action_text">Text Field</string>
+    <string name="draw_toolbar_action_pan">Pan Tool</string>
+    <string name="draw_toolbar_action_import_pdf">Importa PDF</string>
+    <string name="draw_toolbar_action_import_image">Importa Immagine</string>
+    <string name="document_default_name">Nuovo Documento</string>
 </resources>

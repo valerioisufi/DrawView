@@ -26,6 +26,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CountDownLatch
 
 /**
  * The core rendering engine and state manager for the drawing canvas.
@@ -307,21 +308,28 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
                 // 2. Disegniamo! Blocchiamo la tela della SurfaceView richiedendo l'Accelerazione Hardware
                 var canvas: Canvas? = null
+                var strokesToClear: Set<InProgressStrokeId>? = null // Cattura gli ID
                 try {
-                    // FIX FPS: lockHardwareCanvas() obbliga l'uso della GPU (disponibile da Android 8+)
-                    canvas =
-                        holder.lockHardwareCanvas()
-
+                    canvas = holder.lockHardwareCanvas()
                     if (canvas != null) {
                         canvas.clipRect(windowRect)
-
-                        // FIX SCIA/DUPLICAZIONI: Pulisci SEMPRE lo schermo usando il colore di sfondo del Material Theme
                         canvas.drawColor(drawViewModel.themeColors.backgroundColor)
-
-                        renderFrame(canvas)
+                        // Catturiamo gli ID che il renderFrame ha estratto dalla coda
+                        strokesToClear = renderFrame(canvas)
                     }
                 } finally {
                     if (canvas != null) {
+                        // Usiamo gli ID in modo pulito e diretto, senza variabili globali
+                        if (!strokesToClear.isNullOrEmpty()) {
+                            val latch = CountDownLatch(1)
+                            scope.launch(Dispatchers.Main) {
+                                drawViewModel.removeFinishedStrokes?.invoke(strokesToClear)
+                                android.view.Choreographer.getInstance().postFrameCallback {
+                                    latch.countDown()
+                                }
+                            }
+                            latch.await()
+                        }
                         holder.unlockCanvasAndPost(canvas)
                     }
                 }
@@ -354,37 +362,27 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
      *
      * @param canvas The Android hardware-accelerated Canvas to draw on.
      */
-    fun renderFrame(canvas: Canvas) {
+    fun renderFrame(canvas: Canvas): Set<InProgressStrokeId>? {
         isInitialized = true
-
-        // --- FIX 1: PULISCI LA SURFACE VIEW ---
         canvas.drawColor(drawViewModel.themeColors.backgroundColor)
 
         if (drawStack.isEmpty()) {
             lastDrawAttachments?.let { executeRender(canvas, it) }
-            return
+            return null
         }
 
-        // CONSUME THE ENTIRE QUEUE:
-        // When touch events fire faster than the screen's refresh rate, the stack grows.
-        // By consuming all events and aggregating them, we prioritize full UPDATEs and
-        // ensure no stroke deletion requests (strokesIdToRemove) are accidentally lost.
         var finalDrawMode = DrawAttachments.DrawMode.REFRESH
         val accumulatedStrokesToRemove = mutableSetOf<InProgressStrokeId>()
         var targetUpdate: DrawAttachments.Update? = null
         var targetAnimation = DrawAttachments.AnimationType.NONE
 
         while (drawStack.isNotEmpty()) {
-            val attachment = drawStack.poll() ?: break // poll() estrae e rimuove il primo elemento
-
-            // Determine priority (UPDATE takes precedence over REFRESH/SCALE_TRANSLATE)
+            val attachment = drawStack.poll() ?: break
             if (attachment.drawMode == DrawAttachments.DrawMode.UPDATE) {
                 finalDrawMode = DrawAttachments.DrawMode.UPDATE
             } else if (finalDrawMode != DrawAttachments.DrawMode.UPDATE) {
                 finalDrawMode = attachment.drawMode
             }
-
-            // Accumulate stroke IDs that need to be cleared from the screen
             attachment.strokesIdToRemove?.let { accumulatedStrokesToRemove.addAll(it) }
             attachment.update?.let { targetUpdate = it }
             if (attachment.animationType != DrawAttachments.AnimationType.NONE) {
@@ -392,9 +390,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             }
         }
 
-        // Build the consolidated rendering attachment
+        // Il RenderManager ora fa solo il suo lavoro: organizzare e delegare.
         val finalAttachment = DrawAttachments(finalDrawMode).apply {
-            strokesIdToRemove = accumulatedStrokesToRemove.ifEmpty { null }
             update = targetUpdate
             animationType = targetAnimation
         }
@@ -402,6 +399,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         lastDrawAttachments = finalAttachment
         executeRender(canvas, finalAttachment)
         isDrawing = false
+
+        return accumulatedStrokesToRemove.ifEmpty { null }
     }
 
     val shadowPaint = Paint().apply {

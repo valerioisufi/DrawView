@@ -14,12 +14,10 @@ import androidx.ink.strokes.StrokeInput
 import androidx.ink.strokes.createClosedShape
 import com.studiomath.drawview.document.history.AddStrokesAction
 import com.studiomath.drawview.document.history.PageStrokeGroup
-import com.studiomath.drawview.document.page.CalcPage
 import com.studiomath.drawview.document.selection.LassoMode
 import com.studiomath.drawview.document.selection.SelectionGroup
 import com.studiomath.drawview.document.tools.Tool
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlin.math.max
 import kotlin.math.min
@@ -40,12 +38,11 @@ class InkStrokeProcessor(
         val isLasso = drawViewModel.selectedTool == Tool.LAZO
         val isEraser = drawViewModel.selectedTool == Tool.ERASER
 
-        // --- FASE 2: HIT TESTING DEL LAZO (Ora in World Space!) ---
+        // --- GESTIONE LAZO ---
         if (isLasso) {
             val lassoInkStroke = strokes.values.firstOrNull() ?: return
             drawViewModel.clearSelection()
 
-            // Il Bounding Box ora è in coordinate assolute (World Space)
             val lassoWorldBox = lassoInkStroke.shape.computeBoundingBox()
             var targetPageIndex = 0
 
@@ -53,7 +50,6 @@ class InkStrokeProcessor(
                 val centerX = lassoWorldBox.xMin + (lassoWorldBox.xMax - lassoWorldBox.xMin) / 2f
                 val centerY = lassoWorldBox.yMin + (lassoWorldBox.yMax - lassoWorldBox.yMin) / 2f
 
-                // Hit test contro i rettangoli di base (non zoomati)
                 val foundIndex = drawManager.calcPage.pagesRectOnWindow.indexOfFirst { it.contains(centerX, centerY) }
                 if (foundIndex >= 0) targetPageIndex = foundIndex
             }
@@ -62,7 +58,6 @@ class InkStrokeProcessor(
             val basePageRect = drawManager.calcPage.pagesRectOnWindow.getOrNull(targetPageIndex)
 
             if (page != null && basePageRect != null) {
-                // Matrice: World Space -> Pagina(mm)
                 val worldToMmMatrix = Matrix().apply {
                     setRectToRect(basePageRect, page.rect(), Matrix.ScaleToFit.FILL)
                 }
@@ -75,7 +70,7 @@ class InkStrokeProcessor(
                     lassoInkStroke.inputs.populate(i, scratch)
                     point[0] = scratch.x
                     point[1] = scratch.y
-                    worldToMmMatrix.mapPoints(point) // Convertiamo da World a mm per la selezione
+                    worldToMmMatrix.mapPoints(point)
                     mmLassoBatch.add(
                         type = scratch.toolType,
                         x = point[0],
@@ -171,6 +166,7 @@ class InkStrokeProcessor(
             return
         }
 
+        // --- GESTIONE GOMMA ---
         if (isEraser) {
             drawViewModel.removeFinishedStrokes?.invoke(strokes.keys)
             drawManager.requestDraw(DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
@@ -179,74 +175,9 @@ class InkStrokeProcessor(
             return
         }
 
-        // --- 1. RENDERING VISUALE SULLA CACHE UI (Main Thread) ---
-        // Disegniamo i tratti (ora in World Space) convertendoli temporaneamente nello spazio dei vari buffer
-
-        // A. Disegno sulla cache Bitmap delle singole pagine
-        for (pageRectWithIndex in drawManager.pagesRectOnWindow) {
-            val page = document.pages.getOrNull(pageRectWithIndex.index) ?: continue
-            val basePageRect = drawManager.calcPage.pagesRectOnWindow[pageRectWithIndex.index] // Rettangolo base non zoomato
-
-            page.bitmapPage?.let { bitmapCache ->
-                val canvasCache = Canvas(bitmapCache)
-                val bitmapRect = RectF(0f, 0f, bitmapCache.width.toFloat(), bitmapCache.height.toFloat())
-
-                // Mappa: World Space -> Spazio pixel della Bitmap in memoria
-                val worldToBitmapMatrix = Matrix().apply {
-                    setRectToRect(basePageRect, bitmapRect, Matrix.ScaleToFit.FILL)
-                }
-
-                canvasCache.withSave {
-                    canvasCache.concat(worldToBitmapMatrix)
-                    strokes.values.forEach { stroke ->
-                        drawViewModel.pageMaker.canvasStrokeRenderer.draw(
-                            stroke = stroke,
-                            canvas = canvasCache,
-                            strokeToScreenTransform = worldToBitmapMatrix
-                        )
-                    }
-                }
-            }
-        }
-
-        // B. Disegno sul buffer frontale (Schermo intero temporaneo)
-        drawManager.onDrawBitmap?.let { bitmap ->
-            val canvas = Canvas(bitmap)
-            val worldToScreenMatrix = drawManager.cameraPhysics.getRenderMatrix()
-
-            canvas.withSave {
-                canvas.concat(worldToScreenMatrix)
-                strokes.values.forEach { stroke ->
-                    drawViewModel.pageMaker.canvasStrokeRenderer.draw(
-                        stroke = stroke,
-                        canvas = canvas,
-                        strokeToScreenTransform = worldToScreenMatrix
-                    )
-                }
-            }
-        }
-
-        // --- LA MAGIA DELL'HANDOFF SINCRONIZZATO ---
-        // 1. Facciamo una COPIA FISICA degli ID per evitare che spariscano (Fix del blocco)
-        val strokeIdsCopy = strokes.keys.toSet()
-
-        coroutineScope.launch(Dispatchers.Main) {
-            // 2. Diciamo al Main Thread di nascondere il tratto temporaneo dalla InProgressStrokesView
-            drawViewModel.removeFinishedStrokes?.invoke(strokeIdsCopy)
-
-            // 3. Aspettiamo l'esatto VSYNC (millisecondo) in cui Android sta ridisegnando la UI senza il tratto
-            android.view.Choreographer.getInstance().postFrameCallback {
-                // 4. ORA svegliamo il RenderThread per aggiornare il SurfaceView con la Bitmap in RAM.
-                // Così facendo, il vecchio tratto sparisce esattamente nello stesso millisecondo
-                // in cui appare quello nuovo sul SurfaceView. Niente più somme di trasparenze!
-                drawManager.requestDraw(
-                    DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.REFRESH)
-                )
-            }
-        }
-
-        // --- 2. SERIALIZZAZIONE E PERSISTENZA (Background Thread) ---
+        // --- GESTIONE INCHIOSTRO: IL TUO FAST PATH (MA THREAD-SAFE!) ---
         coroutineScope.launch {
+            // 1. Elaboriamo i dati (Hit-testing e salvataggio DB) IN BACKGROUND
             val strokesByPage = mutableMapOf<Int, MutableList<InkStroke>>()
 
             strokes.values.forEach { inkStroke ->
@@ -255,7 +186,6 @@ class InkStrokeProcessor(
                     val strokeRect = RectF(box.xMin, box.yMin, box.xMax, box.yMax)
                     var touchedAnyPage = false
 
-                    // Hit test IN WORLD SPACE usando l'impaginazione di base
                     drawManager.calcPage.pagesRectOnWindow.forEachIndexed { index, basePageRect ->
                         if (RectF.intersects(strokeRect, basePageRect)) {
                             strokesByPage.getOrPut(index) { mutableListOf() }.add(inkStroke)
@@ -264,7 +194,6 @@ class InkStrokeProcessor(
                     }
 
                     if (!touchedAnyPage) {
-                        // Fallback: se disegni fuori, assegna alla prima pagina visibile
                         val fallbackIndex = drawManager.pagesRectOnWindow.firstOrNull()?.index ?: 0
                         strokesByPage.getOrPut(fallbackIndex) { mutableListOf() }.add(inkStroke)
                     }
@@ -277,7 +206,6 @@ class InkStrokeProcessor(
                 val domainPage = document.pages.getOrNull(pageIndex) ?: continue
                 val basePageRect = drawManager.calcPage.pagesRectOnWindow.getOrNull(pageIndex) ?: continue
 
-                // Matrice: World Space -> Domain Page (MM)
                 val worldToMmMatrix = Matrix().apply {
                     setRectToRect(basePageRect, domainPage.rect(), Matrix.ScaleToFit.FILL)
                 }
@@ -288,7 +216,6 @@ class InkStrokeProcessor(
                     val domainStroke = DomainStroke(domainPage.strokeData.size).apply {
                         this.stroke = inkStroke
                         extractProperties()
-                        // Applichiamo la matrice una volta sola per portarlo in mm e salvarlo
                         applyTransform(worldToMmMatrix)
                     }
                     domainPage.strokeData.add(domainStroke)
@@ -301,12 +228,70 @@ class InkStrokeProcessor(
                 }
             }
 
-            if (historyGroups.isNotEmpty() &&
-                drawViewModel.selectedTool != Tool.LAZO &&
-                drawViewModel.selectedTool != Tool.ERASER) {
-
+            if (historyGroups.isNotEmpty()) {
                 drawViewModel.addHistoryAction(AddStrokesAction(historyGroups))
             }
+
+            // 2. VERNICIATURA INCREMENTALE (FAST PATH)
+            // Usiamo il renderLock per assicurarci che il RenderThread non stia
+            // leggendo la bitmap proprio mentre ci stiamo dipingendo sopra.
+            synchronized(drawManager.renderLock) {
+
+                // A. Disegno sulla cache Bitmap delle singole pagine
+                for (pageRectWithIndex in drawManager.frontState.pagesRect) {
+                    val page = document.pages.getOrNull(pageRectWithIndex.index) ?: continue
+                    val basePageRect = drawManager.calcPage.pagesRectOnWindow[pageRectWithIndex.index]
+
+                    page.bitmapPage?.let { bitmapCache ->
+                        val canvasCache = Canvas(bitmapCache)
+                        val bitmapRect = RectF(0f, 0f, bitmapCache.width.toFloat(), bitmapCache.height.toFloat())
+
+                        val worldToBitmapMatrix = Matrix().apply {
+                            setRectToRect(basePageRect, bitmapRect, Matrix.ScaleToFit.FILL)
+                        }
+
+                        canvasCache.withSave {
+                            canvasCache.concat(worldToBitmapMatrix)
+                            strokes.values.forEach { stroke ->
+                                drawViewModel.pageMaker.canvasStrokeRenderer.draw(
+                                    stroke = stroke,
+                                    canvas = canvasCache,
+                                    strokeToScreenTransform = worldToBitmapMatrix
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // B. Disegno sul buffer frontale (Schermo intero temporaneo)
+                drawManager.frontState.bitmap?.let { bitmap ->
+                    val canvas = Canvas(bitmap)
+                    val worldToScreenMatrix = drawManager.cameraPhysics.getRenderMatrix()
+
+                    canvas.withSave {
+                        canvas.concat(worldToScreenMatrix)
+                        strokes.values.forEach { stroke ->
+                            drawViewModel.pageMaker.canvasStrokeRenderer.draw(
+                                stroke = stroke,
+                                canvas = canvas,
+                                strokeToScreenTransform = worldToScreenMatrix
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 3. TRIGGER DELLA BARRIERA
+            // Invece di richiedere un ricalcolo TOTALE (UPDATE.DRAW_BITMAP),
+            // chiediamo un semplice REFRESH. Il DrawManager disegnerà la bitmap
+            // che abbiamo appena aggiornato a mano, attiverà il Choreographer,
+            // ed eliminerà il tratto dalla View con sincronizzazione perfetta.
+            drawManager.requestDraw(
+                DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.REFRESH).apply {
+                    strokesIdToRemove = strokes.keys
+                    invalidateType = DrawManager.DrawAttachments.Invalidate.INVALIDATE
+                }
+            )
         }
     }
 }

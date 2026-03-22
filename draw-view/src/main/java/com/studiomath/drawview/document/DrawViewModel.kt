@@ -38,6 +38,7 @@ import com.studiomath.drawview.document.page.Text
 import com.studiomath.drawview.document.selection.LassoMode
 import com.studiomath.drawview.document.selection.SelectionGroup
 import com.studiomath.drawview.document.selection.SelectionManager
+import com.studiomath.drawview.document.tools.BrushSettings
 import com.studiomath.drawview.document.tools.DocumentMediaManager
 import com.studiomath.drawview.document.tools.EraserManager
 import com.studiomath.drawview.document.tools.InkInputManager
@@ -112,11 +113,13 @@ class DrawViewModel(
 
     /**
      * Delega l'operazione di cancellazione all'EraserManager, passandogli
-     * le coordinate e lo spessore scalato dello strumento corrente.
+     * le coordinate e lo spessore assoluto in millimetri dello strumento corrente.
      */
     fun eraseStrokesAtLine(x1Px: Float, y1Px: Float, x2Px: Float, y2Px: Float) {
-        val eraserThicknessPx = getActiveBrushScaled().size
-        eraserManager.eraseStrokesAtLine(documentData, x1Px, y1Px, x2Px, y2Px, eraserThicknessPx)
+        // Estraiamo lo spessore assoluto in Measure (es. 8.mm)
+        val eraserThickness = toolManager.activeBrushSettings.size
+
+        eraserManager.eraseStrokesAtLine(documentData, x1Px, y1Px, x2Px, y2Px, eraserThickness)
     }
 
     val textEditorManager = TextEditorManager(
@@ -314,20 +317,21 @@ class DrawViewModel(
 
 
     // --- GESTIONE STRUMENTI (TOOLS) ---
-    val toolManager = ToolManager(application.applicationContext, displayMetrics)
+    val toolManager = ToolManager(application.applicationContext)
 
     // Esponiamo lo stato per la UI in modo trasparente
     var selectedTool: Tool
         get() = toolManager.selectedTool
         set(value) { toolManager.selectTool(value) }
 
-    var activeBrush: Brush
-        get() = toolManager.activeBrush
-        set(value) { toolManager.activeBrush = value }
-
-    fun getActiveBrushScaled() = activeBrush.copy(
-        size = drawManager.dimToPx(Measure(activeBrush.size, Measure.Unit.DOT))
-    )
+    // Esponiamo i settaggi del pennello per Compose (es. per mostrare colore e spessore nella UI)
+    var activeBrushSettings: BrushSettings
+        get() = toolManager.activeBrushSettings
+        set(value) {
+            toolManager.changeActiveBrushSize(value.size)
+            toolManager.changeActiveBrushColor(value.color)
+            toolManager.changeActiveBrushFamily(value.family)
+        }
 
     // --- INK INPUT MANAGER ---
     val inkInputManager = InkInputManager(

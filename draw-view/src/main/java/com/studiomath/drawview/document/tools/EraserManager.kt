@@ -1,7 +1,6 @@
 package com.studiomath.drawview.document.tools
 
 import android.graphics.Matrix
-import android.graphics.Rect
 import android.graphics.RectF
 import androidx.ink.brush.Brush
 import androidx.ink.brush.InputToolType
@@ -13,6 +12,7 @@ import com.studiomath.drawview.data.repository.DrawDocumentRepository
 import com.studiomath.drawview.document.DrawManager
 import com.studiomath.drawview.document.history.HistoryManager
 import com.studiomath.drawview.document.page.Document
+import com.studiomath.drawview.document.page.Measure
 import com.studiomath.drawview.document.page.PageMaker
 import com.studiomath.drawview.document.page.Stroke
 import kotlinx.coroutines.CoroutineScope
@@ -35,35 +35,46 @@ class EraserManager(
     fun eraseStrokesAtLine(
         documentData: Document?,
         x1Px: Float, y1Px: Float, x2Px: Float, y2Px: Float,
-        eraserThicknessPx: Float
+        eraserThickness: Measure // <-- Cambiato da Float (Pixel) a Measure (Millimetri)
     ) {
         val doc = documentData ?: return
         val drawManager = getDrawManager()
 
-        for (pageInfo in drawManager.pagesRectOnWindow) {
+        // Otteniamo le posizioni in tempo reale delle pagine (supporta zoom/pan in corso)
+        val currentRenderMatrix = drawManager.cameraPhysics.getRenderMatrix()
+        val pagesRect = drawManager.calcPage.getPagesRectOnWindowTransformation(drawManager.windowRect, currentRenderMatrix)
+
+        // Bounding box approssimativo del segmento per il Fast Pass su schermo
+        val lineBox = RectF(
+            min(x1Px, x2Px) - 50f, min(y1Px, y2Px) - 50f,
+            max(x1Px, x2Px) + 50f, max(y1Px, y2Px) + 50f
+        )
+
+        for (pageInfo in pagesRect) {
             val page = doc.pages.getOrNull(pageInfo.index) ?: continue
 
             // 1. FAST PASS SCHERMO: Il segmento tocca questa pagina visibile?
-            val lineBox = RectF(
-                min(x1Px, x2Px) - eraserThicknessPx, min(y1Px, y2Px) - eraserThicknessPx,
-                max(x1Px, x2Px) + eraserThicknessPx, max(y1Px, y2Px) + eraserThicknessPx
-            )
             if (!RectF.intersects(lineBox, pageInfo.rect)) continue
 
-            // 2. Convertiamo i pixel del segmento nei millimetri del foglio
-            val screenToMmMatrix = Matrix().apply {
-                setRectToRect(pageInfo.rect, page.rect(), Matrix.ScaleToFit.CENTER)
+            // 2. Calcoliamo la matrice speculare (Schermo -> Millimetri)
+            val mmToScreenMatrix = Matrix().apply {
+                setRectToRect(page.rect(), pageInfo.rect, Matrix.ScaleToFit.FILL)
             }
+            val screenToMmMatrix = Matrix()
+            if (!mmToScreenMatrix.invert(screenToMmMatrix)) continue
+
+            // Convertiamo i punti del segmento nei millimetri del foglio
             val pts = floatArrayOf(x1Px, y1Px, x2Px, y2Px)
             screenToMmMatrix.mapPoints(pts)
-            val mmEraserThickness = screenToMmMatrix.mapRadius(eraserThicknessPx)
 
-            // 3. Creiamo la Mesh del segmento della gomma usando la libreria nativa C++
+            // 3. Creiamo la Mesh usando lo spessore REALE in millimetri
             val eraserBatch = MutableStrokeInputBatch().apply {
                 add(type = InputToolType.UNKNOWN, x = pts[0], y = pts[1], elapsedTimeMillis = 0)
                 add(type = InputToolType.UNKNOWN, x = pts[2], y = pts[3], elapsedTimeMillis = 10)
             }
-            val eraserBrush = Brush.createWithColorIntArgb(StockBrushes.marker(), 0, mmEraserThickness, 0.1f)
+
+            // Applichiamo i millimetri direttamente!
+            val eraserBrush = Brush.createWithColorIntArgb(StockBrushes.marker(), 0, eraserThickness.mm, 0.1f)
             val eraserNativeStroke = androidx.ink.strokes.Stroke(eraserBrush, eraserBatch)
 
             // Estraiamo la PartitionedMesh per la collisione
@@ -74,7 +85,7 @@ class EraserManager(
             val strokesToRemove = mutableListOf<Stroke>()
             val identityTransform = AffineTransform.IDENTITY
 
-            // 4. HIT-TESTING SUI TRATTI DELLA PAGINA
+            // 4. HIT-TESTING SUI TRATTI DELLA PAGINA (Tutto calcolato in MM)
             for (stroke in page.strokeData.toList()) {
                 val nativeStroke = stroke.stroke ?: continue
                 val strokeBox = nativeStroke.shape.computeBoundingBox() ?: continue
@@ -89,11 +100,10 @@ class EraserManager(
                 }
             }
 
-            // 5. RIMOZIONE DEFINITIVA
+            // 5. RIMOZIONE E AGGIORNAMENTO UI
             if (strokesToRemove.isNotEmpty()) {
-                // Salviamo i tratti nel buffer della storia
+                // Salviamo i tratti nel buffer della storia per l'Undo
                 historyManager.currentlyErasedStrokes.getOrPut(pageInfo.index) { mutableListOf() }.addAll(strokesToRemove)
-
                 page.strokeData.removeAll(strokesToRemove)
 
                 // Cancellazione asincrona dal DB
@@ -101,20 +111,13 @@ class EraserManager(
                     strokesToRemove.forEach { repository.deleteStroke(it.dbId) }
                 }
 
-                // Rigenerazione asincrona della cache e aggiornamento UI
-                coroutineScope.launch(Dispatchers.Default) {
-                    page.bitmapPage?.let { oldBitmap ->
-                        page.bitmapPage = pageMaker.makePage(
-                            Rect(0, 0, oldBitmap.width, oldBitmap.height), null, page, doc
-                        )
+                // Chiediamo al nuovo Render Loop di rigenerare e mostrare le bitmap
+                // Niente più blocchi manuali di canvas qui dentro!
+                drawManager.requestDraw(
+                    DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                        update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
                     }
-
-                    drawManager.requestDraw(
-                        DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                            update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
-                        }
-                    )
-                }
+                )
             }
         }
     }

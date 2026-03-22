@@ -70,12 +70,11 @@ class InkTouchHandler(private val drawViewModel: DrawViewModel) {
                 val screenToWorld = drawViewModel.drawManager.getScreenToWorldMatrix()
 
                 // 2. Avvia il tratto passando la matrice (nota: accetta una Matrix o un AffineTransform a seconda dell'overload, usa Matrix se disponibile)
-                currentStrokeId = drawViewModel.inkInputManager.startStrokeInProgress?.invoke(
-                    event,
-                    pointerId,
-                    drawViewModel.activeBrush, // <-- Pennello NON scalato
-                    screenToWorld,
-                    Matrix()
+                currentStrokeId = drawViewModel.inkInputManager.beginStroke(
+                    event = event,
+                    pointerId = pointerId,
+                    activeSettings = drawViewModel.toolManager.activeBrushSettings,
+                    drawManager = drawViewModel.drawManager
                 )
             }
             MotionEvent.ACTION_MOVE -> {

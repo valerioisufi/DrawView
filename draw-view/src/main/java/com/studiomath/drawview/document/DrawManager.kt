@@ -614,23 +614,24 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         for (pageRectWithIndex in frontState.pagesRect) {
             val pageStrokes = strokesByPage[pageRectWithIndex.index] ?: continue
             val page = document.pages.getOrNull(pageRectWithIndex.index) ?: continue
-            val basePageRect = calcPage.pagesRectOnWindow[pageRectWithIndex.index]
 
             page.bitmapPage?.let { bitmapCache ->
                 val canvasCache = Canvas(bitmapCache)
                 val bitmapRect = RectF(0f, 0f, bitmapCache.width.toFloat(), bitmapCache.height.toFloat())
 
-                val worldToBitmapMatrix = Matrix().apply {
-                    setRectToRect(basePageRect, bitmapRect, Matrix.ScaleToFit.FILL)
+                // FIX 1: La matrice ora mappa correttamente i Millimetri del foglio (page.rect()) sulla Bitmap!
+                // Usiamo ScaleToFit.CENTER per coerenza con il PageMaker
+                val mmToBitmapMatrix = Matrix().apply {
+                    setRectToRect(page.rect(), bitmapRect, Matrix.ScaleToFit.CENTER)
                 }
 
                 canvasCache.withSave {
-                    canvasCache.concat(worldToBitmapMatrix)
+                    canvasCache.concat(mmToBitmapMatrix)
                     pageStrokes.forEach { stroke ->
                         drawViewModel.pageMaker.canvasStrokeRenderer.draw(
                             stroke = stroke,
                             canvas = canvasCache,
-                            strokeToScreenTransform = worldToBitmapMatrix
+                            strokeToScreenTransform = mmToBitmapMatrix
                         )
                     }
                 }
@@ -640,19 +641,71 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         // B. Disegno sul buffer frontale dello schermo
         frontState.bitmap?.let { bitmap ->
             val canvas = Canvas(bitmap)
-            val worldToScreenMatrix = cameraPhysics.getRenderMatrix()
 
-            canvas.withSave {
-                canvas.concat(worldToScreenMatrix)
-                strokesByPage.values.flatten().distinct().forEach { stroke ->
-                    drawViewModel.pageMaker.canvasStrokeRenderer.draw(
-                        stroke = stroke,
-                        canvas = canvas,
-                        strokeToScreenTransform = worldToScreenMatrix
-                    )
+            // FIX 2: Per il front buffer, ogni pagina ha bisogno della sua matrice specifica
+            // che trasforma i Millimetri del foglio nella posizione LIVE sullo schermo (pageRectWithIndex.rect)
+            for (pageRectWithIndex in frontState.pagesRect) {
+                val pageStrokes = strokesByPage[pageRectWithIndex.index] ?: continue
+                val page = document.pages.getOrNull(pageRectWithIndex.index) ?: continue
+
+                val mmToFrontBufferMatrix = Matrix().apply {
+                    setRectToRect(page.rect(), pageRectWithIndex.rect, Matrix.ScaleToFit.CENTER)
+                }
+
+                canvas.withSave {
+                    canvas.concat(mmToFrontBufferMatrix)
+                    pageStrokes.forEach { stroke ->
+                        drawViewModel.pageMaker.canvasStrokeRenderer.draw(
+                            stroke = stroke,
+                            canvas = canvas,
+                            strokeToScreenTransform = mmToFrontBufferMatrix
+                        )
+                    }
                 }
             }
         }
+    }
+
+    // Aggiungi questa data class come contenitore dei dati del target
+    data class TouchTarget(
+        val pageIndex: Int,
+        val screenToMmMatrix: Matrix,
+        val pixelsPerMm: Float // Ci serve per calcolare l'Epsilon
+    )
+
+    /**
+     * Trova la pagina toccata e calcola la matrice esatta per convertire i pixel
+     * dello schermo in millimetri fisici relativi a quella pagina.
+     */
+    fun getTouchTarget(xPx: Float, yPx: Float): TouchTarget? {
+        val document = drawViewModel.documentData ?: return null
+
+        // 1. Recupera la posizione LIVE delle pagine sullo schermo
+        val currentRenderMatrix = cameraPhysics.getRenderMatrix()
+        val pagesRect = calcPage.getPagesRectOnWindowTransformation(windowRect, currentRenderMatrix)
+
+        // 2. Trova la pagina sotto il dito
+        val targetPageInfo = pagesRect.find { it.rect.contains(xPx, yPx) } ?: return null
+        val page = document.pages.getOrNull(targetPageInfo.index) ?: return null
+
+        // 3. Il rettangolo fisico della pagina in millimetri (es. 0,0, 210,297 per un A4)
+        val pageMmRect = page.rect()
+
+        // 4. Calcoliamo la matrice MM -> Schermo (La stessa usata in PageMaker!)
+        val mmToScreenMatrix = Matrix().apply {
+            setRectToRect(pageMmRect, targetPageInfo.rect, Matrix.ScaleToFit.FILL)
+        }
+
+        // 5. Invertiamo la matrice: Schermo -> MM (motionEventToWorldTransform)
+        val screenToMmMatrix = Matrix()
+        if (!mmToScreenMatrix.invert(screenToMmMatrix)) return null
+
+        // Estrarre il fattore di scala per calcolare la tolleranza del tratto (Epsilon)
+        val values = FloatArray(9)
+        mmToScreenMatrix.getValues(values)
+        val pixelsPerMm = values[Matrix.MSCALE_X]
+
+        return TouchTarget(targetPageInfo.index, screenToMmMatrix, pixelsPerMm)
     }
 
     /**

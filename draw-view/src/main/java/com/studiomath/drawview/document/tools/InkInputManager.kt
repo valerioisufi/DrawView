@@ -9,6 +9,7 @@ import com.studiomath.drawview.data.repository.DrawDocumentRepository
 import com.studiomath.drawview.document.page.Stroke
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Gestisce i callback nativi della libreria Ink e il salvataggio dei tratti su database.
@@ -34,5 +35,44 @@ class InkInputManager(
                 repository.saveNewStroke(pageDbId, stroke)
             }
         }
+    }
+
+    // Tiene traccia di quale pagina appartiene a quale ID di tratto in corso
+    val activeStrokePageMap = ConcurrentHashMap<InProgressStrokeId, Int>()
+
+    fun beginStroke(
+        event: MotionEvent,
+        pointerId: Int,
+        activeSettings: com.studiomath.drawview.document.tools.BrushSettings,
+        drawManager: com.studiomath.drawview.document.DrawManager
+    ): InProgressStrokeId? {
+
+        val target = drawManager.getTouchTarget(event.x, event.y) ?: return null
+        val tolerancePx = 0.5f
+        val dynamicEpsilon = tolerancePx / target.pixelsPerMm
+
+        val brush = Brush.createWithColorIntArgb(
+            family = activeSettings.family,
+            colorIntArgb = activeSettings.color,
+            size = activeSettings.size.mm,
+            epsilon = dynamicEpsilon
+        )
+
+        val strokeId = startStrokeInProgress?.invoke(
+            event, pointerId, brush, target.screenToMmMatrix, Matrix()
+        )
+
+        // Salviamo l'associazione Tratto -> Pagina
+        if (strokeId != null) {
+            activeStrokePageMap[strokeId] = target.pageIndex
+        }
+
+        return strokeId
+    }
+
+    // Aggiungi anche un metodo per pulire la mappa se il tratto viene annullato dal sistema
+    fun cancelStroke(strokeId: InProgressStrokeId, event: MotionEvent) {
+        activeStrokePageMap.remove(strokeId)
+        cancelStrokeInProgress?.invoke(strokeId, event)
     }
 }

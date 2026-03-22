@@ -244,7 +244,9 @@ fun DrawScreen(
                         },
                         selected = drawViewModel.selectedTool == Tool.INK_PEN,
                         dropDownMenu = {
-                            var size by remember { mutableFloatStateOf(drawViewModel.activeBrush.size) }
+                            var currentSize by remember(drawViewModel.selectedTool) {
+                                mutableStateOf(drawViewModel.activeBrushSettings.size)
+                            }
 
                             Column(
                                 modifier = Modifier.padding(16.dp),
@@ -254,12 +256,12 @@ fun DrawScreen(
                                 Spacer(modifier = Modifier.height(8.dp))
 
                                 ColorWheel(
-                                    color = Color(drawViewModel.activeBrush.colorIntArgb),
+                                    // 2. Leggiamo il colore direttamente dai settings
+                                    color = Color(drawViewModel.activeBrushSettings.color),
                                     onColorChanged = {
-                                        drawViewModel.activeBrush =
-                                            drawViewModel.activeBrush.copyWithColorIntArgb(
-                                                colorIntArgb = it.toArgb()
-                                            )
+                                        // 3. Aggiorniamo i settings clonando la data class
+                                        drawViewModel.activeBrushSettings =
+                                            drawViewModel.activeBrushSettings.copy(color = it.toArgb())
                                     }
                                 )
 
@@ -274,11 +276,13 @@ fun DrawScreen(
 
                                 SizeSlider(
                                     modifier = Modifier.padding(8.dp),
-                                    size = size.pt,
-                                    onSizeChanged = {
-                                        size = it.pt
-                                        drawViewModel.activeBrush = drawViewModel.activeBrush.copy(
-                                            size = it.pt
+                                    size = currentSize, // Passiamo direttamente l'oggetto Measure
+                                    onSizeChanged = { newMeasure ->
+                                        currentSize = newMeasure // Aggiorniamo la UI di Compose
+
+                                        // Aggiorniamo i settaggi del ViewModel passando l'oggetto Measure
+                                        drawViewModel.activeBrushSettings = drawViewModel.activeBrushSettings.copy(
+                                            size = newMeasure
                                         )
                                     }
                                 )
@@ -308,7 +312,9 @@ fun DrawScreen(
                         },
                         selected = drawViewModel.selectedTool == Tool.INK_HIGHLIGHTER,
                         dropDownMenu = {
-                            var size by remember { mutableFloatStateOf(drawViewModel.activeBrush.size) }
+                            var currentSize by remember(drawViewModel.selectedTool) {
+                                mutableStateOf(drawViewModel.activeBrushSettings.size)
+                            }
 
                             Column(
                                 modifier = Modifier.padding(16.dp),
@@ -322,12 +328,10 @@ fun DrawScreen(
                                 Spacer(modifier = Modifier.height(8.dp))
 
                                 ColorWheel(
-                                    color = Color(drawViewModel.activeBrush.colorIntArgb),
+                                    color = Color(drawViewModel.activeBrushSettings.color),
                                     onColorChanged = {
-                                        drawViewModel.activeBrush =
-                                            drawViewModel.activeBrush.copyWithColorIntArgb(
-                                                colorIntArgb = it.toArgb()
-                                            )
+                                        drawViewModel.activeBrushSettings =
+                                            drawViewModel.activeBrushSettings.copy(color = it.toArgb())
                                     }
                                 )
 
@@ -342,11 +346,13 @@ fun DrawScreen(
 
                                 SizeSlider(
                                     modifier = Modifier.padding(8.dp),
-                                    size = size.pt,
-                                    onSizeChanged = {
-                                        size = it.pt
-                                        drawViewModel.activeBrush = drawViewModel.activeBrush.copy(
-                                            size = it.pt
+                                    size = currentSize, // Passiamo direttamente l'oggetto Measure
+                                    onSizeChanged = { newMeasure ->
+                                        currentSize = newMeasure // Aggiorniamo la UI di Compose
+
+                                        // Aggiorniamo i settaggi del ViewModel passando l'oggetto Measure
+                                        drawViewModel.activeBrushSettings = drawViewModel.activeBrushSettings.copy(
+                                            size = newMeasure
                                         )
                                     }
                                 )
@@ -376,7 +382,9 @@ fun DrawScreen(
                         },
                         selected = drawViewModel.selectedTool == Tool.ERASER,
                         dropDownMenu = {
-                            var size by remember { mutableFloatStateOf(drawViewModel.activeBrush.size) }
+                            var currentSize by remember(drawViewModel.selectedTool) {
+                                mutableStateOf(drawViewModel.activeBrushSettings.size)
+                            }
 
                             Column(
                                 modifier = Modifier.padding(16.dp),
@@ -391,11 +399,13 @@ fun DrawScreen(
 
                                 SizeSlider(
                                     modifier = Modifier.padding(8.dp),
-                                    size = size.pt,
-                                    onSizeChanged = {
-                                        size = it.pt
-                                        drawViewModel.activeBrush = drawViewModel.activeBrush.copy(
-                                            size = it.pt
+                                    size = currentSize, // Passiamo direttamente l'oggetto Measure
+                                    onSizeChanged = { newMeasure ->
+                                        currentSize = newMeasure // Aggiorniamo la UI di Compose
+
+                                        // Aggiorniamo i settaggi del ViewModel passando l'oggetto Measure
+                                        drawViewModel.activeBrushSettings = drawViewModel.activeBrushSettings.copy(
+                                            size = newMeasure
                                         )
                                     }
                                 )

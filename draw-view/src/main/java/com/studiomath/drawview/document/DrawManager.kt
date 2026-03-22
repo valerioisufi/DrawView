@@ -22,11 +22,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.CountDownLatch
 
 /**
  * The core rendering engine and state manager for the drawing canvas.
@@ -82,18 +81,22 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     var windowRect = RectF()
 
 
-    private var renderThread: Thread? = null
-    @Volatile private var isRendering = false
-    private val threadWaitLock = Object() // Usato per mettere in pausa il thread e risparmiare batteria
-    private var currentSurfaceHolder: SurfaceHolder? = null
-
-
     val cameraPhysics = CameraPhysicsEngine(displayMetrics) {
         // Restituisce il rettangolo totale di tutte le pagine in millimetri/pt
         calcPage.contentRect
     }
     // Variabile per tenere traccia del tempo per la fisica
     private var lastFrameTime = 0L
+
+    // --- NUOVO MOTORE DI RENDER REATTIVO ---
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val renderDispatcher = Dispatchers.IO.limitedParallelism(1) // Singolo thread garantito
+    private val renderScope = CoroutineScope(renderDispatcher + SupervisorJob())
+
+    // Il canale funge da "tubo" reattivo al posto della vecchia coda bloccante
+    private val renderChannel = Channel<DrawAttachments>(Channel.UNLIMITED)
+    private var renderJob: Job? = null
+    private var currentSurfaceHolder: SurfaceHolder? = null
 
     /**
      * Converts a physical dimension (Measure) into screen pixels relative to the current zoom level.
@@ -142,7 +145,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         }
         /** Defines the type of cache update required. */
         enum class Update {
-            DRAW_BITMAP, CACHE_ALL, CACHE_PAGE_ONLY
+            DRAW_BITMAP, CACHE_ALL, CACHE_PAGE_ONLY, BAKE_NEW_STROKES
         }
         /** Defines how the Android View should be invalidated. */
         enum class Invalidate {
@@ -158,10 +161,9 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         var invalidateType = Invalidate.INVALIDATE
         var animation: (() -> Unit)? = null
         var animationType = AnimationType.NONE
-    }
 
-    /** The queue of rendering events waiting to be drawn on the next frame. */
-    private var drawStack = ConcurrentLinkedQueue<DrawAttachments>()
+        var newStrokesToBake: Map<Int, List<androidx.ink.strokes.Stroke>>? = null
+    }
 
     /**
      * Dispatches a request to update the drawing view.
@@ -244,6 +246,19 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                             }
                         }
                     }
+                    DrawAttachments.Update.BAKE_NEW_STROKES -> {
+                        drawAttachments.newStrokesToBake?.let { strokesMap ->
+                            // Lanciamo il salvataggio sullo STESSO dispatcher del render loop,
+                            // garantendo l'assenza assoluta di collisioni o data race!
+                            scope.launch(renderDispatcher) {
+                                bakeStrokesIntoCache(strokesMap)
+                                // Dopo aver disegnato sulla bitmap, chiediamo un refresh visivo immediato
+                                updateDrawView(DrawAttachments(DrawAttachments.DrawMode.REFRESH).apply {
+                                    strokesIdToRemove = drawAttachments.strokesIdToRemove
+                                })
+                            }
+                        }
+                    }
                     else -> {}
                 }
             }
@@ -276,132 +291,91 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
      */
     private fun updateDrawView(drawAttachments: DrawAttachments) {
         isDrawing = true
-        drawStack.add(drawAttachments) // Aggiunge in modo thread-safe
-
-        // Sveglia il Render Thread se si era addormentato
-        synchronized(threadWaitLock) {
-            threadWaitLock.notifyAll()
-        }
+        // Invia l'evento nel canale in modo non bloccante.
+        // Se il render loop sta dormendo, si sveglierà automaticamente.
+        renderChannel.trySend(drawAttachments)
     }
 
     fun startRenderLoop(holder: SurfaceHolder) {
-        if (isRendering) return
+        if (renderJob?.isActive == true) return
         currentSurfaceHolder = holder
-        isRendering = true
 
-        renderThread = Thread {
-            while (isRendering) {
-                // 1. Controlla se c'è qualcosa da disegnare o se c'è un'animazione in corso
-                val hasWork = drawStack.isNotEmpty() || cameraPhysics.isAnimating()
+        renderJob = renderScope.launch {
+            // Il ciclo for sul channel si sospende automaticamente (senza consumare CPU)
+            // finché non c'è un nuovo elemento da elaborare.
+            for (attachment in renderChannel) {
 
-                if (!hasWork) {
-                    // Niente da fare? Mettiamo in pausa il thread per NON scaricare la batteria
-                    synchronized(threadWaitLock) {
-                        try {
-                            threadWaitLock.wait() // Aspetta finché updateDrawView non chiama notifyAll()
-                        } catch (e: InterruptedException) {
-                            Thread.currentThread().interrupt()
-                        }
-                    }
-                    continue // Quando si sveglia, ricomincia il ciclo
+                // 1. Raccogliamo tutti gli eventi accumulati nel millisecondo corrente
+                // (equivalente al vecchio svuotamento della coda drawStack)
+                val attachmentsToProcess = mutableListOf(attachment)
+                while (isActive) {
+                    val next = renderChannel.tryReceive().getOrNull() ?: break
+                    attachmentsToProcess.add(next)
                 }
 
-                // 2. Disegniamo! Blocchiamo la tela della SurfaceView richiedendo l'Accelerazione Hardware
+                var finalDrawMode = DrawAttachments.DrawMode.REFRESH
+                val accumulatedStrokesToRemove = mutableSetOf<InProgressStrokeId>()
+                var targetUpdate: DrawAttachments.Update? = null
+                var targetAnimation = DrawAttachments.AnimationType.NONE
+
+                // 2. Uniamo i comandi per fare un solo disegno ottimizzato
+                for (att in attachmentsToProcess) {
+                    if (att.drawMode == DrawAttachments.DrawMode.UPDATE) {
+                        finalDrawMode = DrawAttachments.DrawMode.UPDATE
+                    } else if (finalDrawMode != DrawAttachments.DrawMode.UPDATE) {
+                        finalDrawMode = att.drawMode
+                    }
+                    att.strokesIdToRemove?.let { accumulatedStrokesToRemove.addAll(it) }
+                    att.update?.let { targetUpdate = it }
+                    if (att.animationType != DrawAttachments.AnimationType.NONE) {
+                        targetAnimation = att.animationType
+                    }
+                }
+
+                val finalAttachment = DrawAttachments(finalDrawMode).apply {
+                    update = targetUpdate
+                    animationType = targetAnimation
+                }
+
+                // 3. Fase di disegno (blocco hardware)
                 var canvas: Canvas? = null
-                var strokesToClear: Set<InProgressStrokeId>? = null // Cattura gli ID
                 try {
                     canvas = holder.lockHardwareCanvas()
                     if (canvas != null) {
+                        isInitialized = true
                         canvas.clipRect(windowRect)
                         canvas.drawColor(drawViewModel.themeColors.backgroundColor)
-                        // Catturiamo gli ID che il renderFrame ha estratto dalla coda
-                        strokesToClear = renderFrame(canvas)
+
+                        lastDrawAttachments = finalAttachment
+                        executeRender(canvas, finalAttachment)
+                        isDrawing = false
                     }
                 } finally {
                     if (canvas != null) {
-                        // Usiamo gli ID in modo pulito e diretto, senza variabili globali
-                        if (!strokesToClear.isNullOrEmpty()) {
-                            val latch = CountDownLatch(1)
-                            scope.launch(Dispatchers.Main) {
-                                drawViewModel.removeFinishedStrokes?.invoke(strokesToClear)
-                                android.view.Choreographer.getInstance().postFrameCallback {
-                                    latch.countDown()
-                                }
-                            }
-                            latch.await()
-                        }
                         holder.unlockCanvasAndPost(canvas)
+
+                        // 4. FIX: FIRE-AND-FORGET PER RIMUOVERE IL TRATTO TEMPORANEO
+                        // Questo avviene DOPO aver inviato il frame allo schermo,
+                        // SENZA usare CountDownLatch o bloccare il render thread.
+                        if (accumulatedStrokesToRemove.isNotEmpty()) {
+                            withContext(Dispatchers.Main) {
+                                drawViewModel.removeFinishedStrokes?.invoke(accumulatedStrokesToRemove)
+                            }
+                        }
                     }
                 }
             }
-        }.apply {
-            name = "DrawView-RenderThread"
-            start()
         }
     }
 
     fun stopRenderLoop() {
-        isRendering = false
-        synchronized(threadWaitLock) {
-            threadWaitLock.notifyAll() // Sveglia il thread se dorme per farlo uscire dal while
-        }
-        try {
-            renderThread?.join() // Aspettiamo che muoia pulito
-        } catch (e: InterruptedException) {
-            e.printStackTrace()
-        }
-        renderThread = null
+        renderJob?.cancel()
+        renderJob = null
         currentSurfaceHolder = null
     }
 
     var lastDrawAttachments: DrawAttachments? = null
 
-    /**
-     * Called directly by the View's onDraw cycle.
-     * It consumes the event queue, consolidates the rendering requests, and paints the canvas.
-     *
-     * @param canvas The Android hardware-accelerated Canvas to draw on.
-     */
-    fun renderFrame(canvas: Canvas): Set<InProgressStrokeId>? {
-        isInitialized = true
-        canvas.drawColor(drawViewModel.themeColors.backgroundColor)
-
-        if (drawStack.isEmpty()) {
-            lastDrawAttachments?.let { executeRender(canvas, it) }
-            return null
-        }
-
-        var finalDrawMode = DrawAttachments.DrawMode.REFRESH
-        val accumulatedStrokesToRemove = mutableSetOf<InProgressStrokeId>()
-        var targetUpdate: DrawAttachments.Update? = null
-        var targetAnimation = DrawAttachments.AnimationType.NONE
-
-        while (drawStack.isNotEmpty()) {
-            val attachment = drawStack.poll() ?: break
-            if (attachment.drawMode == DrawAttachments.DrawMode.UPDATE) {
-                finalDrawMode = DrawAttachments.DrawMode.UPDATE
-            } else if (finalDrawMode != DrawAttachments.DrawMode.UPDATE) {
-                finalDrawMode = attachment.drawMode
-            }
-            attachment.strokesIdToRemove?.let { accumulatedStrokesToRemove.addAll(it) }
-            attachment.update?.let { targetUpdate = it }
-            if (attachment.animationType != DrawAttachments.AnimationType.NONE) {
-                targetAnimation = attachment.animationType
-            }
-        }
-
-        // Il RenderManager ora fa solo il suo lavoro: organizzare e delegare.
-        val finalAttachment = DrawAttachments(finalDrawMode).apply {
-            update = targetUpdate
-            animationType = targetAnimation
-        }
-
-        lastDrawAttachments = finalAttachment
-        executeRender(canvas, finalAttachment)
-        isDrawing = false
-
-        return accumulatedStrokesToRemove.ifEmpty { null }
-    }
 
     val shadowPaint = Paint().apply {
         color = android.graphics.Color.argb(80, 0, 0, 0)
@@ -626,6 +600,58 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             // Applica il colore primario del tema per il bordo
             borderPaint.color = drawViewModel.themeColors.primaryColor
             canvas.drawRect(rect, borderPaint)
+        }
+    }
+
+    /**
+     * Disegna i nuovi tratti definitivi sulle cache Bitmap delle pagine e sul front buffer.
+     * Deve essere chiamato su un thread sicuro (renderDispatcher).
+     */
+    private fun bakeStrokesIntoCache(strokesByPage: Map<Int, List<androidx.ink.strokes.Stroke>>) {
+        val document = drawViewModel.documentData ?: return
+
+        // A. Disegno sulla cache Bitmap delle singole pagine
+        for (pageRectWithIndex in frontState.pagesRect) {
+            val pageStrokes = strokesByPage[pageRectWithIndex.index] ?: continue
+            val page = document.pages.getOrNull(pageRectWithIndex.index) ?: continue
+            val basePageRect = calcPage.pagesRectOnWindow[pageRectWithIndex.index]
+
+            page.bitmapPage?.let { bitmapCache ->
+                val canvasCache = Canvas(bitmapCache)
+                val bitmapRect = RectF(0f, 0f, bitmapCache.width.toFloat(), bitmapCache.height.toFloat())
+
+                val worldToBitmapMatrix = Matrix().apply {
+                    setRectToRect(basePageRect, bitmapRect, Matrix.ScaleToFit.FILL)
+                }
+
+                canvasCache.withSave {
+                    canvasCache.concat(worldToBitmapMatrix)
+                    pageStrokes.forEach { stroke ->
+                        drawViewModel.pageMaker.canvasStrokeRenderer.draw(
+                            stroke = stroke,
+                            canvas = canvasCache,
+                            strokeToScreenTransform = worldToBitmapMatrix
+                        )
+                    }
+                }
+            }
+        }
+
+        // B. Disegno sul buffer frontale dello schermo
+        frontState.bitmap?.let { bitmap ->
+            val canvas = Canvas(bitmap)
+            val worldToScreenMatrix = cameraPhysics.getRenderMatrix()
+
+            canvas.withSave {
+                canvas.concat(worldToScreenMatrix)
+                strokesByPage.values.flatten().distinct().forEach { stroke ->
+                    drawViewModel.pageMaker.canvasStrokeRenderer.draw(
+                        stroke = stroke,
+                        canvas = canvas,
+                        strokeToScreenTransform = worldToScreenMatrix
+                    )
+                }
+            }
         }
     }
 

@@ -232,64 +232,13 @@ class InkStrokeProcessor(
                 drawViewModel.addHistoryAction(AddStrokesAction(historyGroups))
             }
 
-            // 2. VERNICIATURA INCREMENTALE (FAST PATH)
-            // Usiamo il renderLock per assicurarci che il RenderThread non stia
-            // leggendo la bitmap proprio mentre ci stiamo dipingendo sopra.
-            synchronized(drawManager.renderLock) {
-
-                // A. Disegno sulla cache Bitmap delle singole pagine
-                for (pageRectWithIndex in drawManager.frontState.pagesRect) {
-                    val page = document.pages.getOrNull(pageRectWithIndex.index) ?: continue
-                    val basePageRect = drawManager.calcPage.pagesRectOnWindow[pageRectWithIndex.index]
-
-                    page.bitmapPage?.let { bitmapCache ->
-                        val canvasCache = Canvas(bitmapCache)
-                        val bitmapRect = RectF(0f, 0f, bitmapCache.width.toFloat(), bitmapCache.height.toFloat())
-
-                        val worldToBitmapMatrix = Matrix().apply {
-                            setRectToRect(basePageRect, bitmapRect, Matrix.ScaleToFit.FILL)
-                        }
-
-                        canvasCache.withSave {
-                            canvasCache.concat(worldToBitmapMatrix)
-                            strokes.values.forEach { stroke ->
-                                drawViewModel.pageMaker.canvasStrokeRenderer.draw(
-                                    stroke = stroke,
-                                    canvas = canvasCache,
-                                    strokeToScreenTransform = worldToBitmapMatrix
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // B. Disegno sul buffer frontale (Schermo intero temporaneo)
-                drawManager.frontState.bitmap?.let { bitmap ->
-                    val canvas = Canvas(bitmap)
-                    val worldToScreenMatrix = drawManager.cameraPhysics.getRenderMatrix()
-
-                    canvas.withSave {
-                        canvas.concat(worldToScreenMatrix)
-                        strokes.values.forEach { stroke ->
-                            drawViewModel.pageMaker.canvasStrokeRenderer.draw(
-                                stroke = stroke,
-                                canvas = canvas,
-                                strokeToScreenTransform = worldToScreenMatrix
-                            )
-                        }
-                    }
-                }
-            }
-
-            // 3. TRIGGER DELLA BARRIERA
-            // Invece di richiedere un ricalcolo TOTALE (UPDATE.DRAW_BITMAP),
-            // chiediamo un semplice REFRESH. Il DrawManager disegnerà la bitmap
-            // che abbiamo appena aggiornato a mano, attiverà il Choreographer,
-            // ed eliminerà il tratto dalla View con sincronizzazione perfetta.
+            // 2. DELEGA DELLA VERNICIATURA INCREMENTALE AL DRAWMANAGER
+            // Niente più blocchi synchronized o manipolazioni dirette di Canvas qui!
             drawManager.requestDraw(
-                DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.REFRESH).apply {
-                    strokesIdToRemove = strokes.keys
-                    invalidateType = DrawManager.DrawAttachments.Invalidate.INVALIDATE
+                DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                    update = DrawManager.DrawAttachments.Update.BAKE_NEW_STROKES
+                    newStrokesToBake = strokesByPage // Passiamo i dati puri
+                    strokesIdToRemove = strokes.keys // Passiamo gli ID da rimuovere per HWUI
                 }
             )
         }

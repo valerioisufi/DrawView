@@ -71,6 +71,20 @@ import com.studiomath.drawview.ui.composeComponents.ColorWheel
 import com.studiomath.drawview.ui.composeComponents.DocumentInfoSelector
 import com.studiomath.drawview.ui.composeComponents.SizeSlider
 
+/**
+ * Renders the primary drawing interface, encompassing the top navigation bar,
+ * the interactive tool selection ribbon, and the main drawing canvas.
+ *
+ * This screen acts as the central UI hub for drawing activities, delegating
+ * state management to the provided ViewModel and coordinating user intents such
+ * as tool selection, undo/redo operations, and media import (PDF/Images) via
+ * native ActivityResultContracts.
+ *
+ * @param modifier The [Modifier] to be applied to the root layout container.
+ * @param drawViewModel The ViewModel responsible for maintaining the state of the drawing canvas, active tools, and document metadata.
+ * @param inProgressStrokesView The view component handling the low-latency rendering of active ink strokes before they are committed to the canvas.
+ * @param onNavigateBack Callback invoked when the user triggers the back navigation action.
+ */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class,
     ExperimentalFoundationApi::class
 )
@@ -79,10 +93,9 @@ fun DrawScreen(
     modifier: Modifier = Modifier,
     drawViewModel: DrawViewModel,
     inProgressStrokesView: InProgressStrokesView,
-    onNavigateBack: () -> Unit // <-- Deleghiamo l'azione di uscita a chi chiama questa schermata
+    onNavigateBack: () -> Unit
 ) {
 
-    // Launcher per selezionare il file PDF
     val pdfPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
@@ -91,7 +104,6 @@ fun DrawScreen(
         }
     }
 
-    // NUOVO: Launcher per selezionare un file immagine dalla galleria
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
@@ -181,12 +193,11 @@ fun DrawScreen(
                         onClick = {
                             drawViewModel.undo()
                         },
-                        enabled = drawViewModel.canUndo // Disabilita il click se non c'è nulla da annullare
+                        enabled = drawViewModel.canUndo
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.Undo,
                             contentDescription = stringResource(R.string.common_action_undo),
-                            // Ingrigisce visivamente l'icona se lo stack è vuoto
                             tint = if (drawViewModel.canUndo) {
                                 MaterialTheme.colorScheme.onSurface
                             } else {
@@ -199,12 +210,11 @@ fun DrawScreen(
                         onClick = {
                             drawViewModel.redo()
                         },
-                        enabled = drawViewModel.canRedo // Disabilita il click se non c'è nulla da ripristinare
+                        enabled = drawViewModel.canRedo
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.Redo,
                             contentDescription = stringResource(R.string.common_action_redo),
-                            // Ingrigisce visivamente l'icona se lo stack è vuoto
                             tint = if (drawViewModel.canRedo) {
                                 MaterialTheme.colorScheme.onSurface
                             } else {
@@ -418,7 +428,7 @@ fun DrawScreen(
                         dropDownMenu = {
                             Column(
                                 modifier = Modifier.padding(16.dp),
-                                horizontalAlignment = Alignment.Start // L'allineamento a sinistra è più elegante per i menu a scelta
+                                horizontalAlignment = Alignment.Start
                             ) {
                                 Text(
                                     text = stringResource(R.string.draw_toolbar_title_lasso_mode),
@@ -427,7 +437,6 @@ fun DrawScreen(
                                     modifier = Modifier.padding(bottom = 12.dp)
                                 )
 
-                                // Opzione 1: Seleziona Tutto (Tratti + Immagini)
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier
@@ -446,7 +455,6 @@ fun DrawScreen(
                                     Text(text = stringResource(R.string.draw_toolbar_option_select_all))
                                 }
 
-                                // Opzione 2: Solo Immagini
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier
@@ -509,7 +517,6 @@ fun DrawScreen(
                         thickness = 2.dp
                     )
 
-                    // Pulsante Importa PDF
                     ToolButton(
                         onClick = {
                             pdfPickerLauncher.launch("application/pdf")
@@ -521,7 +528,6 @@ fun DrawScreen(
                         )
                     }
 
-                    // NUOVO: Pulsante Importa Immagine
                     ToolButton(
                         onClick = {
                             imagePickerLauncher.launch("image/*")
@@ -550,6 +556,23 @@ fun DrawScreen(
 
 }
 
+/**
+ * A specialized button component designed for the drawing toolbar, providing standard
+ * click, long-click, and selection state functionalities.
+ *
+ * This composable can optionally anchor a dropdown menu, making it suitable for tools
+ * that require secondary configuration layers (e.g., selecting brush sizes or colors).
+ *
+ * @param modifier The [Modifier] to be applied to the outer box containing the button and dropdown.
+ * @param onClick Callback executed when the button is tapped.
+ * @param onLongClick Callback executed when the button is long-pressed.
+ * @param selected Indicates whether the button should be styled in an active/selected state.
+ * @param enabled Controls the interactive state of the button.
+ * @param dropDownMenu Composable content defining the UI of the attached dropdown menu.
+ * @param expanded Determines whether the dropdown menu is currently visible.
+ * @param onDismissRequest Callback invoked when the user attempts to dismiss the expanded dropdown menu.
+ * @param content The primary visual composable (typically an [Icon]) rendered inside the button.
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Preview
 @Composable

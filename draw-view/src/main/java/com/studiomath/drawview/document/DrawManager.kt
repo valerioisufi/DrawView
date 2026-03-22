@@ -14,6 +14,7 @@ import androidx.core.graphics.createBitmap
 import androidx.core.graphics.withClip
 import androidx.core.graphics.withSave
 import androidx.ink.authoring.InProgressStrokeId
+import androidx.ink.strokes.Stroke
 import com.studiomath.drawview.document.motion.CameraPhysicsEngine
 import com.studiomath.drawview.document.page.CalcPage
 import com.studiomath.drawview.document.page.Measure
@@ -30,79 +31,92 @@ import kotlinx.coroutines.withContext
 /**
  * The core rendering engine and state manager for the drawing canvas.
  *
- * It orchestrates the translation between document coordinates and screen coordinates,
- * manages the high-resolution bitmap cache, processes drawing commands via an event queue,
- * and handles the persistence of completed ink strokes.
+ * This class orchestrates the translation between document coordinates (millimeters) and screen
+ * coordinates (pixels). It manages a high-resolution bitmap cache using a double-buffering
+ * strategy, processes drawing commands via a reactive event queue, and handles the persistence
+ * of ink strokes into the document's backing store.
  *
- * @property drawViewModel The main ViewModel providing data, configuration, and state.
- * @property displayMetrics The device's display metrics used for physical dimension conversions.
+ * @property drawViewModel The primary ViewModel providing document data and UI state.
+ * @property displayMetrics Device-specific metrics used for physical-to-pixel conversions.
  */
 class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetrics) {
+
+    /** Indicates whether the rendering surface and initial bitmaps are ready for drawing. */
     var isInitialized = false
+
+    /** General purpose scope for document processing and asynchronous tasks. */
     var scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
-    // --- FASE 1: DOUBLE BUFFERING STATE ---
+    /**
+     * Encapsulates the visual state of the canvas at a specific point in time.
+     * Used to implement a double-buffering mechanism between the background calculation
+     * thread and the hardware-accelerated rendering thread.
+     *
+     * @property bitmap The high-resolution rasterized representation of the document.
+     * @property matrix The transformation matrix currently applied to the view.
+     * @property pagesRect A set of calculated page boundaries relative to the viewport.
+     */
     data class RenderState(
         var bitmap: Bitmap? = null,
         var matrix: Matrix = Matrix(),
         var pagesRect: Set<CalcPage.PageRectWithIndex> = mutableSetOf()
     )
 
-    val renderLock = Any() // Oggetto usato per sincronizzare i thread
-    var frontState = RenderState() // Quello che il Main Thread disegna
-    var backState = RenderState()  // Quello su cui la Coroutine lavora in background
+    /** Synchronization object to protect [frontState] and [backState] during buffer swaps. */
+    val renderLock = Any()
 
-    // Manteniamo queste variabili per retrocompatibilità temporanea con il resto del codice
-    // (le rimuoveremo nelle fasi successive)
+    /** The state currently being rendered to the hardware canvas. */
+    var frontState = RenderState()
+
+    /** The state being prepared in the background for the next render pass. */
+    var backState = RenderState()
+
     var onDrawBitmap: Bitmap? = null
     var onDrawBitmapMatrix = Matrix()
     var pagesRectOnWindow = mutableSetOf<CalcPage.PageRectWithIndex>()
 
-
     var jobOnDrawBitmap: Job? = null
     var jobCache: Job? = null
 
+    /** Processor responsible for handling the lifecycle and rendering of ink strokes. */
     val inkStrokeProcessor = InkStrokeProcessor(
         drawViewModel = drawViewModel,
-        coroutineScope = scope, // Usa lo scope interno del DrawManager
+        coroutineScope = scope,
         getDrawManager = { this }
     )
 
+    /** Component responsible for rendering selection UI and interaction overlays. */
     val selectionOverlayRenderer = SelectionOverlayRenderer(drawViewModel)
 
-    /** Helper class for calculating page boundaries, positioning, and elastic effects. */
+    /** Utility for calculating page geometry and layout constraints. */
     val calcPage = CalcPage(displayMetrics)
 
-    /** The calculated bounding box representing the limits of the document on the screen. */
+    /** The bounding box of all document content translated to window coordinates. */
     var contentConstraintsOnWindow = RectF()
 
-
-    /** The physical boundaries of the drawing view on the screen. */
+    /** The physical dimensions and position of the host view. */
     var windowRect = RectF()
 
-
+    /** The engine responsible for calculating view transformations, scrolling, and momentum. */
     val cameraPhysics = CameraPhysicsEngine(displayMetrics) {
-        // Restituisce il rettangolo totale di tutte le pagine in millimetri/pt
         calcPage.contentRect
     }
-    // Variabile per tenere traccia del tempo per la fisica
+
     private var lastFrameTime = 0L
 
-    // --- NUOVO MOTORE DI RENDER REATTIVO ---
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    private val renderDispatcher = Dispatchers.IO.limitedParallelism(1) // Singolo thread garantito
+    private val renderDispatcher = Dispatchers.IO.limitedParallelism(1)
     private val renderScope = CoroutineScope(renderDispatcher + SupervisorJob())
 
-    // Il canale funge da "tubo" reattivo al posto della vecchia coda bloccante
     private val renderChannel = Channel<DrawAttachments>(Channel.UNLIMITED)
     private var renderJob: Job? = null
     private var currentSurfaceHolder: SurfaceHolder? = null
 
     /**
-     * Converts a physical dimension (Measure) into screen pixels relative to the current zoom level.
+     * Converts a physical measurement into pixel values based on the current viewport scale.
      *
-     * @param dimension The physical dimension to convert.
-     * @return The size in pixels.
+     * @param dimension The [Measure] object containing physical units (pt).
+     * @return The equivalent value in screen pixels.
      */
     fun dimToPx(dimension: Measure): Float {
         if (pagesRectOnWindow.isEmpty()) return 0f
@@ -113,10 +127,10 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     }
 
     /**
-     * Creates a clipping path that masks out the areas between and outside the pages.
+     * Generates a [Path] representing the non-page areas (gutters and background) for clipping.
      *
-     * @param currentRects The currently calculated page positions on screen.
-     * @return The computed clipping mask [Path].
+     * @param currentRects The current set of visible page rectangles.
+     * @return A path that can be used to mask out drawing operations outside of page boundaries.
      */
     fun getMaskPath(currentRects: Set<CalcPage.PageRectWithIndex>): Path {
         val maskPath = Path().apply {
@@ -131,27 +145,27 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         return maskPath
     }
 
-
     /**
-     * Data class representing a specific rendering request.
-     * It holds the instructions, drawing mode, and metadata required to update the screen.
+     * Data transfer object containing parameters for a specific rendering request.
+     *
+     * @property drawMode Specifies the visual intent (e.g., full update vs. simple transformation).
      */
     data class DrawAttachments(
         val drawMode: DrawMode,
     ){
-        /** Defines the type of rendering logic to execute. */
+        /** Defines how the frame should be processed by the rendering engine. */
         enum class DrawMode {
             UPDATE, REFRESH, SCALE_TRANSLATE, PREVIEW, ANIMATE
         }
-        /** Defines the type of cache update required. */
+        /** Defines internal cache invalidation requirements. */
         enum class Update {
             DRAW_BITMAP, CACHE_ALL, CACHE_PAGE_ONLY, BAKE_NEW_STROKES
         }
-        /** Defines how the Android View should be invalidated. */
+        /** Methods of notifying the Android View system. */
         enum class Invalidate {
             INVALIDATE, POST_INVALIDATE, POST_INVALIDATE_ON_ANIMATION
         }
-        /** Defines the type of ongoing animation. */
+        /** Types of ongoing procedural animations. */
         enum class AnimationType {
             NONE, BOUNCE_BACK, FLING
         }
@@ -166,11 +180,10 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     }
 
     /**
-     * Dispatches a request to update the drawing view.
-     * Depending on the DrawMode, this might spawn a background task to recalculate the bitmap,
-     * or directly queue a visual transformation (like during pan/zoom).
+     * Submits a request to the rendering pipeline to update the view.
+     * This method handles both background bitmap regeneration and direct transformation updates.
      *
-     * @param drawAttachments The metadata containing instructions for this render pass.
+     * @param drawAttachments Instructions and metadata for the requested frame update.
      */
     fun requestDraw(drawAttachments: DrawAttachments){
         when (drawAttachments.drawMode) {
@@ -191,15 +204,11 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                 calcPage.needToBeUpdated = false
                             }
 
-                            // Chiediamo la matrice al motore fisico
                             val renderMatrix = cameraPhysics.getRenderMatrix()
                             val newPagesRect = calcPage.getPagesRectOnWindowTransformation(windowRect, renderMatrix)
 
-                            // Invia la maschera calcolata usando i rettangoli NUOVI
                             drawViewModel.inkInputManager.maskPath?.invoke(getMaskPath(newPagesRect))
 
-                            // 1. LAVORO IN BACKGROUND (senza bloccare nessuno)
-                            // Usiamo il frontState.bitmap attuale per capire le dimensioni, se esiste
                             val tempBitmap = frontState.bitmap?.let { currentBmp ->
                                 drawViewModel.pageMaker.makePagesOnBitmap(
                                     Rect(0, 0, currentBmp.width, currentBmp.height),
@@ -208,23 +217,18 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                 )
                             }
 
-                            // 2. SWAP ATOMICO (Istante critico bloccato)
                             synchronized(renderLock) {
-                                // Opzionale: salva il vecchio front nel back per eventuale riciclo memoria
                                 backState.bitmap = frontState.bitmap
 
-                                // Promuovi i nuovi dati nel Front Buffer
                                 frontState.bitmap = tempBitmap
                                 frontState.matrix = Matrix(renderMatrix)
                                 frontState.pagesRect = newPagesRect
 
-                                // Aggiorniamo anche le vecchie variabili per non rompere il resto del codice oggi
                                 onDrawBitmap = frontState.bitmap
                                 onDrawBitmapMatrix = frontState.matrix
                                 pagesRectOnWindow = frontState.pagesRect.toMutableSet()
                             }
 
-                            // Diciamo al Render Thread di disegnare il nuovo frame!
                             updateDrawView(DrawAttachments(drawAttachments.drawMode).apply {
                                 update = drawAttachments.update
                             })
@@ -248,11 +252,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     }
                     DrawAttachments.Update.BAKE_NEW_STROKES -> {
                         drawAttachments.newStrokesToBake?.let { strokesMap ->
-                            // Lanciamo il salvataggio sullo STESSO dispatcher del render loop,
-                            // garantendo l'assenza assoluta di collisioni o data race!
                             scope.launch(renderDispatcher) {
                                 bakeStrokesIntoCache(strokesMap)
-                                // Dopo aver disegnato sulla bitmap, chiediamo un refresh visivo immediato
                                 updateDrawView(DrawAttachments(DrawAttachments.DrawMode.REFRESH).apply {
                                     strokesIdToRemove = drawAttachments.strokesIdToRemove
                                 })
@@ -270,7 +271,6 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 if (onDrawBitmap == null) return
                 jobOnDrawBitmap?.cancel()
 
-                // USA DIRETTAMENTE IL MOTORE, niente più unione di moveMatrix ed elasticMatrix
                 val renderMatrix = cameraPhysics.getRenderMatrix()
                 pagesRectOnWindow = calcPage.getPagesRectOnWindowTransformation(windowRect, renderMatrix)
 
@@ -286,27 +286,27 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     var isUserTouching = false
 
     /**
-     * Pushes the rendering request to the queue and asks the Android View framework to invalidate,
-     * triggering a new call to onDrawView().
+     * Queues a frame update to the reactive rendering channel.
+     *
+     * @param drawAttachments The metadata for the frame to be drawn.
      */
     private fun updateDrawView(drawAttachments: DrawAttachments) {
         isDrawing = true
-        // Invia l'evento nel canale in modo non bloccante.
-        // Se il render loop sta dormendo, si sveglierà automaticamente.
         renderChannel.trySend(drawAttachments)
     }
 
+    /**
+     * Initializes and starts the background rendering loop using the provided SurfaceHolder.
+     *
+     * @param holder The SurfaceHolder used to lock and unlock the hardware canvas.
+     */
     fun startRenderLoop(holder: SurfaceHolder) {
         if (renderJob?.isActive == true) return
         currentSurfaceHolder = holder
 
         renderJob = renderScope.launch {
-            // Il ciclo for sul channel si sospende automaticamente (senza consumare CPU)
-            // finché non c'è un nuovo elemento da elaborare.
             for (attachment in renderChannel) {
 
-                // 1. Raccogliamo tutti gli eventi accumulati nel millisecondo corrente
-                // (equivalente al vecchio svuotamento della coda drawStack)
                 val attachmentsToProcess = mutableListOf(attachment)
                 while (isActive) {
                     val next = renderChannel.tryReceive().getOrNull() ?: break
@@ -318,7 +318,6 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 var targetUpdate: DrawAttachments.Update? = null
                 var targetAnimation = DrawAttachments.AnimationType.NONE
 
-                // 2. Uniamo i comandi per fare un solo disegno ottimizzato
                 for (att in attachmentsToProcess) {
                     if (att.drawMode == DrawAttachments.DrawMode.UPDATE) {
                         finalDrawMode = DrawAttachments.DrawMode.UPDATE
@@ -337,7 +336,6 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     animationType = targetAnimation
                 }
 
-                // 3. Fase di disegno (blocco hardware)
                 var canvas: Canvas? = null
                 try {
                     canvas = holder.lockHardwareCanvas()
@@ -354,9 +352,6 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     if (canvas != null) {
                         holder.unlockCanvasAndPost(canvas)
 
-                        // 4. FIX: FIRE-AND-FORGET PER RIMUOVERE IL TRATTO TEMPORANEO
-                        // Questo avviene DOPO aver inviato il frame allo schermo,
-                        // SENZA usare CountDownLatch o bloccare il render thread.
                         if (accumulatedStrokesToRemove.isNotEmpty()) {
                             withContext(Dispatchers.Main) {
                                 drawViewModel.inkInputManager.removeFinishedStrokes?.invoke(accumulatedStrokesToRemove)
@@ -368,6 +363,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         }
     }
 
+    /** Stops the rendering loop and releases surface references. */
     fun stopRenderLoop() {
         renderJob?.cancel()
         renderJob = null
@@ -376,21 +372,20 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
     var lastDrawAttachments: DrawAttachments? = null
 
-
     val shadowPaint = Paint().apply {
         color = android.graphics.Color.argb(80, 0, 0, 0)
         setShadowLayer(20f, 0f, 15f, android.graphics.Color.argb(120, 0, 0, 0))
     }
     val borderPaint = Paint().apply {
-        color = android.graphics.Color.argb(255, 0, 150, 255) // Azzurro Android
+        color = android.graphics.Color.argb(255, 0, 150, 255)
         style = Paint.Style.STROKE
         strokeWidth = 6f
     }
     val placeholderPaint = Paint().apply {
-        color = android.graphics.Color.argb(30, 0, 0, 0) // Grigio semi-trasparente
+        color = android.graphics.Color.argb(30, 0, 0, 0)
         style = Paint.Style.FILL
     }
-    // Aggiungi questa piccola classe di supporto dentro DrawManager (o fuori, come preferisci)
+
     private data class RenderSnapshot(
         val bitmap: Bitmap?,
         val matrix: Matrix,
@@ -398,19 +393,21 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         val currentRenderMatrix: Matrix
     )
 
+    /**
+     * Internal rendering entry point that dispatches specific drawing logic based on [DrawAttachments].
+     *
+     * @param canvas The target hardware-accelerated canvas.
+     * @param drawAttachments Metadata describing the type of drawing pass required.
+     */
     private fun executeRender(canvas: Canvas, drawAttachments: DrawAttachments) {
-        // 1. CATTURA DELLO STATO SICURO E DELLA FISICA PER QUESTO FRAME
         val snapshot: RenderSnapshot
         synchronized(renderLock) {
 
             val currentRenderMatrix = cameraPhysics.getRenderMatrix()
 
-            // --- FIX 3: NIENTE PIÙ SNAP-BACK! ---
-            // Se stiamo riordinando le pagine, la telecamera potrebbe essersi mossa
-            // via auto-scroll, quindi forziamo SEMPRE l'uso delle coordinate dal vivo.
             val useLiveRects = drawAttachments.drawMode == DrawAttachments.DrawMode.SCALE_TRANSLATE ||
                     drawAttachments.drawMode == DrawAttachments.DrawMode.ANIMATE ||
-                    drawViewModel.isReorderingPages // <--- Aggiunta fondamentale
+                    drawViewModel.isReorderingPages
 
             val currentPagesRect = if (useLiveRects) {
                 calcPage.getPagesRectOnWindowTransformation(windowRect, currentRenderMatrix)
@@ -418,8 +415,6 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 frontState.pagesRect
             }
 
-            // --- FIX MASCHERA IN TEMPO REALE ---
-            // Se la telecamera si è mossa, aggiorniamo la maschera per l'inchiostro in corso
             if (useLiveRects) {
                 drawViewModel.inkInputManager.maskPath?.invoke(getMaskPath(currentPagesRect))
             }
@@ -432,7 +427,6 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             )
         }
 
-        // 2. SMISTAMENTO DELLA LOGICA DI RENDER
         when (drawAttachments.drawMode) {
             DrawAttachments.DrawMode.UPDATE -> renderUpdateMode(canvas, snapshot, drawAttachments)
             DrawAttachments.DrawMode.REFRESH -> renderRefreshMode(canvas, snapshot, drawAttachments)
@@ -441,13 +435,10 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             else -> {}
         }
 
-        // 3. DISEGNO OVERLAY E OVERRIDE
-        // --- FIX: IL RENDERER ORA ASPETTA CHE IL MAIN THREAD FINISCA LE MODIFICHE ---
         synchronized(renderLock) {
             selectionOverlayRenderer.draw(canvas, snapshot.pagesRect, windowRect)
         }
 
-        // 4. CHECK ANIMAZIONI CONTINUE
         if (cameraPhysics.isAnimating()) {
             requestDraw(DrawAttachments(drawMode = DrawAttachments.DrawMode.ANIMATE).apply {
                 animationType = DrawAttachments.AnimationType.FLING
@@ -455,8 +446,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         }
     }
 
-    // --- METODI PRIVATI DI RENDERING ESTRATTI ---
-
+    /** Draws the high-resolution bitmap and page backgrounds during a full document update. */
     private fun renderUpdateMode(canvas: Canvas, snapshot: RenderSnapshot, attachments: DrawAttachments) {
         drawViewModel.pageMaker.makeWindowBackground(canvas, snapshot.pagesRect, snapshot.currentRenderMatrix, drawViewModel.themeColors)
         for (page in snapshot.pagesRect) {
@@ -466,6 +456,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         snapshot.bitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
     }
 
+    /** Refreshes the view, handling special states like page reordering and placeholders. */
     private fun renderRefreshMode(canvas: Canvas, snapshot: RenderSnapshot, attachments: DrawAttachments) {
         drawViewModel.pageMaker.makeWindowBackground(canvas, snapshot.pagesRect, snapshot.currentRenderMatrix, drawViewModel.themeColors)
         val document = drawViewModel.documentData
@@ -475,9 +466,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
             if (drawViewModel.isReorderingPages) {
                 if (page.index == drawViewModel.draggedPageIndex) {
-                    // Applica il colore primario del tema con una leggera trasparenza
                     placeholderPaint.color = drawViewModel.themeColors.primaryColor
-                    placeholderPaint.alpha = 30 // Circa 12% di opacità
+                    placeholderPaint.alpha = 30
                     canvas.drawRect(page.rect, placeholderPaint)
                 } else {
                     document?.pages?.getOrNull(page.index)?.bitmapPage?.let { bmp ->
@@ -496,6 +486,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
     val bitmapFilterPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
 
+    /** Renders the canvas during scaling or translation by transforming the cached bitmap. */
     private fun renderScaleTranslateMode(canvas: Canvas, snapshot: RenderSnapshot) {
         val inverseDrawMatrix = Matrix()
         var relativeTransform: Matrix? = null
@@ -514,8 +505,6 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         val document = drawViewModel.documentData
 
         canvas.withSave {
-            // FIX 2: Se stiamo riordinando, NON clippiamo lo schermo perché non useremo
-            // il livello ad alta risoluzione. Disegneremo tutte le pagine a bassa risoluzione.
             if (!drawViewModel.isReorderingPages && relativeTransform != null && !onDrawBitmapBounds.isEmpty) {
                 clipOutRect(onDrawBitmapBounds)
             }
@@ -523,14 +512,11 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             for (page in snapshot.pagesRect) {
                 drawViewModel.pageMaker.makePageBackground(canvas, page.rect, windowRect, drawViewModel.themeColors)
 
-                // Selezioniamo cosa disegnare per ogni slot
                 if (drawViewModel.isReorderingPages && page.index == drawViewModel.draggedPageIndex) {
-                    // È il buco lasciato dalla pagina che stiamo spostando: disegniamo il placeholder
                     placeholderPaint.color = drawViewModel.themeColors.primaryColor
                     placeholderPaint.alpha = 30
                     canvas.drawRect(page.rect, placeholderPaint)
                 } else {
-                    // È una pagina normale: disegniamo la sua bitmap
                     val docPage = document?.pages?.getOrNull(page.index) ?: continue
                     if (!docPage.isPrepared) docPage.prepare()
                     docPage.bitmapPage?.let { drawBitmap(it, null, page.rect, null) }
@@ -538,19 +524,16 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             }
         }
 
-        // Mostriamo il layer ad alta risoluzione SOLO se NON stiamo riordinando le pagine
         if (!drawViewModel.isReorderingPages && relativeTransform != null && snapshot.bitmap != null) {
             canvas.withClip(windowRect) {
-                // AGGIUNGIAMO IL bitmapFilterPaint INVECE DI null
                 drawBitmap(snapshot.bitmap, relativeTransform, bitmapFilterPaint)
             }
         }
 
-        // --- FIX 1: DISENGA LA PAGINA VOLANTE ---
-        // Prima mancava questa riga, per questo la pagina spariva durante l'auto-scroll!
         renderFloatingPage(canvas)
     }
 
+    /** Updates the physics engine and triggers frame updates for physics-based animations. */
     private fun renderAnimateMode(canvas: Canvas, snapshot: RenderSnapshot) {
         val currentTime = System.currentTimeMillis()
         if (lastFrameTime != 0L) {
@@ -558,23 +541,16 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         }
         lastFrameTime = currentTime
 
-        // 1. Poiché la fisica è avanzata di un frame, ricalcoliamo subito le
-        // posizioni aggiornate delle pagine per evitare lag visivi.
         val updatedRenderMatrix = cameraPhysics.getRenderMatrix()
         val updatedPagesRect = calcPage.getPagesRectOnWindowTransformation(windowRect, updatedRenderMatrix)
 
-        // 2. Creiamo una copia dello snapshot con i dati freschi
         val updatedSnapshot = snapshot.copy(
             currentRenderMatrix = updatedRenderMatrix,
             pagesRect = updatedPagesRect
         )
 
-        // 3. FIX LAMPEGGIO: Deleghiamo il disegno effettivo alla funzione gemella!
-        // renderScaleTranslateMode sa già perfettamente come disegnare sia la bassa
-        // risoluzione che la bitmap ad alta risoluzione in movimento.
         renderScaleTranslateMode(canvas, updatedSnapshot)
 
-        // 4. Controllo fine animazione
         if (!cameraPhysics.isAnimating()) {
             lastFrameTime = 0L
             requestDraw(DrawAttachments(drawMode = DrawAttachments.DrawMode.UPDATE).apply {
@@ -583,9 +559,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         }
     }
 
+    /** Renders the temporary visual representation of a page currently being dragged. */
     private fun renderFloatingPage(canvas: Canvas) {
-        // Salviamo i riferimenti in variabili locali. Se il Main Thread li modifica
-        // una frazione di secondo dopo, noi continueremo a usare questi riferimenti sicuri.
         val isReordering = drawViewModel.isReorderingPages
         val rect = drawViewModel.floatingPageRect
         val bmp = drawViewModel.draggedPageBitmap
@@ -597,20 +572,19 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             drawViewModel.pageMaker.makePageBackground(canvas, rect, windowRect, drawViewModel.themeColors)
             canvas.drawBitmap(bmp, null, rect, null)
 
-            // Applica il colore primario del tema per il bordo
             borderPaint.color = drawViewModel.themeColors.primaryColor
             canvas.drawRect(rect, borderPaint)
         }
     }
 
     /**
-     * Disegna i nuovi tratti definitivi sulle cache Bitmap delle pagine e sul front buffer.
-     * Deve essere chiamato su un thread sicuro (renderDispatcher).
+     * Persists a set of strokes onto the high-resolution bitmaps (both page-level and buffer-level).
+     *
+     * @param strokesByPage A map associating page indices with the list of strokes to be baked.
      */
-    private fun bakeStrokesIntoCache(strokesByPage: Map<Int, List<androidx.ink.strokes.Stroke>>) {
+    private fun bakeStrokesIntoCache(strokesByPage: Map<Int, List<Stroke>>) {
         val document = drawViewModel.documentData ?: return
 
-        // A. Disegno sulla cache Bitmap delle singole pagine
         for (pageRectWithIndex in frontState.pagesRect) {
             val pageStrokes = strokesByPage[pageRectWithIndex.index] ?: continue
             val page = document.pages.getOrNull(pageRectWithIndex.index) ?: continue
@@ -619,8 +593,6 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 val canvasCache = Canvas(bitmapCache)
                 val bitmapRect = RectF(0f, 0f, bitmapCache.width.toFloat(), bitmapCache.height.toFloat())
 
-                // FIX 1: La matrice ora mappa correttamente i Millimetri del foglio (page.rect()) sulla Bitmap!
-                // Usiamo ScaleToFit.CENTER per coerenza con il PageMaker
                 val mmToBitmapMatrix = Matrix().apply {
                     setRectToRect(page.rect(), bitmapRect, Matrix.ScaleToFit.CENTER)
                 }
@@ -638,12 +610,9 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             }
         }
 
-        // B. Disegno sul buffer frontale dello schermo
         frontState.bitmap?.let { bitmap ->
             val canvas = Canvas(bitmap)
 
-            // FIX 2: Per il front buffer, ogni pagina ha bisogno della sua matrice specifica
-            // che trasforma i Millimetri del foglio nella posizione LIVE sullo schermo (pageRectWithIndex.rect)
             for (pageRectWithIndex in frontState.pagesRect) {
                 val pageStrokes = strokesByPage[pageRectWithIndex.index] ?: continue
                 val page = document.pages.getOrNull(pageRectWithIndex.index) ?: continue
@@ -653,7 +622,9 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 }
 
                 canvas.withSave {
+                    canvas.clipRect(pageRectWithIndex.rect)
                     canvas.concat(mmToFrontBufferMatrix)
+
                     pageStrokes.forEach { stroke ->
                         drawViewModel.pageMaker.canvasStrokeRenderer.draw(
                             stroke = stroke,
@@ -666,41 +637,44 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         }
     }
 
-    // Aggiungi questa data class come contenitore dei dati del target
+    /**
+     * Data class containing hit-test results for a touch event.
+     *
+     * @property pageIndex The index of the page that was hit.
+     * @property screenToMmMatrix Matrix to transform screen coordinates to document millimeters.
+     * @property pixelsPerMm The current resolution density of the document on screen.
+     */
     data class TouchTarget(
         val pageIndex: Int,
         val screenToMmMatrix: Matrix,
-        val pixelsPerMm: Float // Ci serve per calcolare l'Epsilon
+        val pixelsPerMm: Float
     )
 
     /**
-     * Trova la pagina toccata e calcola la matrice esatta per convertire i pixel
-     * dello schermo in millimetri fisici relativi a quella pagina.
+     * Identifies the page at the given screen coordinates and provides coordinate transformation logic.
+     *
+     * @param xPx The x-coordinate in pixels.
+     * @param yPx The y-coordinate in pixels.
+     * @return A [TouchTarget] if a page was hit, null otherwise.
      */
     fun getTouchTarget(xPx: Float, yPx: Float): TouchTarget? {
         val document = drawViewModel.documentData ?: return null
 
-        // 1. Recupera la posizione LIVE delle pagine sullo schermo
         val currentRenderMatrix = cameraPhysics.getRenderMatrix()
         val pagesRect = calcPage.getPagesRectOnWindowTransformation(windowRect, currentRenderMatrix)
 
-        // 2. Trova la pagina sotto il dito
         val targetPageInfo = pagesRect.find { it.rect.contains(xPx, yPx) } ?: return null
         val page = document.pages.getOrNull(targetPageInfo.index) ?: return null
 
-        // 3. Il rettangolo fisico della pagina in millimetri (es. 0,0, 210,297 per un A4)
         val pageMmRect = page.rect()
 
-        // 4. Calcoliamo la matrice MM -> Schermo (La stessa usata in PageMaker!)
         val mmToScreenMatrix = Matrix().apply {
             setRectToRect(pageMmRect, targetPageInfo.rect, Matrix.ScaleToFit.FILL)
         }
 
-        // 5. Invertiamo la matrice: Schermo -> MM (motionEventToWorldTransform)
         val screenToMmMatrix = Matrix()
         if (!mmToScreenMatrix.invert(screenToMmMatrix)) return null
 
-        // Estrarre il fattore di scala per calcolare la tolleranza del tratto (Epsilon)
         val values = FloatArray(9)
         mmToScreenMatrix.getValues(values)
         val pixelsPerMm = values[Matrix.MSCALE_X]
@@ -709,24 +683,24 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     }
 
     /**
-     * Handles layout changes (e.g., screen rotation, initial rendering).
-     * It allocates a new bitmap matching the new view dimensions and requests a redraw.
+     * Responds to view size changes by reallocating buffers and updating layout constraints.
+     *
+     * @param width New width of the view.
+     * @param height New height of the view.
+     * @param oldWidth Previous width.
+     * @param oldHeight Previous height.
      */
     fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
         synchronized(renderLock) {
             frontState.bitmap?.recycle()
             frontState.bitmap = createBitmap(width, height)
-            onDrawBitmap = frontState.bitmap // Per compatibilità temporanea
+            onDrawBitmap = frontState.bitmap
         }
 
         windowRect = RectF(0f, 0f, width.toFloat(), height.toFloat())
         calcPage.needToBeUpdated = true
 
-        // ---> INFORMA IL MOTORE FISICO <---
         cameraPhysics.setViewport(width, height)
-
-        // Forza il documento a rimanere nei limiti (es. se stringi la finestra)
-        // Usiamo animated = false per fare uno snap istantaneo durante la rotazione
         cameraPhysics.restoreToBounds(animated = false)
 
         if (drawViewModel.isDocumentLoaded){
@@ -739,32 +713,29 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     private var panAnimator: ValueAnimator? = null
 
     /**
-     * Esegue un Pan (spostamento) fluido della telecamera e notifica il ViewModel
-     * ad ogni step per mantenere sincronizzati gli elementi UI in overlay (es. il Cursore di testo).
+     * Initiates a smooth, animated pan of the camera.
+     *
+     * @param deltaY The total vertical distance to pan.
+     * @param onUpdate A callback invoked on each animation frame with the incremental delta.
      */
     fun smoothPanBy(deltaY: Float, onUpdate: (stepDy: Float) -> Unit) {
         panAnimator?.cancel()
         var previousDy = 0f
 
         panAnimator = ValueAnimator.ofFloat(0f, deltaY).apply {
-            duration = 250 // Quarto di secondo per un'animazione naturale
+            duration = 250
             addUpdateListener { anim ->
                 val currentDy = anim.animatedValue as Float
                 val stepDy = currentDy - previousDy
                 previousDy = currentDy
 
-                // Spostiamo la telecamera tramite il motore fisico!
-                // I valori sono negativi per far muovere la telecamera nella direzione corretta
                 cameraPhysics.onDrag(0f, -stepDy, 1f, windowRect.centerX(), windowRect.centerY())
 
-                // Ricalcoliamo le posizioni delle pagine
                 val renderMatrix = cameraPhysics.getRenderMatrix()
                 pagesRectOnWindow = calcPage.getPagesRectOnWindowTransformation(windowRect, renderMatrix)
 
-                // Diciamo a Compose di muovere il cursore degli stessi esatti pixel
                 onUpdate(stepDy)
 
-                // Disegniamo il frame spostato
                 requestDraw(DrawAttachments(drawMode = DrawAttachments.DrawMode.SCALE_TRANSLATE))
             }
             start()
@@ -772,14 +743,13 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     }
 
     /**
-     * Restituisce la matrice inversa della telecamera.
-     * Converte le coordinate dallo schermo (Screen Space) alla tela virtuale non zoomata (World Space).
+     * Computes the current inverse transformation matrix for the camera.
+     *
+     * @return A [Matrix] that converts Screen Space coordinates to World Space coordinates.
      */
     fun getScreenToWorldMatrix(): Matrix {
         val inverse = Matrix()
-        // Prendi la matrice attuale del pan/zoom
         val cameraMatrix = cameraPhysics.getRenderMatrix()
-        // Calcola l'inversa
         cameraMatrix.invert(inverse)
         return inverse
     }

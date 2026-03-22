@@ -395,20 +395,6 @@ fun DrawComponent(
                                     R.string.text_editor_action_italic
                                 ))
                             }
-                            IconButton(onClick = { applyStyleToSelection(SpanStyle(color = androidx.compose.ui.graphics.Color.Red)) }) {
-                                Icon(
-                                    Icons.Default.Palette,
-                                    contentDescription = "Colore Rosso",
-                                    tint = androidx.compose.ui.graphics.Color.Red
-                                )
-                            }
-                            IconButton(onClick = { applyStyleToSelection(SpanStyle(color = androidx.compose.ui.graphics.Color.Blue)) }) {
-                                Icon(
-                                    Icons.Default.Palette,
-                                    contentDescription = "Colore Blu",
-                                    tint = androidx.compose.ui.graphics.Color.Blue
-                                )
-                            }
                         }
                     }
                 }

@@ -7,22 +7,40 @@ import android.util.DisplayMetrics
 import androidx.core.util.TypedValueCompat
 
 /**
- * Handles the mathematical layout, positioning, and constraint calculations
- * for the document pages within the viewing window.
+ * Handles the mathematical layout, positioning, and coordinate calculations for document pages
+ * rendered within a custom drawing view.
  *
- * @property displayMetrics Used to convert density-independent pixels (dp) to screen pixels (px).
+ * This class translates domain-level page dimensions into screen-space coordinates,
+ * factoring in display metrics, margins, and camera transformations (pan/zoom) to
+ * optimize rendering by identifying only the visible pages.
+ *
+ * @property displayMetrics The display metrics of the device, utilized for translating density-independent pixels (dp) into physical screen pixels (px).
  */
 class CalcPage(
     val displayMetrics: DisplayMetrics
 ) {
+    /**
+     * Flag indicating whether the layout bounds require recalculation.
+     */
     var needToBeUpdated = true
+
+    /**
+     * Collection of mathematical boundaries for each page relative to the base, unscaled window.
+     */
     val pagesRectOnWindow = mutableListOf<RectF>()
 
-    /** The bounding box encompassing all pages and their margins. */
+    /**
+     * The total bounding box that completely encompasses all laid-out pages and their associated paddings.
+     */
     var contentRect = RectF()
 
     /**
-     * Configuration class defining the padding around and between pages.
+     * Configuration defining the spacing and margin constraints applied to the document layout.
+     *
+     * @property horizontalPadding The padding applied to the left and right edges of the pages.
+     * @property topPadding The padding applied above the first page.
+     * @property betweenPadding The vertical spacing inserted between consecutive pages.
+     * @property bottomPadding The padding applied below the final page.
      */
     data class PagePositionOnWindowOption(
         var horizontalPadding: Float = 8f,
@@ -32,12 +50,12 @@ class CalcPage(
     )
 
     /**
-     * Calculates the exact screen rectangles for each page in a continuous vertical scroll layout.
-     * It scales the pages to fit the window width (minus horizontal padding) and stacks them vertically.
+     * Computes the initial bounding rectangles for a sequence of pages, stacking them vertically
+     * in a continuous scroll format. Scales the content uniformly to fit the window's width.
      *
-     * @param pages The list of domain model Pages to be laid out.
-     * @param windowRect The physical bounds of the drawing view.
-     * @param options Padding configurations.
+     * @param pages The list of domain model pages containing raw dimension properties.
+     * @param windowRect The physical bounds of the Android View rendering the document.
+     * @param options The styling configuration for paddings and margins.
      */
     fun calcPagesRectOnWindow(
         pages: List<Page>,
@@ -52,7 +70,6 @@ class CalcPage(
         val betweenPadding = TypedValueCompat.dpToPx(options.betweenPadding, displayMetrics)
         val bottomPadding = TypedValueCompat.dpToPx(options.bottomPadding, displayMetrics)
 
-        // Calculate the base scale factor to fit the first page's width into the window
         val scaleFactor = (windowRect.width() - horizontalPadding * 2) / pages.first().dimension!!.width.mm
 
         var leftMostPosition = horizontalPadding
@@ -75,7 +92,6 @@ class CalcPage(
             pagesRectOnWindow.add(tempRect)
         }
 
-        // Update the overall content boundaries including all pages and margins
         contentRect.apply {
             left = leftMostPosition - horizontalPadding
             top = 0f
@@ -85,7 +101,11 @@ class CalcPage(
     }
 
     /**
-     * Defines the hard scrolling limits based on the window and the lowest page's bottom edge.
+     * Evaluates the scrollable boundaries of the layout, ensuring the view does not scroll
+     * past the bottom edge of the loaded document content.
+     *
+     * @param windowRect The physical bounds of the view context.
+     * @return A [RectF] defining the absolute physical limits for camera movement.
      */
     fun getContentConstraintsOnWindow(windowRect: RectF): RectF {
         val padding = TypedValueCompat.dpToPx(16f, displayMetrics)
@@ -103,20 +123,27 @@ class CalcPage(
         )
     }
 
-    /** Wrapper coupling a transformed page rectangle with its document index. */
+    /**
+     * A structural grouping that couples a dynamically transformed layout rectangle
+     * with the index of the page it represents.
+     *
+     * @property rect The current screen-space bounds of the page after matrix transformations.
+     * @property index The zero-based position of the page within the document.
+     */
     data class PageRectWithIndex(
         val rect: RectF,
         val index: Int
     )
 
     /**
-     * Determines which pages are currently visible on the screen using binary search.
-     * It transforms the mathematical page bounds through the current viewport matrix
-     * and checks for intersections with the visible window.
+     * Discovers all pages currently intersecting the viewable screen area.
      *
-     * @param windowRect The physical screen bounds.
-     * @param matrix The camera matrix representing current pan/zoom state.
-     * @return A set of visible pages with their screen-mapped rectangles.
+     * Employs a binary search algorithm against the transformed page boundaries to quickly
+     * isolate the active rendering subset, avoiding expensive O(N) traversal for large documents.
+     *
+     * @param windowRect The physical screen boundary determining visibility.
+     * @param matrix The transformation matrix representing the current camera pan and zoom state.
+     * @return A collection of [PageRectWithIndex] objects detailing the pages visible to the user.
      */
     fun getPagesRectOnWindowTransformation(
         windowRect: RectF,
@@ -130,7 +157,6 @@ class CalcPage(
         var endIndex = pagesRectOnWindow.size - 1
         var midIndex = 0
 
-        // Binary search to find at least one visible page
         while (startIndex <= endIndex) {
             midIndex = (startIndex + endIndex) / 2
             val pageRectTransformed = RectF(pagesRectOnWindow[midIndex])
@@ -148,7 +174,6 @@ class CalcPage(
 
         if (visiblePages.isEmpty()) return visiblePages
 
-        // Scan upwards from the found visible page
         var topIndex = midIndex - 1
         while (topIndex >= 0) {
             val pageRectTransformed = RectF(pagesRectOnWindow[topIndex])
@@ -162,7 +187,6 @@ class CalcPage(
             }
         }
 
-        // Scan downwards from the found visible page
         var bottomIndex = midIndex + 1
         while (bottomIndex < pagesRectOnWindow.size) {
             val pageRectTransformed = RectF(pagesRectOnWindow[bottomIndex])
@@ -179,9 +203,14 @@ class CalcPage(
         return visiblePages
     }
 
-    // Variabile per tenere traccia dell'animazione in corso
+    /**
+     * A reference to an actively running value animator, such as an over-scroll bounce.
+     */
     private var bounceAnimator: ValueAnimator? = null
 
+    /**
+     * Instantly terminates any programmatic layout animations currently bound to this instance.
+     */
     fun cancelAnimations() {
         bounceAnimator?.cancel()
     }

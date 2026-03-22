@@ -7,49 +7,108 @@ import kotlin.math.abs
 import kotlin.math.sign
 
 /**
- * Motore fisico unificato per la gestione della telecamera del documento.
- * Sostituisce OverScroller e ValueAnimator utilizzando una fisica a molla (Spring Physics)
- * indipendente dal framerate e calcolata separatamente per Asse X, Asse Y e Zoom.
+ * A unified physics engine for managing the document camera's viewport and transformations.
+ * * This engine replaces standard scrolling mechanisms like OverScroller and ValueAnimator
+ * by utilizing a framerate-independent spring physics model. Calculations are processed
+ * separately for the X-axis, Y-axis, and scaling (zoom) operations.
  *
- * @property displayMetrics Metriche del display per eventuali conversioni dp/px.
- * @property getContentRect Funzione lambda che restituisce l'ingombro matematico totale delle pagine (senza zoom).
+ * @property displayMetrics The display metrics used for potential pixel-to-dp conversions.
+ * @property getContentRect A lambda function that returns the total mathematical bounding box of the document's pages without zoom applied.
  */
 class CameraPhysicsEngine(
     private val displayMetrics: DisplayMetrics,
     private val getContentRect: () -> RectF
 ) {
-    // --- COSTANTI E CONFIGURAZIONI FISICHE ---
-    var friction: Float = 3.5f // Attrito per il fling (decelerazione)
-    var springStiffness: Float = 250f // Durezza della molla (ritorno elastico)
-    var springDamping: Float = 25f // Smorzamento della molla (evita oscillazioni infinite)
-    var rubberBandTension: Float = 0.55f // Tensione visiva quando l'utente tira fuori dai bordi
+    /**
+     * The friction coefficient applied during a fling gesture to calculate the rate of deceleration.
+     */
+    var friction: Float = 3.5f
 
+    /**
+     * The stiffness of the spring used for the elastic bounce-back effect when the viewport exceeds its boundaries.
+     */
+    var springStiffness: Float = 250f
+
+    /**
+     * The damping factor applied to the spring to prevent infinite oscillations during a bounce.
+     */
+    var springDamping: Float = 25f
+
+    /**
+     * The visual tension resistance applied when dragging the document outside its boundaries (rubber-banding).
+     */
+    var rubberBandTension: Float = 0.55f
+
+    /**
+     * The minimum allowed zoom scale factor.
+     */
     var minScale: Float = 0.5f
+
+    /**
+     * The maximum allowed zoom scale factor.
+     */
     var maxScale: Float = 5.0f
 
-    // Margini desiderati (in pixel) attorno al documento
+    /**
+     * The horizontal padding applied around the document content in pixels.
+     */
     var horizontalPaddingPx: Float = 40f
+
+    /**
+     * The top padding applied around the document content in pixels.
+     */
     var topPaddingPx: Float = 40f
+
+    /**
+     * The bottom padding applied around the document content in pixels.
+     */
     var bottomPaddingPx: Float = 40f
 
-    // --- ASSI FISICI INDIPENDENTI ---
+    /**
+     * The dedicated physics controller for horizontal (X-axis) translation.
+     */
     private val axisX = AxisPhysics1D()
+
+    /**
+     * The dedicated physics controller for vertical (Y-axis) translation.
+     */
     private val axisY = AxisPhysics1D()
+
+    /**
+     * The dedicated physics controller for zoom (scale) transformations.
+     */
     private val scaleAxis = ScalePhysics1D()
 
-    // Stato globale
+    /**
+     * Indicates whether the user is currently interacting with the screen.
+     */
     private var isUserDragging = false
+
+    /**
+     * The bounds of the currently visible window or view area.
+     */
     private var viewportRect = RectF()
+
+    /**
+     * The last recorded X coordinate of the focal point during a gesture.
+     */
     private var lastFocusX = 0f
+
+    /**
+     * The last recorded Y coordinate of the focal point during a gesture.
+     */
     private var lastFocusY = 0f
 
     init {
-        // Inizializza la scala a 1.0 al lancio
         scaleAxis.position = 1f
     }
 
     /**
-     * Aggiorna la dimensione della finestra visibile. Da chiamare in onSizeChanged.
+     * Updates the dimensions of the visible viewport.
+     * This should typically be called during the view's size change callback.
+     *
+     * @param width The new width of the viewport.
+     * @param height The new height of the viewport.
      */
     fun setViewport(width: Int, height: Int) {
         viewportRect.set(0f, 0f, width.toFloat(), height.toFloat())
@@ -57,8 +116,10 @@ class CameraPhysicsEngine(
     }
 
     /**
-     * Ritorna TRUE se c'è un'animazione inerziale o un rimbalzo in corso.
-     * Usalo per decidere se continuare a chiamare invalidate() nel DrawManager.
+     * Determines whether an inertial animation or elastic bounce is currently active.
+     * This is generally used to evaluate if the render loop needs to request further draw frames.
+     *
+     * @return True if a physics-driven animation is actively running, false otherwise.
      */
     fun isAnimating(): Boolean {
         return !isUserDragging && (
@@ -68,12 +129,9 @@ class CameraPhysicsEngine(
                 )
     }
 
-    // =========================================================================
-    // FASE 1: GESTIONE INPUT (Chiamati dal View / GestureDetector)
-    // =========================================================================
-
     /**
-     * L'utente ha toccato lo schermo. Ferma immediatamente qualsiasi inerzia o rimbalzo.
+     * Interrupts and stops all active animations immediately.
+     * Triggered when the user initiates a new touch interaction.
      */
     fun onDragStart() {
         isUserDragging = true
@@ -81,29 +139,31 @@ class CameraPhysicsEngine(
     }
 
     /**
-     * Muove la telecamera o cambia lo zoom in base all'input dell'utente.
-     * La resistenza elastica (Rubber-band) verrà calcolata visivamente in getRenderMatrix.
+     * Translates or scales the viewport based on user input gestures.
+     * Visual resistance for out-of-bounds drags is deferred to the matrix generation phase.
+     *
+     * @param dx The translation delta along the X-axis.
+     * @param dy The translation delta along the Y-axis.
+     * @param scaleFactor The multiplier applied to the current scale.
+     * @param focusX The X coordinate of the gesture's focal point.
+     * @param focusY The Y coordinate of the gesture's focal point.
      */
     fun onDrag(dx: Float, dy: Float, scaleFactor: Float, focusX: Float, focusY: Float) {
         lastFocusX = focusX
         lastFocusY = focusY
 
-        // 1. Applica lo Zoom basato sul punto focale (le dita dell'utente)
         if (scaleFactor != 1f) {
             val oldScale = scaleAxis.position
 
-            // MOLTIPLICA E BLOCCA: Impediamo alla scala di uscire dai limiti min e max
             scaleAxis.position = (oldScale * scaleFactor).coerceIn(minScale, maxScale)
 
             val currentScale = scaleAxis.position
             val scaleRatio = currentScale / oldScale
 
-            // Se la scala era già al limite, scaleRatio sarà 1.0 e X/Y non verranno alterati per errore
             axisX.position = focusX - (focusX - axisX.position) * scaleRatio
             axisY.position = focusY - (focusY - axisY.position) * scaleRatio
         }
 
-        // 2. Applica il Pan (spostamento puro)
         axisX.position += dx
         axisY.position += dy
 
@@ -111,35 +171,31 @@ class CameraPhysicsEngine(
     }
 
     /**
-     * L'utente ha rilasciato lo schermo. Trasferiamo la velocità al motore per il Fling.
-     * @param velocityX Velocità in pixel/secondo (da VelocityTracker)
+     * Applies velocity from a released touch event to initiate a fling or bounce animation.
+     *
+     * @param velocityX The velocity along the X-axis in pixels per second.
+     * @param velocityY The velocity along the Y-axis in pixels per second.
      */
     fun onRelease(velocityX: Float, velocityY: Float) {
         isUserDragging = false
         updateDynamicBoundaries()
 
-        // Asse X: Decidi se fare Fling o Rimbalzare subito
         if (axisX.calculateExcess() != 0f) {
             axisX.startBounce()
         } else {
             axisX.startFling(velocityX)
         }
 
-        // Asse Y: Decidi se fare Fling o Rimbalzare subito
         if (axisY.calculateExcess() != 0f) {
             axisY.startBounce()
         } else {
             axisY.startFling(velocityY)
         }
-
     }
 
-    // =========================================================================
-    // FASE 2: CONTROLLO IMPERATIVO
-    // =========================================================================
-
     /**
-     * Ferma tutto istantaneamente. Se la pagina è fuori dai bordi, rimane "congelata" lì.
+     * Instantly halts all active physical movements across all axes.
+     * The viewport position remains at the exact location where it was stopped.
      */
     fun stopAllAnimations() {
         axisX.stop()
@@ -148,9 +204,10 @@ class CameraPhysicsEngine(
     }
 
     /**
-     * Forza il rientro del documento nei limiti.
-     * Utile se si cambia pagina o si chiudono menu e si vuole ripristinare la vista.
-     * @param animated Se true, usa la molla. Se false, fa uno snap istantaneo.
+     * Forces the viewport back within its defined mathematical boundaries.
+     * This is useful for restoring the view after structural layout changes or external events.
+     *
+     * @param animated If true, applies a spring physics animation to return to bounds. If false, snaps instantly.
      */
     fun restoreToBounds(animated: Boolean = true) {
         updateDynamicBoundaries()
@@ -160,7 +217,6 @@ class CameraPhysicsEngine(
             if (axisY.calculateExcess() != 0f) axisY.startBounce()
             if (scaleAxis.calculateExcess() != 0f) scaleAxis.startBounce()
         } else {
-            // Snap istantaneo
             if (axisX.calculateExcess() != 0f) axisX.position -= axisX.calculateExcess()
             if (axisY.calculateExcess() != 0f) axisY.position -= axisY.calculateExcess()
             if (scaleAxis.calculateExcess() != 0f) scaleAxis.position -= scaleAxis.calculateExcess()
@@ -168,56 +224,47 @@ class CameraPhysicsEngine(
         }
     }
 
-    // =========================================================================
-    // FASE 3: MOTORE FISICO E RENDER
-    // =========================================================================
-
     /**
-     * Il loop di aggiornamento fisico. Da chiamare ad ogni frame (es. in onDraw).
-     * @param deltaTimeMillis Millisecondi trascorsi dal frame precedente.
+     * Advances the physics simulation by the specified time delta.
+     * This method must be called within the active render loop (e.g., during frame drawing).
+     *
+     * @param deltaTimeMillis The elapsed time in milliseconds since the last frame update.
      */
     fun update(deltaTimeMillis: Long) {
         if (isUserDragging || deltaTimeMillis <= 0) return
 
-        val dt = deltaTimeMillis / 1000f // Converti in secondi per le formule fisiche
+        val dt = deltaTimeMillis / 1000f
         updateDynamicBoundaries()
 
-        // 1. Aggiorna lo Zoom
         scaleAxis.update(dt)
 
-        // 2. Aggiorna X e Y
         axisX.update(dt)
         axisY.update(dt)
     }
 
     /**
-     * Genera la matrice pronta per essere applicata al Canvas.
-     * Calcola istantaneamente l'effetto elastico visivo se la telecamera è fuori dai bordi.
+     * Computes and returns the final transformation matrix for rendering the document canvas.
+     * The matrix incorporates instantaneous rubber-band tension effects if the viewport is out of bounds.
+     *
+     * @return A standard Android [Matrix] containing the evaluated scale and translation parameters.
      */
     fun getRenderMatrix(): Matrix {
         val matrix = Matrix()
 
-        // Usiamo direttamente la scala reale, dato che non c'è più overzoom
         val renderScale = scaleAxis.position
 
-        // X e Y mantengono il loro elastico se trascinati fuori dai bordi
         val renderX = axisX.getRubberBandPosition(viewportRect.width(), rubberBandTension)
         val renderY = axisY.getRubberBandPosition(viewportRect.height(), rubberBandTension)
 
-        // Applica le trasformazioni in ordine standard: prima Scala, poi Traslazione
         matrix.postScale(renderScale, renderScale)
         matrix.postTranslate(renderX, renderY)
 
         return matrix
     }
 
-    // =========================================================================
-    // LOGICA DI CALCOLO LIMITI (CORE ARCHITECTURE)
-    // =========================================================================
-
     /**
-     * Ricalcola dinamicamente i limiti di scorrimento basandosi sullo zoom attuale
-     * e sulla dimensione della finestra. Gestisce il centraggio automatico.
+     * Dynamically recalculates the minimum and maximum scroll limits based on the current scale
+     * and viewport dimensions, resolving automatic centering behavior when required.
      */
     private fun updateDynamicBoundaries() {
         if (viewportRect.isEmpty) return
@@ -228,62 +275,88 @@ class CameraPhysicsEngine(
         val scaledWidth = content.width() * currentScale
         val scaledHeight = content.height() * currentScale
 
-        // --- ASSE X: Centratura o Scorrimento ---
         if (scaledWidth <= viewportRect.width() - (horizontalPaddingPx * 2)) {
-            // Contenuto più stretto: Blocchiamo min e max al centro esatto
             val centeredX = (viewportRect.width() - scaledWidth) / 2f
             axisX.minValue = centeredX
             axisX.maxValue = centeredX
         } else {
-            // Scorrimento normale.
-            // Il massimo in cui possiamo spostare il documento a destra è horizontalPaddingPx
-            // Il massimo a sinistra è quando il bordo destro tocca la finestra.
             axisX.minValue = viewportRect.width() - scaledWidth - horizontalPaddingPx
             axisX.maxValue = horizontalPaddingPx
         }
 
-        // --- ASSE Y: Allineamento in alto o Scorrimento ---
         if (scaledHeight <= viewportRect.height() - (topPaddingPx + bottomPaddingPx)) {
-            // Contenuto più corto: Blocchiamo min e max al top padding (non al centro)
             axisY.minValue = topPaddingPx
             axisY.maxValue = topPaddingPx
         } else {
-            // Scorrimento normale verticale
             axisY.minValue = viewportRect.height() - scaledHeight - bottomPaddingPx
             axisY.maxValue = topPaddingPx
         }
     }
 
-    // =========================================================================
-    // CLASSI FISICHE INTERNE
-    // =========================================================================
-
+    /**
+     * Represents the distinct kinetic states available for an individual physics axis.
+     */
     enum class PhysicsState { IDLE, FLINGING, BOUNCING }
 
     /**
-     * Gestisce la fisica di un singolo asse lineare (X o Y).
+     * Manages the isolated one-dimensional physics calculations for a translation axis (X or Y).
      */
     private inner class AxisPhysics1D {
+        /**
+         * The current kinetic state of this axis.
+         */
         var state = PhysicsState.IDLE
+
+        /**
+         * The current calculated position value.
+         */
         var position: Float = 0f
+
+        /**
+         * The current velocity in units per second.
+         */
         var velocity: Float = 0f
+
+        /**
+         * The minimum allowed boundary value before resistance is applied.
+         */
         var minValue: Float = 0f
+
+        /**
+         * The maximum allowed boundary value before resistance is applied.
+         */
         var maxValue: Float = 0f
 
+        /**
+         * Initiates a flinging deceleration starting with the provided velocity.
+         *
+         * @param v The initial fling velocity.
+         */
         fun startFling(v: Float) {
             velocity = v
             state = PhysicsState.FLINGING
         }
 
+        /**
+         * Transitions the axis state to calculate a spring-based elastic bounce.
+         */
         fun startBounce() {
             state = PhysicsState.BOUNCING
         }
 
+        /**
+         * Instantly halts velocity and transitions the state to idle.
+         */
         fun stop() {
             state = PhysicsState.IDLE
             velocity = 0f
         }
 
+        /**
+         * Calculates the numerical distance this axis position has traveled beyond its defined minimum or maximum limits.
+         *
+         * @return The excess boundary distance, or 0f if the position is within bounds.
+         */
         fun calculateExcess(): Float {
             return when {
                 position < minValue -> position - minValue
@@ -292,35 +365,35 @@ class CameraPhysicsEngine(
             }
         }
 
+        /**
+         * Steps the physics calculation forward by a time delta, updating velocity and position.
+         *
+         * @param dt The time passed in seconds since the last update.
+         */
         fun update(dt: Float) {
             if (state == PhysicsState.IDLE) return
             val excess = calculateExcess()
 
             when (state) {
                 PhysicsState.FLINGING -> {
-                    // Decelerazione per attrito
                     velocity -= velocity * friction * dt
                     position += velocity * dt
 
-                    // Se usciamo dal bordo DURANTE un fling, passiamo al rimbalzo conservando l'energia!
                     if (calculateExcess() != 0f) {
                         state = PhysicsState.BOUNCING
                     }
 
-                    // Se siamo fermi e dentro i bordi, fermati del tutto
                     if (abs(velocity) < 10f && calculateExcess() == 0f) {
                         stop()
                     }
                 }
                 PhysicsState.BOUNCING -> {
-                    // Hooke's Law: F = -kX - cV
                     val springForce = (-springStiffness * excess) - (springDamping * velocity)
                     velocity += springForce * dt
                     position += velocity * dt
 
-                    // Condizione di aggancio al bordo (fermo e vicino al target)
                     if (abs(excess) < 0.5f && abs(velocity) < 10f) {
-                        position -= calculateExcess() // Snap esatto al bordo
+                        position -= calculateExcess()
                         stop()
                     }
                 }
@@ -328,14 +401,19 @@ class CameraPhysicsEngine(
             }
         }
 
-        /** Calcola la deformazione visiva (elastico) se si è fuori dai bordi */
+        /**
+         * Calculates the visually deformed position factoring in a rubber-band resistance effect.
+         *
+         * @param dimension The relative screen dimension (width or height) to scale the tension appropriately.
+         * @param tension The structural tension factor applied to the rubber-band curve.
+         * @return The offset position modified by the tension calculation.
+         */
         fun getRubberBandPosition(dimension: Float, tension: Float): Float {
             val excess = calculateExcess()
             if (excess == 0f) return position
 
             val validPosition = position - excess
             val absExcess = abs(excess)
-            // Equazione asintotica
             val rubberBandedExcess = (absExcess * dimension * tension) / (dimension + tension * absExcess)
 
             return validPosition + (rubberBandedExcess * sign(excess))
@@ -343,22 +421,44 @@ class CameraPhysicsEngine(
     }
 
     /**
-     * Gestisce la fisica specifica dello Zoom (Scala).
+     * Manages the isolated one-dimensional physics calculations specifically tailored for scaling and zoom behaviors.
      */
     private inner class ScalePhysics1D {
+        /**
+         * The current kinetic state of the scaling axis.
+         */
         var state = PhysicsState.IDLE
+
+        /**
+         * The current calculated scale multiplier.
+         */
         var position: Float = 1f
+
+        /**
+         * The current scale expansion/contraction velocity.
+         */
         var velocity: Float = 0f
 
+        /**
+         * Transitions the axis state to calculate a spring-based scale adjustment.
+         */
         fun startBounce() {
             state = PhysicsState.BOUNCING
         }
 
+        /**
+         * Instantly halts velocity and transitions the scaling state to idle.
+         */
         fun stop() {
             state = PhysicsState.IDLE
             velocity = 0f
         }
 
+        /**
+         * Calculates the numerical scale amount that exceeds the defined min/max zoom limits.
+         *
+         * @return The excess scale factor, or 0f if the scale is strictly within the boundaries.
+         */
         fun calculateExcess(): Float {
             return when {
                 position < minScale -> position - minScale
@@ -367,11 +467,15 @@ class CameraPhysicsEngine(
             }
         }
 
+        /**
+         * Steps the scale physics calculation forward by a time delta.
+         *
+         * @param dt The time passed in seconds since the last update.
+         */
         fun update(dt: Float) {
             if (state != PhysicsState.BOUNCING) return
             val excess = calculateExcess()
 
-            // Usiamo una molla leggermente più rigida per lo zoom
             val springForce = (-springStiffness * 1.5f * excess) - (springDamping * velocity)
             velocity += springForce * dt
             position += velocity * dt
@@ -382,16 +486,19 @@ class CameraPhysicsEngine(
             }
         }
 
-        /** Lo zoom ha una resistenza visiva diversa, calcolata in proporzione */
+        /**
+         * Calculates the visually deformed scale factoring in a specialized tension curve for zooming actions.
+         *
+         * @return The resulting scale value modified by tension resistance.
+         */
         fun getRubberBandScale(): Float {
             val excess = calculateExcess()
             if (excess == 0f) return position
 
             val validScale = position - excess
-            val tension = 0.3f // Tensione più rigida per lo zoom
+            val tension = 0.3f
             val absExcess = abs(excess)
 
-            // L'elastico dello zoom ha come "dimensione" di riferimento il range valido stesso
             val range = maxScale - minScale
             val rubberBandedExcess = (absExcess * range * tension) / (range + tension * absExcess)
 

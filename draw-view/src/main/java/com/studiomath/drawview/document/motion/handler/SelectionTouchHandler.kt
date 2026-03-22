@@ -1,4 +1,4 @@
-package com.studiomath.drawview.document.motion
+package com.studiomath.drawview.document.motion.handler
 
 import android.graphics.Matrix
 import android.graphics.RectF
@@ -6,7 +6,6 @@ import android.view.MotionEvent
 import android.view.View
 import com.studiomath.drawview.document.DrawManager
 import com.studiomath.drawview.document.DrawViewModel
-import com.studiomath.drawview.document.tools.Tool
 import kotlin.math.atan2
 import kotlin.math.hypot
 

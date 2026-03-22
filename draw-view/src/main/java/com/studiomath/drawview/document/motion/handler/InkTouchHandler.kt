@@ -1,11 +1,9 @@
-package com.studiomath.drawview.document.motion
+package com.studiomath.drawview.document.motion.handler
 
 import android.graphics.Matrix
-import android.graphics.Matrix.IDENTITY_MATRIX
 import android.view.MotionEvent
 import android.view.View
 import androidx.ink.authoring.InProgressStrokeId
-import androidx.ink.geometry.AffineTransform
 import androidx.input.motionprediction.MotionEventPredictor
 import com.studiomath.drawview.document.DrawViewModel
 import com.studiomath.drawview.document.tools.Tool

@@ -1,6 +1,5 @@
-package com.studiomath.drawview.document.motion
+package com.studiomath.drawview.document.motion.handler
 
-import android.graphics.RectF
 import android.view.MotionEvent
 import android.view.View
 import com.studiomath.drawview.document.DrawViewModel

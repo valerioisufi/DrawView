@@ -1,4 +1,4 @@
-package com.studiomath.drawview.document.motion
+package com.studiomath.drawview.document.motion.handler
 
 import android.content.Context
 import android.view.GestureDetector

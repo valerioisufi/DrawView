@@ -5,6 +5,11 @@ import android.view.MotionEvent
 import android.view.View
 import androidx.input.motionprediction.MotionEventPredictor
 import com.studiomath.drawview.document.DrawViewModel
+import com.studiomath.drawview.document.motion.handler.GestureTouchHandler
+import com.studiomath.drawview.document.motion.handler.InkTouchHandler
+import com.studiomath.drawview.document.motion.handler.PageReorderTouchHandler
+import com.studiomath.drawview.document.motion.handler.SelectionTouchHandler
+import com.studiomath.drawview.document.motion.handler.ViewportTouchHandler
 import com.studiomath.drawview.document.tools.Tool
 
 /**

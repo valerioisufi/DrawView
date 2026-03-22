@@ -1,6 +1,7 @@
-package com.studiomath.drawview.document.motion
+package com.studiomath.drawview.document.motion.handler
 
 import android.graphics.Matrix
+import android.graphics.PointF
 import android.graphics.RectF
 import android.view.GestureDetector
 import android.view.MotionEvent
@@ -47,7 +48,7 @@ class GestureTouchHandler(private val drawViewModel: DrawViewModel) {
                                 DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply { update = DrawManager.DrawAttachments.Update.DRAW_BITMAP }
                             )
                         }
-                        drawViewModel.contextMenuPosition = android.graphics.PointF(e.x, e.y)
+                        drawViewModel.contextMenuPosition = PointF(e.x, e.y)
                         drawViewModel.drawManager.cameraPhysics.stopAllAnimations()
                     }
                 }
@@ -68,7 +69,7 @@ class GestureTouchHandler(private val drawViewModel: DrawViewModel) {
 
                             val matrixValues = FloatArray(9)
                             selection.transformMatrix.getValues(matrixValues)
-                            val currentScaleMm = kotlin.math.hypot(matrixValues[Matrix.MSCALE_X].toDouble(), matrixValues[Matrix.MSKEW_Y].toDouble()).toFloat().coerceAtLeast(0.01f)
+                            val currentScaleMm = hypot(matrixValues[Matrix.MSCALE_X].toDouble(), matrixValues[Matrix.MSKEW_Y].toDouble()).toFloat().coerceAtLeast(0.01f)
 
                             val paddingMm = 4f / currentScaleMm
                             val boxMmWithPadding = RectF(selection.boundingBox)
@@ -119,13 +120,13 @@ class GestureTouchHandler(private val drawViewModel: DrawViewModel) {
                                 val mmToScreenMatrix = Matrix().apply { setRectToRect(page.rect(), pageInfo.rect, Matrix.ScaleToFit.CENTER) }
                                 mmToScreenMatrix.mapPoints(pts)
 
-                                drawViewModel.activeTextEditPosition = android.graphics.PointF(pts[0], pts[1])
+                                drawViewModel.activeTextEditPosition = PointF(pts[0], pts[1])
                                 tappedText.isDragging = true
                                 drawViewModel.drawManager.requestDraw(
                                     DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply { update = DrawManager.DrawAttachments.Update.DRAW_BITMAP }
                                 )
                             } else {
-                                drawViewModel.activeTextEditPosition = android.graphics.PointF(e.x, e.y)
+                                drawViewModel.activeTextEditPosition = PointF(e.x, e.y)
                                 drawViewModel.activeTextEditItem = null
                             }
                             drawViewModel.drawManager.cameraPhysics.stopAllAnimations()

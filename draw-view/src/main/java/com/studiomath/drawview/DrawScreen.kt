@@ -499,18 +499,6 @@ fun DrawScreen(
 
                     ToolButton(
                         onClick = {
-                            drawViewModel.selectedTool = Tool.TEXT
-                        },
-                        selected = drawViewModel.selectedTool == Tool.TEXT
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.icon_text_fields),
-                            contentDescription = stringResource(R.string.draw_toolbar_action_text),
-                        )
-                    }
-
-                    ToolButton(
-                        onClick = {
                             drawViewModel.selectedTool = Tool.PAN
                         },
                         selected = drawViewModel.selectedTool == Tool.PAN

@@ -1,8 +1,11 @@
 package com.studiomath.drawview.document.motion
 
+import android.graphics.Matrix
+import android.graphics.Matrix.IDENTITY_MATRIX
 import android.view.MotionEvent
 import android.view.View
 import androidx.ink.authoring.InProgressStrokeId
+import androidx.ink.geometry.AffineTransform
 import androidx.input.motionprediction.MotionEventPredictor
 import com.studiomath.drawview.document.DrawViewModel
 import com.studiomath.drawview.document.tools.Tool
@@ -53,6 +56,8 @@ class InkTouchHandler(private val drawViewModel: DrawViewModel) {
      * @return Always returns true to indicate the touch event has been consumed.
      */
     fun handleTouch(view: View, event: MotionEvent, predictor: MotionEventPredictor?): Boolean {
+        if (drawViewModel.isReorderingPages) return false
+
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 drawViewModel.drawManager.cameraPhysics.stopAllAnimations()
@@ -63,8 +68,16 @@ class InkTouchHandler(private val drawViewModel: DrawViewModel) {
 
                 val pointerId = event.getPointerId(event.actionIndex)
                 currentPointerId = pointerId
+                // 1. Prendi la matrice Screen-to-World
+                val screenToWorld = drawViewModel.drawManager.getScreenToWorldMatrix()
+
+                // 2. Avvia il tratto passando la matrice (nota: accetta una Matrix o un AffineTransform a seconda dell'overload, usa Matrix se disponibile)
                 currentStrokeId = drawViewModel.startStrokeInProgress?.invoke(
-                    event, pointerId, drawViewModel.getActiveBrushScaled()
+                    event,
+                    pointerId,
+                    drawViewModel.activeBrush, // <-- Pennello NON scalato
+                    screenToWorld,
+                    Matrix()
                 )
             }
             MotionEvent.ACTION_MOVE -> {

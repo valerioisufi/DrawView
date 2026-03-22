@@ -19,6 +19,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.brush.Brush
+import androidx.ink.geometry.AffineTransform
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.application
 import androidx.lifecycle.viewModelScope
@@ -437,7 +438,7 @@ class DrawViewModel(
 
 
     // --- GESTIONE STRUMENTI (TOOLS) ---
-    val toolManager = ToolManager(application.applicationContext)
+    val toolManager = ToolManager(application.applicationContext, displayMetrics)
 
     // Esponiamo lo stato per la UI in modo trasparente
     var selectedTool: Tool
@@ -453,7 +454,7 @@ class DrawViewModel(
     )
 
     // --- INK LIBRARY CALLBACKS ---
-    var startStrokeInProgress: ((event: MotionEvent, pointerId: Int, brush: Brush) -> InProgressStrokeId)? = null
+    var startStrokeInProgress: ((event: MotionEvent, pointerId: Int, brush: Brush, motionEventToWorldTransform: Matrix, strokeToWorldTransform: Matrix) -> InProgressStrokeId)? = null
     var addToStrokeInProgress: ((event: MotionEvent, pointerId: Int, strokeId: InProgressStrokeId, predictedEvent: MotionEvent?) -> Unit)? = null
     var finishStrokeInProgress: ((event: MotionEvent, pointerId: Int, strokeId: InProgressStrokeId) -> Unit)? = null
     var cancelStrokeInProgress: ((strokeId: InProgressStrokeId, event: MotionEvent) -> Unit)? = null

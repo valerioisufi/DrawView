@@ -138,8 +138,8 @@ fun DrawComponent(
                 }
 
                 // Wire up the Ink library callbacks to the ViewModel
-                drawViewModel.startStrokeInProgress = { event, pointerId, brush ->
-                    inProgressStrokesView.startStroke(event, pointerId, brush)
+                drawViewModel.startStrokeInProgress = { event, pointerId, brush, motionEventToWorldTransform, strokeToWorldTransform ->
+                    inProgressStrokesView.startStroke(event, pointerId, brush, motionEventToWorldTransform, strokeToWorldTransform)
                 }
                 drawViewModel.addToStrokeInProgress =
                     { event, pointerId, strokeId, predictedEvent ->

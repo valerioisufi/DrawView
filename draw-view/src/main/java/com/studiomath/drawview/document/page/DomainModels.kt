@@ -10,6 +10,7 @@ import androidx.ink.brush.StockBrushes
 import androidx.ink.strokes.MutableStrokeInputBatch
 import androidx.ink.strokes.StrokeInput
 import kotlinx.serialization.Transient
+import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * Pure Domain Models.
@@ -77,6 +78,9 @@ class Stroke(var zIndex: Int) {
         val scratch = StrokeInput()
         val point = FloatArray(2)
 
+        // Troviamo il fattore di scala esatto applicato dalla matrice
+        val scaleFactor = matrix.mapRadius(1f)
+
         for (i in 0 until oldBatch.size) {
             oldBatch.populate(i, scratch)
             point[0] = scratch.x
@@ -88,7 +92,8 @@ class Stroke(var zIndex: Int) {
                 x = point[0],
                 y = point[1],
                 elapsedTimeMillis = scratch.elapsedTimeMillis,
-                strokeUnitLengthCm = scratch.strokeUnitLengthCm,
+                // SCALIAMO LA LUNGHEZZA FISICA: Essenziale per la dinamica del tratto
+                strokeUnitLengthCm = scratch.strokeUnitLengthCm * scaleFactor,
                 pressure = scratch.pressure,
                 tiltRadians = scratch.tiltRadians,
                 orientationRadians = scratch.orientationRadians
@@ -96,7 +101,16 @@ class Stroke(var zIndex: Int) {
         }
 
         size = matrix.mapRadius(size)
-        val newBrush = Brush.createWithColorIntArgb(stroke!!.brush.family, stroke!!.brush.colorIntArgb, size, stroke!!.brush.epsilon)
+
+        // LA FIX CRUCIALE: Scaliamo anche l'Epsilon per mantenere la densità dei vertici!
+        val newEpsilon = matrix.mapRadius(stroke!!.brush.epsilon)
+
+        val newBrush = Brush.createWithColorIntArgb(
+            stroke!!.brush.family,
+            stroke!!.brush.colorIntArgb,
+            size,
+            newEpsilon // Usiamo l'epsilon scalato
+        )
         stroke = androidx.ink.strokes.Stroke(newBrush, newBatch)
     }
 }
@@ -155,16 +169,15 @@ class Page(var index: Int) {
     var height = 0f // mm
     var dimension: Dimension? = null
 
+    var bitmapPage: Bitmap? = null
+    var isPrepared = false
+
     fun rect(): RectF = RectF(0f, 0f, width, height)
 
-    var bitmapPage: Bitmap? = null
-
-    val strokeData = mutableListOf<Stroke>()
-    val textData = mutableListOf<Text>()
-    val imageData = mutableListOf<Image>()
-    val pdfData = mutableListOf<Pdf>()
-
-    var isPrepared = false
+    val strokeData = CopyOnWriteArrayList<Stroke>()
+    val textData = CopyOnWriteArrayList<Text>()
+    val imageData = CopyOnWriteArrayList<Image>()
+    val pdfData = CopyOnWriteArrayList<Pdf>()
 
     fun prepare() {
         dimension = Dimension(width.mm, height.mm)

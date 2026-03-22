@@ -4,6 +4,7 @@ import android.graphics.Canvas
 import android.graphics.Matrix
 import android.graphics.RectF
 import androidx.annotation.UiThread
+import androidx.core.graphics.withSave
 import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.authoring.InProgressStrokesFinishedListener
 import androidx.ink.geometry.AffineTransform
@@ -18,13 +19,13 @@ import com.studiomath.drawview.document.selection.LassoMode
 import com.studiomath.drawview.document.selection.SelectionGroup
 import com.studiomath.drawview.document.tools.Tool
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlin.math.max
 import kotlin.math.min
 
 import androidx.ink.strokes.Stroke as InkStroke
 import com.studiomath.drawview.document.page.Stroke as DomainStroke
-import androidx.core.graphics.withMatrix
 
 class InkStrokeProcessor(
     private val drawViewModel: DrawViewModel,
@@ -39,190 +40,212 @@ class InkStrokeProcessor(
         val isLasso = drawViewModel.selectedTool == Tool.LAZO
         val isEraser = drawViewModel.selectedTool == Tool.ERASER
 
-        // --- FASE 2: HIT TESTING DEL LAZO ---
+        // --- FASE 2: HIT TESTING DEL LAZO (Ora in World Space!) ---
         if (isLasso) {
             val lassoInkStroke = strokes.values.firstOrNull() ?: return
             drawViewModel.clearSelection()
 
-            val lassoScreenBox = lassoInkStroke.shape.computeBoundingBox()
-            var targetPageInfo: CalcPage.PageRectWithIndex? = null
+            // Il Bounding Box ora è in coordinate assolute (World Space)
+            val lassoWorldBox = lassoInkStroke.shape.computeBoundingBox()
+            var targetPageIndex = 0
 
-            if (lassoScreenBox != null) {
-                val centerX = lassoScreenBox.xMin + (lassoScreenBox.xMax - lassoScreenBox.xMin) / 2f
-                val centerY = lassoScreenBox.yMin + (lassoScreenBox.yMax - lassoScreenBox.yMin) / 2f
-                targetPageInfo = drawManager.pagesRectOnWindow.find { it.rect.contains(centerX, centerY) }
+            if (lassoWorldBox != null) {
+                val centerX = lassoWorldBox.xMin + (lassoWorldBox.xMax - lassoWorldBox.xMin) / 2f
+                val centerY = lassoWorldBox.yMin + (lassoWorldBox.yMax - lassoWorldBox.yMin) / 2f
+
+                // Hit test contro i rettangoli di base (non zoomati)
+                val foundIndex = drawManager.calcPage.pagesRectOnWindow.indexOfFirst { it.contains(centerX, centerY) }
+                if (foundIndex >= 0) targetPageIndex = foundIndex
             }
 
-            val pageInfo = targetPageInfo ?: drawManager.pagesRectOnWindow.firstOrNull()
+            val page = document.pages.getOrNull(targetPageIndex)
+            val basePageRect = drawManager.calcPage.pagesRectOnWindow.getOrNull(targetPageIndex)
 
-            if (pageInfo != null) {
-                val page = document.pages.getOrNull(pageInfo.index)
-                if (page != null) {
-                    val screenToMmMatrix = Matrix().apply {
-                        setRectToRect(pageInfo.rect, page.rect(), Matrix.ScaleToFit.CENTER)
-                    }
+            if (page != null && basePageRect != null) {
+                // Matrice: World Space -> Pagina(mm)
+                val worldToMmMatrix = Matrix().apply {
+                    setRectToRect(basePageRect, page.rect(), Matrix.ScaleToFit.FILL)
+                }
 
-                    val mmLassoBatch = MutableStrokeInputBatch()
-                    val scratch = StrokeInput()
-                    val point = FloatArray(2)
+                val mmLassoBatch = MutableStrokeInputBatch()
+                val scratch = StrokeInput()
+                val point = FloatArray(2)
 
-                    for (i in 0 until lassoInkStroke.inputs.size) {
-                        lassoInkStroke.inputs.populate(i, scratch)
-                        point[0] = scratch.x
-                        point[1] = scratch.y
-                        screenToMmMatrix.mapPoints(point)
-                        mmLassoBatch.add(
-                            type = scratch.toolType,
-                            x = point[0],
-                            y = point[1],
-                            elapsedTimeMillis = scratch.elapsedTimeMillis
-                        )
-                    }
+                for (i in 0 until lassoInkStroke.inputs.size) {
+                    lassoInkStroke.inputs.populate(i, scratch)
+                    point[0] = scratch.x
+                    point[1] = scratch.y
+                    worldToMmMatrix.mapPoints(point) // Convertiamo da World a mm per la selezione
+                    mmLassoBatch.add(
+                        type = scratch.toolType,
+                        x = point[0],
+                        y = point[1],
+                        elapsedTimeMillis = scratch.elapsedTimeMillis
+                    )
+                }
 
-                    val selectionRegion = try {
-                        mmLassoBatch.createClosedShape()
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                        drawViewModel.removeFinishedStrokes?.invoke(strokes.keys)
-                        drawManager.requestDraw(
-                            DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                                update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
-                            }
-                        )
-                        return
-                    }
+                val selectionRegion = try {
+                    mmLassoBatch.createClosedShape()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    drawViewModel.removeFinishedStrokes?.invoke(strokes.keys)
+                    drawManager.requestDraw(DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                        update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                    })
+                    return
+                }
 
-                    val lassoBox = selectionRegion.computeBoundingBox()
+                val lassoBox = selectionRegion.computeBoundingBox()
 
-                    if (lassoBox != null) {
-                        val newSelection = SelectionGroup()
-                        newSelection.pageIndex = pageInfo.index
+                if (lassoBox != null) {
+                    val newSelection = SelectionGroup()
+                    newSelection.pageIndex = targetPageIndex
 
-                        var globalLeft = Float.MAX_VALUE
-                        var globalTop = Float.MAX_VALUE
-                        var globalRight = -Float.MAX_VALUE
-                        var globalBottom = -Float.MAX_VALUE
-                        val identityTransform = AffineTransform.IDENTITY
+                    var globalLeft = Float.MAX_VALUE
+                    var globalTop = Float.MAX_VALUE
+                    var globalRight = -Float.MAX_VALUE
+                    var globalBottom = -Float.MAX_VALUE
+                    val identityTransform = AffineTransform.IDENTITY
 
-                        if (drawViewModel.lassoMode != LassoMode.IMAGES_ONLY) {
-                            for (stroke in page.strokeData) {
-                                val nativeStroke = stroke.stroke ?: continue
-                                if (nativeStroke.shape.intersects(selectionRegion, identityTransform, identityTransform)) {
-                                    newSelection.strokes.add(stroke)
-                                    stroke.isDragging = true
+                    if (drawViewModel.lassoMode != LassoMode.IMAGES_ONLY) {
+                        for (stroke in page.strokeData) {
+                            val nativeStroke = stroke.stroke ?: continue
+                            if (nativeStroke.shape.intersects(selectionRegion, identityTransform, identityTransform)) {
+                                newSelection.strokes.add(stroke)
+                                stroke.isDragging = true
 
-                                    val sBox = nativeStroke.shape.computeBoundingBox()
-                                    if (sBox != null) {
-                                        globalLeft = min(globalLeft, sBox.xMin)
-                                        globalTop = min(globalTop, sBox.yMin)
-                                        globalRight = max(globalRight, sBox.xMax)
-                                        globalBottom = max(globalBottom, sBox.yMax)
-                                    }
-                                }
-                            }
-
-                            for (txt in page.textData) {
-                                val centerX = txt.x + (txt.width / 2f)
-                                val centerY = txt.y + (txt.height / 2f)
-                                if (centerX >= lassoBox.xMin && centerX <= lassoBox.xMax &&
-                                    centerY >= lassoBox.yMin && centerY <= lassoBox.yMax) {
-
-                                    newSelection.texts.add(txt)
-                                    txt.isDragging = true
-
-                                    globalLeft = min(globalLeft, txt.x)
-                                    globalTop = min(globalTop, txt.y)
-                                    globalRight = max(globalRight, txt.x + txt.width)
-                                    globalBottom = max(globalBottom, txt.y + txt.height)
+                                val sBox = nativeStroke.shape.computeBoundingBox()
+                                if (sBox != null) {
+                                    globalLeft = min(globalLeft, sBox.xMin)
+                                    globalTop = min(globalTop, sBox.yMin)
+                                    globalRight = max(globalRight, sBox.xMax)
+                                    globalBottom = max(globalBottom, sBox.yMax)
                                 }
                             }
                         }
 
-                        for (img in page.imageData) {
-                            val centerX = img.x + (img.width / 2f)
-                            val centerY = img.y + (img.height / 2f)
+                        for (txt in page.textData) {
+                            val centerX = txt.x + (txt.width / 2f)
+                            val centerY = txt.y + (txt.height / 2f)
                             if (centerX >= lassoBox.xMin && centerX <= lassoBox.xMax &&
                                 centerY >= lassoBox.yMin && centerY <= lassoBox.yMax) {
 
-                                newSelection.images.add(img)
-                                img.isDragging = true
+                                newSelection.texts.add(txt)
+                                txt.isDragging = true
 
-                                globalLeft = min(globalLeft, img.x)
-                                globalTop = min(globalTop, img.y)
-                                globalRight = max(globalRight, img.x + img.width)
-                                globalBottom = max(globalBottom, img.y + img.height)
+                                globalLeft = min(globalLeft, txt.x)
+                                globalTop = min(globalTop, txt.y)
+                                globalRight = max(globalRight, txt.x + txt.width)
+                                globalBottom = max(globalBottom, txt.y + txt.height)
                             }
                         }
+                    }
 
-                        if (!newSelection.isEmpty()) {
-                            newSelection.boundingBox = RectF(globalLeft, globalTop, globalRight, globalBottom)
-                            drawViewModel.currentSelection = newSelection
+                    for (img in page.imageData) {
+                        val centerX = img.x + (img.width / 2f)
+                        val centerY = img.y + (img.height / 2f)
+                        if (centerX >= lassoBox.xMin && centerX <= lassoBox.xMax &&
+                            centerY >= lassoBox.yMin && centerY <= lassoBox.yMax) {
+
+                            newSelection.images.add(img)
+                            img.isDragging = true
+
+                            globalLeft = min(globalLeft, img.x)
+                            globalTop = min(globalTop, img.y)
+                            globalRight = max(globalRight, img.x + img.width)
+                            globalBottom = max(globalBottom, img.y + img.height)
                         }
+                    }
+
+                    if (!newSelection.isEmpty()) {
+                        newSelection.boundingBox = RectF(globalLeft, globalTop, globalRight, globalBottom)
+                        drawViewModel.currentSelection = newSelection
                     }
                 }
             }
 
             drawViewModel.removeFinishedStrokes?.invoke(strokes.keys)
-            drawManager.requestDraw(
-                DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
-                }
-            )
+            drawManager.requestDraw(DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+            })
             return
         }
 
-        // --- FASE 2.5: EVAPORAZIONE DELLA GOMMA ---
         if (isEraser) {
             drawViewModel.removeFinishedStrokes?.invoke(strokes.keys)
-            drawManager.requestDraw(
-                DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
-                }
-            )
+            drawManager.requestDraw(DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+            })
             return
         }
 
-        // 1. Rendering visuale immediato sulla cache UI (Main Thread)
+        // --- 1. RENDERING VISUALE SULLA CACHE UI (Main Thread) ---
+        // Disegniamo i tratti (ora in World Space) convertendoli temporaneamente nello spazio dei vari buffer
+
+        // A. Disegno sulla cache Bitmap delle singole pagine
         for (pageRectWithIndex in drawManager.pagesRectOnWindow) {
             val page = document.pages.getOrNull(pageRectWithIndex.index) ?: continue
+            val basePageRect = drawManager.calcPage.pagesRectOnWindow[pageRectWithIndex.index] // Rettangolo base non zoomato
+
             page.bitmapPage?.let { bitmapCache ->
                 val canvasCache = Canvas(bitmapCache)
                 val bitmapRect = RectF(0f, 0f, bitmapCache.width.toFloat(), bitmapCache.height.toFloat())
-                val windowToPageMatrix = Matrix().apply {
-                    setRectToRect(pageRectWithIndex.rect, bitmapRect, Matrix.ScaleToFit.CENTER)
+
+                // Mappa: World Space -> Spazio pixel della Bitmap in memoria
+                val worldToBitmapMatrix = Matrix().apply {
+                    setRectToRect(basePageRect, bitmapRect, Matrix.ScaleToFit.FILL)
                 }
 
-                canvasCache.withMatrix(windowToPageMatrix) {
+                canvasCache.withSave {
+                    canvasCache.concat(worldToBitmapMatrix)
                     strokes.values.forEach { stroke ->
                         drawViewModel.pageMaker.canvasStrokeRenderer.draw(
                             stroke = stroke,
-                            canvas = this,
-                            strokeToScreenTransform = windowToPageMatrix
+                            canvas = canvasCache,
+                            strokeToScreenTransform = worldToBitmapMatrix
                         )
                     }
                 }
             }
         }
 
+        // B. Disegno sul buffer frontale (Schermo intero temporaneo)
         drawManager.onDrawBitmap?.let { bitmap ->
             val canvas = Canvas(bitmap)
-            strokes.values.forEach { stroke ->
-                drawViewModel.pageMaker.canvasStrokeRenderer.draw(
-                    stroke = stroke,
-                    canvas = canvas,
-                    strokeToScreenTransform = Matrix()
+            val worldToScreenMatrix = drawManager.cameraPhysics.getRenderMatrix()
+
+            canvas.withSave {
+                canvas.concat(worldToScreenMatrix)
+                strokes.values.forEach { stroke ->
+                    drawViewModel.pageMaker.canvasStrokeRenderer.draw(
+                        stroke = stroke,
+                        canvas = canvas,
+                        strokeToScreenTransform = worldToScreenMatrix
+                    )
+                }
+            }
+        }
+
+        // --- LA MAGIA DELL'HANDOFF SINCRONIZZATO ---
+        // 1. Facciamo una COPIA FISICA degli ID per evitare che spariscano (Fix del blocco)
+        val strokeIdsCopy = strokes.keys.toSet()
+
+        coroutineScope.launch(Dispatchers.Main) {
+            // 2. Diciamo al Main Thread di nascondere il tratto temporaneo dalla InProgressStrokesView
+            drawViewModel.removeFinishedStrokes?.invoke(strokeIdsCopy)
+
+            // 3. Aspettiamo l'esatto VSYNC (millisecondo) in cui Android sta ridisegnando la UI senza il tratto
+            android.view.Choreographer.getInstance().postFrameCallback {
+                // 4. ORA svegliamo il RenderThread per aggiornare il SurfaceView con la Bitmap in RAM.
+                // Così facendo, il vecchio tratto sparisce esattamente nello stesso millisecondo
+                // in cui appare quello nuovo sul SurfaceView. Niente più somme di trasparenze!
+                drawManager.requestDraw(
+                    DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.REFRESH)
                 )
             }
         }
 
-        drawManager.requestDraw(
-            DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.REFRESH).apply {
-                strokesIdToRemove = strokes.keys
-                invalidateType = DrawManager.DrawAttachments.Invalidate.INVALIDATE
-            }
-        )
-
-        // 2. Serializzazione e persistenza (Background Thread)
+        // --- 2. SERIALIZZAZIONE E PERSISTENZA (Background Thread) ---
         coroutineScope.launch {
             val strokesByPage = mutableMapOf<Int, MutableList<InkStroke>>()
 
@@ -232,17 +255,18 @@ class InkStrokeProcessor(
                     val strokeRect = RectF(box.xMin, box.yMin, box.xMax, box.yMax)
                     var touchedAnyPage = false
 
-                    for (pageInfo in drawManager.pagesRectOnWindow) {
-                        if (RectF.intersects(strokeRect, pageInfo.rect)) {
-                            strokesByPage.getOrPut(pageInfo.index) { mutableListOf() }.add(inkStroke)
+                    // Hit test IN WORLD SPACE usando l'impaginazione di base
+                    drawManager.calcPage.pagesRectOnWindow.forEachIndexed { index, basePageRect ->
+                        if (RectF.intersects(strokeRect, basePageRect)) {
+                            strokesByPage.getOrPut(index) { mutableListOf() }.add(inkStroke)
                             touchedAnyPage = true
                         }
                     }
 
                     if (!touchedAnyPage) {
-                        drawManager.pagesRectOnWindow.firstOrNull()?.let {
-                            strokesByPage.getOrPut(it.index) { mutableListOf() }.add(inkStroke)
-                        }
+                        // Fallback: se disegni fuori, assegna alla prima pagina visibile
+                        val fallbackIndex = drawManager.pagesRectOnWindow.firstOrNull()?.index ?: 0
+                        strokesByPage.getOrPut(fallbackIndex) { mutableListOf() }.add(inkStroke)
                     }
                 }
             }
@@ -251,10 +275,11 @@ class InkStrokeProcessor(
 
             for ((pageIndex, pageStrokes) in strokesByPage) {
                 val domainPage = document.pages.getOrNull(pageIndex) ?: continue
-                val pageInfo = drawManager.pagesRectOnWindow.find { it.index == pageIndex } ?: continue
+                val basePageRect = drawManager.calcPage.pagesRectOnWindow.getOrNull(pageIndex) ?: continue
 
-                val matrix = Matrix().apply {
-                    setRectToRect(pageInfo.rect, domainPage.rect(), Matrix.ScaleToFit.CENTER)
+                // Matrice: World Space -> Domain Page (MM)
+                val worldToMmMatrix = Matrix().apply {
+                    setRectToRect(basePageRect, domainPage.rect(), Matrix.ScaleToFit.FILL)
                 }
 
                 val newStrokesToSave = mutableListOf<DomainStroke>()
@@ -263,7 +288,8 @@ class InkStrokeProcessor(
                     val domainStroke = DomainStroke(domainPage.strokeData.size).apply {
                         this.stroke = inkStroke
                         extractProperties()
-                        applyTransform(matrix)
+                        // Applichiamo la matrice una volta sola per portarlo in mm e salvarlo
+                        applyTransform(worldToMmMatrix)
                     }
                     domainPage.strokeData.add(domainStroke)
                     newStrokesToSave.add(domainStroke)

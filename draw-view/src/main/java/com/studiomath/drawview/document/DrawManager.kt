@@ -23,6 +23,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
 
 /**
@@ -219,7 +221,14 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                 pagesRectOnWindow = frontState.pagesRect.toMutableSet()
                             }
 
-                            updateDrawView(drawAttachments)
+                            // Diciamo al Render Thread di disegnare il nuovo frame!
+                            updateDrawView(DrawAttachments(drawAttachments.drawMode).apply {
+                                update = drawAttachments.update
+                            })
+
+                            withContext(Dispatchers.Main) {
+                                drawViewModel.isDocumentShowed = true
+                            }
                         }
                     }
                     DrawAttachments.Update.CACHE_ALL -> {
@@ -482,16 +491,6 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         }
 
         snapshot.bitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
-
-        // --- FIX CRASH: Passiamo la palla al Main Thread per aggiornare la UI ---
-        val strokesToRemove = attachments.strokesIdToRemove
-        scope.launch(Dispatchers.Main) {
-            if (!strokesToRemove.isNullOrEmpty()) {
-                drawViewModel.removeFinishedStrokes?.invoke(strokesToRemove)
-            }
-            // Aggiorniamo anche lo stato di Compose nel Main Thread per sicurezza
-            drawViewModel.isDocumentShowed = true
-        }
     }
 
     private fun renderRefreshMode(canvas: Canvas, snapshot: RenderSnapshot, attachments: DrawAttachments) {
@@ -520,15 +519,9 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         }
 
         renderFloatingPage(canvas)
-
-        // --- FIX CRASH: Passiamo la palla al Main Thread per aggiornare la UI ---
-        val strokesToRemove = attachments.strokesIdToRemove
-        if (!strokesToRemove.isNullOrEmpty()) {
-            scope.launch(Dispatchers.Main) {
-                drawViewModel.removeFinishedStrokes?.invoke(strokesToRemove)
-            }
-        }
     }
+
+    val bitmapFilterPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
 
     private fun renderScaleTranslateMode(canvas: Canvas, snapshot: RenderSnapshot) {
         val inverseDrawMatrix = Matrix()
@@ -575,7 +568,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         // Mostriamo il layer ad alta risoluzione SOLO se NON stiamo riordinando le pagine
         if (!drawViewModel.isReorderingPages && relativeTransform != null && snapshot.bitmap != null) {
             canvas.withClip(windowRect) {
-                drawBitmap(snapshot.bitmap, relativeTransform, null)
+                // AGGIUNGIAMO IL bitmapFilterPaint INVECE DI null
+                drawBitmap(snapshot.bitmap, relativeTransform, bitmapFilterPaint)
             }
         }
 
@@ -697,5 +691,18 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             }
             start()
         }
+    }
+
+    /**
+     * Restituisce la matrice inversa della telecamera.
+     * Converte le coordinate dallo schermo (Screen Space) alla tela virtuale non zoomata (World Space).
+     */
+    fun getScreenToWorldMatrix(): Matrix {
+        val inverse = Matrix()
+        // Prendi la matrice attuale del pan/zoom
+        val cameraMatrix = cameraPhysics.getRenderMatrix()
+        // Calcola l'inversa
+        cameraMatrix.invert(inverse)
+        return inverse
     }
 }

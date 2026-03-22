@@ -38,7 +38,9 @@ import com.studiomath.drawview.document.page.Text
 import com.studiomath.drawview.document.selection.LassoMode
 import com.studiomath.drawview.document.selection.SelectionGroup
 import com.studiomath.drawview.document.selection.SelectionManager
+import com.studiomath.drawview.document.tools.DocumentMediaManager
 import com.studiomath.drawview.document.tools.EraserManager
+import com.studiomath.drawview.document.tools.InkInputManager
 import com.studiomath.drawview.document.tools.TextEditorManager
 import com.studiomath.drawview.document.tools.Tool
 import com.studiomath.drawview.document.tools.ToolManager
@@ -291,150 +293,24 @@ class DrawViewModel(
         }
     }
 
-    // --- I/O MEDIA IMPORTER ---
-    val mediaImporter = MediaImporter(application, repository, pageMaker)
+    // --- I/O MEDIA MANAGER ---
+    val mediaManager = DocumentMediaManager(
+        application = application,
+        repository = repository,
+        pageMaker = pageMaker,
+        historyManager = historyManager,
+        coroutineScope = viewModelScope,
+        getDrawManager = { drawManager },
+        getDocumentData = { documentData },
+        updateSelection = { currentSelection = it },
+        getSelection = { currentSelection }
+    )
 
-    /**
-     * Imports a PDF from a given URI, creates a Resource, and generates
-     * a new app Page for every page in the PDF document.
-     */
-    fun importPdfFromUri(uri: Uri) {
-        val currentDoc = documentData ?: return
+    // Delegati puliti per la UI (o per chiunque chiami il ViewModel)
+    fun importPdfFromUri(uri: Uri) = mediaManager.importPdfFromUri(uri)
+    fun importImageFromUri(uri: Uri, targetXPx: Float? = null, targetYPx: Float? = null) = mediaManager.importImageFromUri(uri, targetXPx, targetYPx)
+    fun updateImageInDatabase(pageDbId: Int, image: Image) = mediaManager.updateImageInDatabase(pageDbId, image)
 
-        viewModelScope.launch {
-            try {
-                // 1. Il MediaImporter fa tutto il lavoro su un thread separato
-                val newPages = mediaImporter.importPdf(uri, currentDoc)
-
-                // 2. Aggiorniamo la RAM
-                currentDoc.pages.addAll(newPages)
-
-                // 3. Aggiorniamo la UI
-                drawManager.calcPage.needToBeUpdated = true
-                drawManager.requestDraw(
-                    DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                        update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
-                    }
-                )
-            } catch (e: Exception) {
-                e.printStackTrace() // Gestione base degli errori
-            }
-        }
-    }
-
-    /**
-     * Imports an image from a given URI. Se vengono fornite le coordinate,
-     * la posiziona esattamente sotto al tocco.
-     */
-    fun importImageFromUri(uri: Uri, targetXPx: Float? = null, targetYPx: Float? = null) {
-        val currentDoc = documentData ?: return
-
-        viewModelScope.launch {
-            try {
-                // 1. Calcoliamo DOVE inserire l'immagine (Logica UI/Schermo che DEVE stare nel ViewModel)
-                var targetPageInfo = targetXPx?.let { x -> targetYPx?.let { y ->
-                    drawManager.pagesRectOnWindow.find { it.rect.contains(x, y) }
-                }}
-
-                if (targetPageInfo == null) {
-                    val screenCenterX = drawManager.windowRect.centerX()
-                    val screenCenterY = drawManager.windowRect.centerY()
-                    targetPageInfo = drawManager.pagesRectOnWindow.find {
-                        it.rect.contains(screenCenterX, screenCenterY)
-                    } ?: drawManager.pagesRectOnWindow.minByOrNull {
-                        hypot(
-                            (it.rect.centerX() - screenCenterX).toDouble(),
-                            (it.rect.centerY() - screenCenterY).toDouble()
-                        )
-                    }
-                }
-
-                val targetPageIndex = targetPageInfo?.index ?: 0
-                val targetPage = currentDoc.pages.getOrNull(targetPageIndex) ?: return@launch
-
-                var imgX = (targetPage.width / 2f) - 50f // Fallback (100mm/2)
-                var imgY = (targetPage.height / 2f) - 50f
-
-                if (targetPageInfo != null) {
-                    val screenToPageMatrix = Matrix()
-                    screenToPageMatrix.setRectToRect(targetPageInfo.rect, targetPage.rect(), Matrix.ScaleToFit.FILL)
-                    val pt = floatArrayOf(
-                        targetXPx ?: drawManager.windowRect.centerX(),
-                        targetYPx ?: drawManager.windowRect.centerY()
-                    )
-                    screenToPageMatrix.mapPoints(pt)
-                    imgX = pt[0] - 50f
-                    imgY = pt[1] - 50f // Nota: l'altezza reale verrà corretta nell'importer in base al ratio
-                }
-
-                // 2. Deleghiamo il lavoro pesante di I/O (su thread IO automatico)
-                val newImage = mediaImporter.importImage(uri, currentDoc, targetPage, imgX, imgY)
-
-                if (newImage != null) {
-                    // 3. Aggiorniamo lo stato in RAM e la Selezione
-                    targetPage.imageData.add(newImage)
-
-                    currentSelection?.let { oldSel ->
-                        oldSel.images.forEach { it.isDragging = false }
-                        oldSel.strokes.forEach { it.isDragging = false }
-                    }
-
-                    currentSelection = SelectionGroup(
-                        images = mutableListOf(newImage),
-                        boundingBox = android.graphics.RectF(newImage.x, newImage.y, newImage.x + newImage.width, newImage.y + newImage.height),
-                        pageIndex = targetPageIndex
-                    )
-
-                    // 4. Salviamo nella History
-                    historyManager.addHistoryAction(
-                        com.studiomath.drawview.document.history.AddImageAction(targetPage.dbId, targetPageIndex, newImage)
-                    )
-
-                    // 5. Aggiorniamo il Canvas
-                    drawManager.requestDraw(
-                        DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                            update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
-                        }
-                    )
-                }
-            } catch (e: Exception) {
-                Log.e("DrawViewModel", "Error importing image", e)
-            }
-        }
-    }
-
-    /**
-     * Instant save method for new strokes.
-     */
-    fun saveNewStrokesToDatabase(pageDbId: Int, newStrokes: List<Stroke>) {
-        viewModelScope.launch {
-            newStrokes.forEach { stroke ->
-                repository.saveNewStroke(pageDbId, stroke)
-            }
-        }
-    }
-
-
-    /**
-     * Updates an existing image's position/properties in the database
-     * AND refreshes the page's low-resolution cache so the image doesn't disappear during scrolling.
-     */
-    fun updateImageInDatabase(pageDbId: Int, image: Image) {
-        viewModelScope.launch(Dispatchers.IO) {
-            repository.updateImage(pageDbId, image)
-
-            // Trova la pagina corrispondente per aggiornare la cache
-            val currentDoc = documentData ?: return@launch
-            val page = currentDoc.pages.find { it.dbId == pageDbId } ?: return@launch
-
-            // Rigenera la bitmap della singola pagina per riflettere la nuova posizione dell'immagine
-            page.bitmapPage?.let { bmp ->
-                page.bitmapPage = pageMaker.makePage(
-                    Rect(0, 0, bmp.width, bmp.height), null, page, currentDoc
-                )
-            }
-        }
-    }
 
 
     // --- GESTIONE STRUMENTI (TOOLS) ---
@@ -453,13 +329,12 @@ class DrawViewModel(
         size = drawManager.dimToPx(Measure(activeBrush.size, Measure.Unit.DOT))
     )
 
-    // --- INK LIBRARY CALLBACKS ---
-    var startStrokeInProgress: ((event: MotionEvent, pointerId: Int, brush: Brush, motionEventToWorldTransform: Matrix, strokeToWorldTransform: Matrix) -> InProgressStrokeId)? = null
-    var addToStrokeInProgress: ((event: MotionEvent, pointerId: Int, strokeId: InProgressStrokeId, predictedEvent: MotionEvent?) -> Unit)? = null
-    var finishStrokeInProgress: ((event: MotionEvent, pointerId: Int, strokeId: InProgressStrokeId) -> Unit)? = null
-    var cancelStrokeInProgress: ((strokeId: InProgressStrokeId, event: MotionEvent) -> Unit)? = null
-    var removeFinishedStrokes: ((strokeKeys: Set<InProgressStrokeId>) -> Unit)? = null
-    var maskPath: ((path: Path) -> Unit)? = null
+    // --- INK INPUT MANAGER ---
+    val inkInputManager = InkInputManager(
+        repository = repository,
+        coroutineScope = viewModelScope
+    )
+
     var finishActivity: (() -> Unit)? = null
 }
 

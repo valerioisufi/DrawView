@@ -70,7 +70,7 @@ class InkTouchHandler(private val drawViewModel: DrawViewModel) {
                 val screenToWorld = drawViewModel.drawManager.getScreenToWorldMatrix()
 
                 // 2. Avvia il tratto passando la matrice (nota: accetta una Matrix o un AffineTransform a seconda dell'overload, usa Matrix se disponibile)
-                currentStrokeId = drawViewModel.startStrokeInProgress?.invoke(
+                currentStrokeId = drawViewModel.inkInputManager.startStrokeInProgress?.invoke(
                     event,
                     pointerId,
                     drawViewModel.activeBrush, // <-- Pennello NON scalato
@@ -83,7 +83,7 @@ class InkTouchHandler(private val drawViewModel: DrawViewModel) {
                 val strokeId = currentStrokeId ?: return true
                 val predictedEvent = predictor?.predict()
 
-                drawViewModel.addToStrokeInProgress?.invoke(event, pointerId, strokeId, predictedEvent)
+                drawViewModel.inkInputManager.addToStrokeInProgress?.invoke(event, pointerId, strokeId, predictedEvent)
 
                 if (drawViewModel.selectedTool == Tool.ERASER) {
                     for (i in 0 until event.historySize) {
@@ -102,7 +102,7 @@ class InkTouchHandler(private val drawViewModel: DrawViewModel) {
                 val pointerId = event.getPointerId(event.actionIndex)
                 if (pointerId == currentPointerId) {
                     currentStrokeId?.let { strokeId ->
-                        drawViewModel.finishStrokeInProgress?.invoke(event, pointerId, strokeId)
+                        drawViewModel.inkInputManager.finishStrokeInProgress?.invoke(event, pointerId, strokeId)
                     }
                     if (drawViewModel.selectedTool == Tool.ERASER) {
                         drawViewModel.commitEraserHistory()
@@ -130,7 +130,7 @@ class InkTouchHandler(private val drawViewModel: DrawViewModel) {
      */
     fun cancelCurrentStroke(event: MotionEvent) {
         currentStrokeId?.let { strokeId ->
-            drawViewModel.cancelStrokeInProgress?.invoke(strokeId, event)
+            drawViewModel.inkInputManager.cancelStrokeInProgress?.invoke(strokeId, event)
         }
         resetStrokeState()
     }

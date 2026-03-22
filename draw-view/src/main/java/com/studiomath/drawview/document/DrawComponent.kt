@@ -138,10 +138,10 @@ fun DrawComponent(
                 }
 
                 // Wire up the Ink library callbacks to the ViewModel
-                drawViewModel.startStrokeInProgress = { event, pointerId, brush, motionEventToWorldTransform, strokeToWorldTransform ->
+                drawViewModel.inkInputManager.startStrokeInProgress = { event, pointerId, brush, motionEventToWorldTransform, strokeToWorldTransform ->
                     inProgressStrokesView.startStroke(event, pointerId, brush, motionEventToWorldTransform, strokeToWorldTransform)
                 }
-                drawViewModel.addToStrokeInProgress =
+                drawViewModel.inkInputManager.addToStrokeInProgress =
                     { event, pointerId, strokeId, predictedEvent ->
                         inProgressStrokesView.addToStroke(
                             event,
@@ -150,16 +150,16 @@ fun DrawComponent(
                             predictedEvent
                         )
                     }
-                drawViewModel.finishStrokeInProgress = { event, pointerId, strokeId ->
+                drawViewModel.inkInputManager.finishStrokeInProgress = { event, pointerId, strokeId ->
                     inProgressStrokesView.finishStroke(event, pointerId, strokeId)
                 }
-                drawViewModel.cancelStrokeInProgress = { strokeId, event ->
+                drawViewModel.inkInputManager.cancelStrokeInProgress = { strokeId, event ->
                     inProgressStrokesView.cancelStroke(strokeId, event)
                 }
-                drawViewModel.removeFinishedStrokes = { strokeKeys ->
+                drawViewModel.inkInputManager.removeFinishedStrokes = { strokeKeys ->
                     inProgressStrokesView.removeFinishedStrokes(strokeKeys)
                 }
-                drawViewModel.maskPath = { path ->
+                drawViewModel.inkInputManager.maskPath = { path ->
                     inProgressStrokesView.maskPath = path
                 }
 

@@ -196,7 +196,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                             val newPagesRect = calcPage.getPagesRectOnWindowTransformation(windowRect, renderMatrix)
 
                             // Invia la maschera calcolata usando i rettangoli NUOVI
-                            drawViewModel.maskPath?.invoke(getMaskPath(newPagesRect))
+                            drawViewModel.inkInputManager.maskPath?.invoke(getMaskPath(newPagesRect))
 
                             // 1. LAVORO IN BACKGROUND (senza bloccare nessuno)
                             // Usiamo il frontState.bitmap attuale per capire le dimensioni, se esiste
@@ -359,7 +359,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                         // SENZA usare CountDownLatch o bloccare il render thread.
                         if (accumulatedStrokesToRemove.isNotEmpty()) {
                             withContext(Dispatchers.Main) {
-                                drawViewModel.removeFinishedStrokes?.invoke(accumulatedStrokesToRemove)
+                                drawViewModel.inkInputManager.removeFinishedStrokes?.invoke(accumulatedStrokesToRemove)
                             }
                         }
                     }
@@ -421,7 +421,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             // --- FIX MASCHERA IN TEMPO REALE ---
             // Se la telecamera si è mossa, aggiorniamo la maschera per l'inchiostro in corso
             if (useLiveRects) {
-                drawViewModel.maskPath?.invoke(getMaskPath(currentPagesRect))
+                drawViewModel.inkInputManager.maskPath?.invoke(getMaskPath(currentPagesRect))
             }
 
             snapshot = RenderSnapshot(

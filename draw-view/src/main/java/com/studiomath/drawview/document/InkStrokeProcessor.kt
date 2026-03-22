@@ -83,7 +83,7 @@ class InkStrokeProcessor(
                     mmLassoBatch.createClosedShape()
                 } catch (e: Exception) {
                     e.printStackTrace()
-                    drawViewModel.removeFinishedStrokes?.invoke(strokes.keys)
+                    drawViewModel.inkInputManager.removeFinishedStrokes?.invoke(strokes.keys)
                     drawManager.requestDraw(DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
                         update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
                     })
@@ -159,7 +159,7 @@ class InkStrokeProcessor(
                 }
             }
 
-            drawViewModel.removeFinishedStrokes?.invoke(strokes.keys)
+            drawViewModel.inkInputManager.removeFinishedStrokes?.invoke(strokes.keys)
             drawManager.requestDraw(DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
                 update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
             })
@@ -168,7 +168,7 @@ class InkStrokeProcessor(
 
         // --- GESTIONE GOMMA ---
         if (isEraser) {
-            drawViewModel.removeFinishedStrokes?.invoke(strokes.keys)
+            drawViewModel.inkInputManager.removeFinishedStrokes?.invoke(strokes.keys)
             drawManager.requestDraw(DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
                 update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
             })
@@ -223,7 +223,7 @@ class InkStrokeProcessor(
                 }
 
                 if (newStrokesToSave.isNotEmpty()) {
-                    drawViewModel.saveNewStrokesToDatabase(domainPage.dbId, newStrokesToSave)
+                    drawViewModel.inkInputManager.saveNewStrokesToDatabase(domainPage.dbId, newStrokesToSave)
                     historyGroups.add(PageStrokeGroup(domainPage.dbId, pageIndex, newStrokesToSave.toList()))
                 }
             }

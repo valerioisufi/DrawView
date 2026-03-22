@@ -9,7 +9,6 @@ import com.studiomath.drawview.document.page.Stroke
 import com.studiomath.drawview.document.page.Text
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlin.collections.forEachIndexed
 
 /**
  * Funzione di utilità usata da tutte le azioni per ricalcolare la cache
@@ -46,7 +45,7 @@ class AddStrokesAction(
 
         // Cicliamo su tutte le pagine toccate dal tratto
         groups.forEach { group ->
-            val page = doc.pages.getOrNull(group.pageIndex) ?: return@forEach
+            val page = doc.pages.find { it.dbId == group.pageDbId } ?: return@forEach
 
             // Rimuoviamo i tratti da questa specifica pagina
             page.strokeData.removeAll(group.strokes)
@@ -61,7 +60,7 @@ class AddStrokesAction(
         val doc = viewModel.documentData ?: return
 
         groups.forEach { group ->
-            val page = doc.pages.getOrNull(group.pageIndex) ?: return@forEach
+            val page = doc.pages.find { it.dbId == group.pageDbId } ?: return@forEach
 
             // Ripristiniamo i tratti su questa specifica pagina
             page.strokeData.addAll(group.strokes)
@@ -83,7 +82,7 @@ class EraseStrokesAction(
 ) : DrawAction {
 
     override suspend fun undo(viewModel: DrawViewModel) {
-        val page = viewModel.documentData?.pages?.getOrNull(pageIndex) ?: return
+        val page = viewModel.documentData?.pages?.find { it.dbId == pageDbId } ?: return
 
         // ANNULLARE LA GOMMA SIGNIFICA "RESUSCITARE" I TRATTI!
         page.strokeData.addAll(erasedStrokes)
@@ -94,7 +93,7 @@ class EraseStrokesAction(
     }
 
     override suspend fun redo(viewModel: DrawViewModel) {
-        val page = viewModel.documentData?.pages?.getOrNull(pageIndex) ?: return
+        val page = viewModel.documentData?.pages?.find { it.dbId == pageDbId } ?: return
 
         // RIFARE LA GOMMA SIGNIFICA DISTRUGGERLI DI NUOVO
         page.strokeData.removeAll(erasedStrokes)
@@ -113,7 +112,7 @@ class AddTextAction(
 ) : DrawAction {
 
     override suspend fun undo(viewModel: DrawViewModel) {
-        val page = viewModel.documentData?.pages?.getOrNull(pageIndex) ?: return
+        val page = viewModel.documentData?.pages?.find { it.dbId == pageDbId } ?: return
 
         page.textData.remove(textItem)
         withContext(Dispatchers.IO) {
@@ -123,7 +122,7 @@ class AddTextAction(
     }
 
     override suspend fun redo(viewModel: DrawViewModel) {
-        val page = viewModel.documentData?.pages?.getOrNull(pageIndex) ?: return
+        val page = viewModel.documentData?.pages?.find { it.dbId == pageDbId } ?: return
 
         page.textData.add(textItem)
         withContext(Dispatchers.IO) {
@@ -182,12 +181,14 @@ class TransformSelectionAction(
         // 2. Applica i nuovi stati in RAM usando la "fotografia"
         images.forEachIndexed { i, img ->
             val state = imageStates[i]
-            img.x = state[0]; img.y = state[1]; img.width = state[2]; img.height = state[3]; img.rotation = state[4]
+            img.x = state[0]; img.y = state[1]; img.width = state[2]; img.height =
+            state[3]; img.rotation = state[4]
         }
 
         texts.forEachIndexed { i, txt ->
             val state = textStates[i]
-            txt.x = state[0]; txt.y = state[1]; txt.width = state[2]; txt.height = state[3]; txt.rotation = state[4]; txt.fontSize = state[5]
+            txt.x = state[0]; txt.y = state[1]; txt.width = state[2]; txt.height =
+            state[3]; txt.rotation = state[4]; txt.fontSize = state[5]
         }
 
         strokes.forEachIndexed { i, stroke ->
@@ -208,11 +209,27 @@ class TransformSelectionAction(
     }
 
     override suspend fun undo(viewModel: DrawViewModel) {
-        applyTransformation(viewModel, newPageIndex, oldPageIndex, oldPageDbId, oldImageStates, oldTextStates, oldStrokeNative)
+        applyTransformation(
+            viewModel,
+            newPageIndex,
+            oldPageIndex,
+            oldPageDbId,
+            oldImageStates,
+            oldTextStates,
+            oldStrokeNative
+        )
     }
 
     override suspend fun redo(viewModel: DrawViewModel) {
-        applyTransformation(viewModel, oldPageIndex, newPageIndex, newPageDbId, newImageStates, newTextStates, newStrokeNative)
+        applyTransformation(
+            viewModel,
+            oldPageIndex,
+            newPageIndex,
+            newPageDbId,
+            newImageStates,
+            newTextStates,
+            newStrokeNative
+        )
     }
 }
 
@@ -224,7 +241,7 @@ class AddImageAction(
 ) : DrawAction {
 
     override suspend fun undo(viewModel: DrawViewModel) {
-        val page = viewModel.documentData?.pages?.getOrNull(pageIndex) ?: return
+        val page = viewModel.documentData?.pages?.find { it.dbId == pageDbId } ?: return
 
         page.imageData.remove(imageItem)
         withContext(Dispatchers.IO) {
@@ -234,7 +251,7 @@ class AddImageAction(
     }
 
     override suspend fun redo(viewModel: DrawViewModel) {
-        val page = viewModel.documentData?.pages?.getOrNull(pageIndex) ?: return
+        val page = viewModel.documentData?.pages?.find { it.dbId == pageDbId } ?: return
 
         page.imageData.add(imageItem)
         withContext(Dispatchers.IO) {
@@ -243,5 +260,83 @@ class AddImageAction(
             viewModel.repository.addImageToPage(pageDbId, imageItem)
         }
         refreshPageCache(viewModel, page)
+    }
+}
+
+class AddPageAction(
+    private val documentId: Int,
+    private val page: Page,
+    private val insertedIndex: Int
+) : DrawAction {
+    override suspend fun undo(viewModel: DrawViewModel) {
+        val doc = viewModel.documentData ?: return
+        withContext(Dispatchers.IO) {
+            viewModel.repository.softDeletePageAtIndex(documentId, page.dbId, insertedIndex)
+        }
+        doc.pages.remove(page)
+        doc.pages.forEachIndexed { i, p -> p.index = i } // Ricalcola indici RAM
+        withContext(Dispatchers.Main) { viewModel.drawManager.calcPage.needToBeUpdated = true }
+    }
+
+    override suspend fun redo(viewModel: DrawViewModel) {
+        val doc = viewModel.documentData ?: return
+        withContext(Dispatchers.IO) {
+            viewModel.repository.restorePageAtIndex(documentId, page.dbId, insertedIndex)
+        }
+        doc.pages.add(insertedIndex, page)
+        doc.pages.forEachIndexed { i, p -> p.index = i }
+        withContext(Dispatchers.Main) { viewModel.drawManager.calcPage.needToBeUpdated = true }
+    }
+}
+
+// --- AZIONE: ELIMINAZIONE DI UNA PAGINA ---
+class DeletePageAction(
+    private val documentId: Int,
+    private val page: Page,
+    private val deletedIndex: Int
+) : DrawAction {
+    override suspend fun undo(viewModel: DrawViewModel) {
+        val doc = viewModel.documentData ?: return
+        // Il ripristino è l'esatto contrario!
+        withContext(Dispatchers.IO) {
+            viewModel.repository.restorePageAtIndex(documentId, page.dbId, deletedIndex)
+        }
+        doc.pages.add(deletedIndex, page)
+        doc.pages.forEachIndexed { i, p -> p.index = i }
+        withContext(Dispatchers.Main) { viewModel.drawManager.calcPage.needToBeUpdated = true }
+    }
+
+    override suspend fun redo(viewModel: DrawViewModel) {
+        val doc = viewModel.documentData ?: return
+        withContext(Dispatchers.IO) {
+            viewModel.repository.softDeletePageAtIndex(documentId, page.dbId, deletedIndex)
+        }
+        doc.pages.remove(page)
+        doc.pages.forEachIndexed { i, p -> p.index = i }
+        withContext(Dispatchers.Main) { viewModel.drawManager.calcPage.needToBeUpdated = true }
+    }
+}
+
+// --- AZIONE: RIORDINO DELLE PAGINE ---
+class ReorderPagesAction(
+    private val oldOrderList: List<Page>,
+    private val newOrderList: List<Page>
+) : DrawAction {
+    override suspend fun undo(viewModel: DrawViewModel) {
+        val doc = viewModel.documentData ?: return
+        doc.pages.clear()
+        doc.pages.addAll(oldOrderList)
+        doc.pages.forEachIndexed { i, p -> p.index = i }
+        withContext(Dispatchers.IO) { viewModel.repository.updatePagesOrder(doc.pages) }
+        withContext(Dispatchers.Main) { viewModel.drawManager.calcPage.needToBeUpdated = true }
+    }
+
+    override suspend fun redo(viewModel: DrawViewModel) {
+        val doc = viewModel.documentData ?: return
+        doc.pages.clear()
+        doc.pages.addAll(newOrderList)
+        doc.pages.forEachIndexed { i, p -> p.index = i }
+        withContext(Dispatchers.IO) { viewModel.repository.updatePagesOrder(doc.pages) }
+        withContext(Dispatchers.Main) { viewModel.drawManager.calcPage.needToBeUpdated = true }
     }
 }

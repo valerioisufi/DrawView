@@ -187,6 +187,18 @@ interface PageDao {
      */
     @Query("UPDATE pages SET pageNumber = :newIndex WHERE id = :pageDbId")
     suspend fun updatePageNumber(pageDbId: Int, newIndex: Int)
+
+    /**
+     * Esegue il Soft Delete di una pagina nascondendola.
+     */
+    @Query("UPDATE pages SET isDeleted = 1 WHERE id = :pageId")
+    suspend fun softDeletePage(pageId: Int)
+
+    /**
+     * Ripristina una pagina e le assegna la sua posizione corretta.
+     */
+    @Query("UPDATE pages SET isDeleted = 0, pageNumber = :newIndex WHERE id = :pageId")
+    suspend fun restorePage(pageId: Int, newIndex: Int)
 }
 
 /**

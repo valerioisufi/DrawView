@@ -62,7 +62,8 @@ data class PageEntity(
     val documentId: Int,
     val pageNumber: Int,
     val width: Float,
-    val height: Float
+    val height: Float,
+    val isDeleted: Boolean = false
 )
 
 /**

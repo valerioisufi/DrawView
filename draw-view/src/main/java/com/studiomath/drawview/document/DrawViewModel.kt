@@ -155,6 +155,7 @@ class DrawViewModel(
 
     val pageManager = PageManager(
         repository = repository,
+        historyManager = historyManager,
         coroutineScope = viewModelScope,
         getDrawManager = { drawManager },
         getDocumentData = { documentData },

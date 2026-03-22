@@ -9,11 +9,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.studiomath.drawview.data.repository.DrawDocumentRepository
 import com.studiomath.drawview.document.DrawManager
+import com.studiomath.drawview.document.history.AddPageAction
+import com.studiomath.drawview.document.history.HistoryManager
+import com.studiomath.drawview.document.history.ReorderPagesAction
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
 class PageManager(
     private val repository: DrawDocumentRepository,
+    private val historyManager: HistoryManager,
     private val coroutineScope: CoroutineScope,
     private val getDrawManager: () -> DrawManager,
     private val getDocumentData: () -> Document?, // Aggiunto per l'auto-scroll
@@ -31,6 +35,9 @@ class PageManager(
     private var isAutoScrolling = false
     private var autoScrollDeltaY = 0f
     private var attachedView: View? = null
+
+    // NUOVO: Fotografia dell'ordine originale prima del Drag & Drop
+    private var originalPageOrder: List<Page>? = null
 
     // Motore a 60fps per far scorrere la pagina ai bordi
     private val autoScrollRunnable = object : Runnable {
@@ -198,6 +205,10 @@ class PageManager(
             newPage.prepare()
             currentDoc.pages.add(newPage)
 
+            historyManager.addHistoryAction(
+                AddPageAction(actualDocId, newPage, nextIndex)
+            )
+
             updateDrawManager()
         }
     }
@@ -225,6 +236,11 @@ class PageManager(
                 currentDoc.pages[i].index = i
             }
 
+            // NUOVO: Inseriamo l'azione nella history!
+            historyManager.addHistoryAction(
+                AddPageAction(actualDocId, newPage, newPageIndex)
+            )
+
             clearContextMenuPosition()
             contextMenuTargetPageIndex = -1
             updateDrawManager()
@@ -241,7 +257,7 @@ class PageManager(
         val pageToDelete = currentDoc.pages[targetIndex]
 
         coroutineScope.launch {
-            repository.deletePageAtIndex(currentDoc.dbId, pageToDelete.dbId, targetIndex)
+            repository.softDeletePageAtIndex(currentDoc.dbId, pageToDelete.dbId, targetIndex)
             currentDoc.pages.removeAt(targetIndex)
 
             for (i in targetIndex until currentDoc.pages.size) {
@@ -256,6 +272,8 @@ class PageManager(
 
     fun startPageReorderMode(clearContextMenuPosition: () -> Unit) {
         isReorderingPages = true
+        // NUOVO: Salviamo l'ordine iniziale
+        originalPageOrder = getDocumentData()?.pages?.toList()
         clearContextMenuPosition()
         clearSelectionCallback()
     }
@@ -266,6 +284,12 @@ class PageManager(
 
         coroutineScope.launch {
             repository.updatePagesOrder(currentDoc.pages)
+
+            // NUOVO: Usiamo l'ordine salvato all'inizio!
+            originalPageOrder?.let { oldOrder ->
+                historyManager.addHistoryAction(ReorderPagesAction(oldOrder, currentDoc.pages.toList()))
+            }
+            originalPageOrder = null // Puliamo la memoria
 
             val drawManager = getDrawManager()
             drawManager.calcPage.needToBeUpdated = true

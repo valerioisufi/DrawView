@@ -42,4 +42,13 @@
     <string name="draw_toolbar_action_import_pdf">Importa PDF</string>
     <string name="draw_toolbar_action_import_image">Importa Immagine</string>
     <string name="document_default_name">Nuovo Documento</string>
+    <string name="common_action_cut">Taglia</string>
+    <string name="common_action_copy">Copia</string>
+    <string name="common_action_delete">Elimina</string>
+    <string name="common_action_paste">Incolla</string>
+    <string name="context_menu_action_add_page">Aggiungi Pagina</string>
+    <string name="context_menu_action_delete_page">Elimina Pagina</string>
+    <string name="context_menu_action_reorder_page">Sposta Pagina</string>
+    <string name="text_editor_action_bold">Grassetto</string>
+    <string name="text_editor_action_italic">Corsivo</string>
 </resources>

@@ -10,6 +10,7 @@ import androidx.compose.runtime.setValue
 import com.studiomath.drawview.data.repository.DrawDocumentRepository
 import com.studiomath.drawview.document.DrawManager
 import com.studiomath.drawview.document.history.AddPageAction
+import com.studiomath.drawview.document.history.DeletePageAction
 import com.studiomath.drawview.document.history.HistoryManager
 import com.studiomath.drawview.document.history.ReorderPagesAction
 import kotlinx.coroutines.CoroutineScope
@@ -263,6 +264,10 @@ class PageManager(
             for (i in targetIndex until currentDoc.pages.size) {
                 currentDoc.pages[i].index = i
             }
+
+            historyManager.addHistoryAction(
+                DeletePageAction(currentDoc.dbId, pageToDelete, targetIndex)
+            )
 
             clearContextMenuPosition()
             contextMenuTargetPageIndex = -1

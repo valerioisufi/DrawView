@@ -53,6 +53,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextRange
@@ -66,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.ink.authoring.InProgressStrokesView
 import androidx.input.motionprediction.MotionEventPredictor
+import com.studiomath.drawview.R
 import com.studiomath.drawview.document.motion.CanvasTouchDispatcher
 import com.studiomath.drawview.document.tools.RichTextUtil
 import kotlin.math.min
@@ -193,21 +195,21 @@ fun DrawComponent(
                     IconButton(onClick = { drawViewModel.cutSelection() }) {
                         Icon(
                             Icons.Default.ContentCut,
-                            contentDescription = "Taglia",
+                            contentDescription = stringResource(R.string.common_action_cut),
                             tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
                     IconButton(onClick = { drawViewModel.copySelection() }) {
                         Icon(
                             Icons.Default.ContentCopy,
-                            contentDescription = "Copia",
+                            contentDescription = stringResource(R.string.common_action_copy),
                             tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
                     IconButton(onClick = { drawViewModel.deleteSelection() }) {
                         Icon(
                             Icons.Default.Delete,
-                            contentDescription = "Elimina",
+                            contentDescription = stringResource(R.string.common_action_delete),
                             tint = MaterialTheme.colorScheme.error
                         )
                     }
@@ -241,7 +243,7 @@ fun DrawComponent(
                             IconButton(onClick = { drawViewModel.pasteSelection(pos.x, pos.y) }) {
                                 Icon(
                                     Icons.Default.ContentPaste,
-                                    contentDescription = "Incolla",
+                                    contentDescription = stringResource(R.string.common_action_paste),
                                     tint = MaterialTheme.colorScheme.primary
                                 )
                             }
@@ -251,17 +253,17 @@ fun DrawComponent(
                         // Es: "Aggiungi Immagine", "Aggiungi Testo", ecc.
                         // Pulsanti Gestione Pagina
                         IconButton(onClick = { drawViewModel.addNewPageAfterTarget() }) {
-                            Icon(Icons.Default.Add, contentDescription = "Aggiungi Pagina")
+                            Icon(Icons.Default.Add, contentDescription = stringResource(R.string.context_menu_action_add_page))
                         }
                         IconButton(onClick = { drawViewModel.deleteTargetPage() }) {
                             Icon(
                                 Icons.Default.Delete,
-                                contentDescription = "Elimina Pagina",
+                                contentDescription = stringResource(R.string.context_menu_action_delete_page),
                                 tint = MaterialTheme.colorScheme.error
                             )
                         }
                         IconButton(onClick = { drawViewModel.startPageReorderMode() }) {
-                            Icon(Icons.Default.SwapVert, contentDescription = "Sposta Pagina")
+                            Icon(Icons.Default.SwapVert, contentDescription = stringResource(R.string.context_menu_action_reorder_page))
                         }
                     }
                 }
@@ -386,10 +388,12 @@ fun DrawComponent(
                     ) {
                         Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
                             IconButton(onClick = { applyStyleToSelection(SpanStyle(fontWeight = FontWeight.Bold)) }) {
-                                Icon(Icons.Default.FormatBold, contentDescription = "Grassetto")
+                                Icon(Icons.Default.FormatBold, contentDescription = stringResource(R.string.text_editor_action_bold))
                             }
                             IconButton(onClick = { applyStyleToSelection(SpanStyle(fontStyle = FontStyle.Italic)) }) {
-                                Icon(Icons.Default.FormatItalic, contentDescription = "Corsivo")
+                                Icon(Icons.Default.FormatItalic, contentDescription = stringResource(
+                                    R.string.text_editor_action_italic
+                                ))
                             }
                             IconButton(onClick = { applyStyleToSelection(SpanStyle(color = androidx.compose.ui.graphics.Color.Red)) }) {
                                 Icon(

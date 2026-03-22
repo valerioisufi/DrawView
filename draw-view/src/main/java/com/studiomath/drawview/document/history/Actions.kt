@@ -263,6 +263,7 @@ class AddImageAction(
     }
 }
 
+// --- AZIONE: AGGIUNTA DI UNA PAGINA ---
 class AddPageAction(
     private val documentId: Int,
     private val page: Page,
@@ -274,8 +275,17 @@ class AddPageAction(
             viewModel.repository.softDeletePageAtIndex(documentId, page.dbId, insertedIndex)
         }
         doc.pages.remove(page)
-        doc.pages.forEachIndexed { i, p -> p.index = i } // Ricalcola indici RAM
-        withContext(Dispatchers.Main) { viewModel.drawManager.calcPage.needToBeUpdated = true }
+        doc.pages.forEachIndexed { i, p -> p.index = i }
+
+        // CORREZIONE: Aggiorniamo la UI
+        withContext(Dispatchers.Main) {
+            viewModel.drawManager.calcPage.needToBeUpdated = true
+            viewModel.drawManager.requestDraw(
+                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                }
+            )
+        }
     }
 
     override suspend fun redo(viewModel: DrawViewModel) {
@@ -285,7 +295,13 @@ class AddPageAction(
         }
         doc.pages.add(insertedIndex, page)
         doc.pages.forEachIndexed { i, p -> p.index = i }
-        withContext(Dispatchers.Main) { viewModel.drawManager.calcPage.needToBeUpdated = true }
+
+        // CORREZIONE: Aggiorniamo la UI
+        withContext(Dispatchers.Main) {
+            viewModel.drawManager.calcPage.needToBeUpdated = true
+        }
+
+        refreshPageCache(viewModel, page)
     }
 }
 
@@ -297,13 +313,18 @@ class DeletePageAction(
 ) : DrawAction {
     override suspend fun undo(viewModel: DrawViewModel) {
         val doc = viewModel.documentData ?: return
-        // Il ripristino è l'esatto contrario!
         withContext(Dispatchers.IO) {
             viewModel.repository.restorePageAtIndex(documentId, page.dbId, deletedIndex)
         }
         doc.pages.add(deletedIndex, page)
         doc.pages.forEachIndexed { i, p -> p.index = i }
-        withContext(Dispatchers.Main) { viewModel.drawManager.calcPage.needToBeUpdated = true }
+
+        // CORREZIONE: Aggiorniamo la UI
+        withContext(Dispatchers.Main) {
+            viewModel.drawManager.calcPage.needToBeUpdated = true
+        }
+
+        refreshPageCache(viewModel, page)
     }
 
     override suspend fun redo(viewModel: DrawViewModel) {
@@ -313,7 +334,16 @@ class DeletePageAction(
         }
         doc.pages.remove(page)
         doc.pages.forEachIndexed { i, p -> p.index = i }
-        withContext(Dispatchers.Main) { viewModel.drawManager.calcPage.needToBeUpdated = true }
+
+        // CORREZIONE: Aggiorniamo la UI
+        withContext(Dispatchers.Main) {
+            viewModel.drawManager.calcPage.needToBeUpdated = true
+            viewModel.drawManager.requestDraw(
+                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                }
+            )
+        }
     }
 }
 
@@ -328,7 +358,16 @@ class ReorderPagesAction(
         doc.pages.addAll(oldOrderList)
         doc.pages.forEachIndexed { i, p -> p.index = i }
         withContext(Dispatchers.IO) { viewModel.repository.updatePagesOrder(doc.pages) }
-        withContext(Dispatchers.Main) { viewModel.drawManager.calcPage.needToBeUpdated = true }
+
+        // CORREZIONE: Aggiorniamo la UI
+        withContext(Dispatchers.Main) {
+            viewModel.drawManager.calcPage.needToBeUpdated = true
+            viewModel.drawManager.requestDraw(
+                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                }
+            )
+        }
     }
 
     override suspend fun redo(viewModel: DrawViewModel) {
@@ -337,6 +376,15 @@ class ReorderPagesAction(
         doc.pages.addAll(newOrderList)
         doc.pages.forEachIndexed { i, p -> p.index = i }
         withContext(Dispatchers.IO) { viewModel.repository.updatePagesOrder(doc.pages) }
-        withContext(Dispatchers.Main) { viewModel.drawManager.calcPage.needToBeUpdated = true }
+
+        // CORREZIONE: Aggiorniamo la UI
+        withContext(Dispatchers.Main) {
+            viewModel.drawManager.calcPage.needToBeUpdated = true
+            viewModel.drawManager.requestDraw(
+                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                }
+            )
+        }
     }
 }

@@ -143,31 +143,72 @@ class InkStrokeProcessor(
             val historyGroups = mutableListOf<PageStrokeGroup>()
 
             for ((strokeId, inkStroke) in strokes) {
-                // 1. Recuperiamo a quale pagina apparteneva questo tratto
-                val pageIndex = drawViewModel.inkInputManager.activeStrokePageMap.remove(strokeId) ?: continue
-                val domainPage = document.pages.getOrNull(pageIndex) ?: continue
+                // 1. Recuperiamo la pagina di origine
+                val originPageIndex = drawViewModel.inkInputManager.activeStrokePageMap.remove(strokeId) ?: continue
+                // FIX: originPageRect è direttamente il RectF!
+                val originPageRect = drawManager.calcPage.pagesRectOnWindow.getOrNull(originPageIndex) ?: continue
+                val originPage = document.pages.getOrNull(originPageIndex) ?: continue
 
-                strokesByPage.getOrPut(pageIndex) { mutableListOf() }.add(inkStroke)
-
-                // 2. Il tratto è GIA' in millimetri esatti! Nessuna matrice da applicare.
-                val domainStroke = DomainStroke(domainPage.strokeData.size).apply {
-                    this.stroke = inkStroke
-                    extractProperties()
-                    // ATTENZIONE: Abbiamo rimosso applyTransform(worldToMmMatrix)!!!
+                // 2. Calcoliamo la matrice per convertire l'inchiostro in coordinate Schermo
+                val originMmToScreenMatrix = Matrix().apply {
+                    setRectToRect(originPage.rect(), originPageRect, Matrix.ScaleToFit.CENTER)
                 }
 
-                domainPage.strokeData.add(domainStroke)
+                // 3. Troviamo il Bounding Box del tratto sui Pixel dello Schermo
+                val strokeMmBox = inkStroke.shape.computeBoundingBox() ?: continue
+                val strokeScreenRect = RectF(strokeMmBox.xMin, strokeMmBox.yMin, strokeMmBox.xMax, strokeMmBox.yMax)
+                originMmToScreenMatrix.mapRect(strokeScreenRect)
 
-                // 3. Salvataggio
-                historyGroups.add(PageStrokeGroup(domainPage.dbId, pageIndex, listOf(domainStroke)))
-                drawViewModel.inkInputManager.saveNewStrokesToDatabase(domainPage.dbId, listOf(domainStroke))
+                // 4. Quali pagine dello schermo vengono toccate da questo rettangolo?
+                // FIX: Usiamo withIndex() per conservare l'indice della pagina mentre filtriamo i RectF
+                val intersectedPages = drawManager.calcPage.pagesRectOnWindow.withIndex().filter {
+                    RectF.intersects(it.value, strokeScreenRect)
+                }
+
+                // 5. Distribuiamo il tratto su TUTTE le pagine coinvolte
+                for (targetPageData in intersectedPages) {
+                    val targetPageIndex = targetPageData.index
+                    val targetPageRect = targetPageData.value
+                    val targetPage = document.pages.getOrNull(targetPageIndex) ?: continue
+
+                    val finalInkStroke: InkStroke
+
+                    if (targetPageIndex == originPageIndex) {
+                        // È la pagina originale, il tratto è già perfetto così
+                        finalInkStroke = inkStroke
+                    } else {
+                        // È una pagina adiacente! Dobbiamo ricalcolare le coordinate.
+                        // A. Matrice Schermo -> Millimetri della pagina Target
+                        val screenToTargetMmMatrix = Matrix().apply {
+                            setRectToRect(targetPageRect, targetPage.rect(), Matrix.ScaleToFit.CENTER)
+                        }
+
+                        // B. Matrice Combinata
+                        val conversionMatrix = Matrix(originMmToScreenMatrix)
+                        conversionMatrix.postConcat(screenToTargetMmMatrix)
+
+                        // C. Generiamo un nuovo tratto traslato
+                        finalInkStroke = transformInkStroke(inkStroke, conversionMatrix)
+                    }
+
+                    // Salviamo il tratto
+                    val domainStroke = DomainStroke(targetPage.strokeData.size).apply {
+                        this.stroke = finalInkStroke
+                        extractProperties()
+                    }
+                    targetPage.strokeData.add(domainStroke)
+                    strokesByPage.getOrPut(targetPageIndex) { mutableListOf() }.add(finalInkStroke)
+
+                    historyGroups.add(PageStrokeGroup(targetPage.dbId, targetPageIndex, listOf(domainStroke)))
+                    drawViewModel.inkInputManager.saveNewStrokesToDatabase(targetPage.dbId, listOf(domainStroke))
+                }
             }
 
             if (historyGroups.isNotEmpty()) {
                 drawViewModel.historyManager.addHistoryAction(AddStrokesAction(historyGroups))
             }
 
-            // 4. Delega della verniciatura al DrawManager (Fase 4 completata in precedenza)
+            // 6. Cottura Multi-Pagina
             drawManager.requestDraw(
                 DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
                     update = DrawManager.DrawAttachments.Update.BAKE_NEW_STROKES
@@ -176,5 +217,32 @@ class InkStrokeProcessor(
                 }
             )
         }
+    }
+
+    /**
+     * Clona un tratto Ink applicando una matrice di trasformazione a tutti i suoi punti.
+     * Utile per spostare un tratto dal sistema di coordinate di una pagina a un'altra.
+     */
+    private fun transformInkStroke(
+        originalStroke: androidx.ink.strokes.Stroke,
+        matrix: Matrix
+    ): androidx.ink.strokes.Stroke {
+        val transformedBatch = MutableStrokeInputBatch()
+        val scratch = StrokeInput()
+        val pt = FloatArray(2)
+
+        for (i in 0 until originalStroke.inputs.size) {
+            originalStroke.inputs.populate(i, scratch)
+            pt[0] = scratch.x
+            pt[1] = scratch.y
+            matrix.mapPoints(pt)
+            transformedBatch.add(
+                type = scratch.toolType,
+                x = pt[0],
+                y = pt[1],
+                elapsedTimeMillis = scratch.elapsedTimeMillis
+            )
+        }
+        return androidx.ink.strokes.Stroke(originalStroke.brush, transformedBatch)
     }
 }

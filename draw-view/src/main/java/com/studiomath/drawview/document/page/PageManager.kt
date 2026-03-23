@@ -309,6 +309,32 @@ class PageManager(
         }
     }
 
+    /**
+     * Sposta puramente in memoria una pagina da un indice all'altro.
+     * Funzione disaccoppiata dalla View, ideale per il Drag & Drop nativo in Jetpack Compose.
+     */
+    fun movePage(documentData: Document?, fromIndex: Int, toIndex: Int) {
+        val currentDoc = documentData ?: return
+
+        // Controlli di sicurezza
+        if (fromIndex !in currentDoc.pages.indices || toIndex !in currentDoc.pages.indices) return
+        if (fromIndex == toIndex) return
+
+        // 1. Spostiamo fisicamente l'oggetto nella lista
+        val pageToMove = currentDoc.pages.removeAt(fromIndex)
+        currentDoc.pages.add(toIndex, pageToMove)
+
+        // 2. Aggiorniamo la proprietà 'index' interna delle pagine coinvolte
+        val start = minOf(fromIndex, toIndex)
+        val end = maxOf(fromIndex, toIndex)
+        for (i in start..end) {
+            currentDoc.pages[i].index = i
+        }
+
+        // 3. Diciamo al motore di calcolo che i rettangoli andranno ricalcolati
+        getDrawManager().calcPage.needToBeUpdated = true
+    }
+
     private fun updateDrawManager() {
         val drawManager = getDrawManager()
         drawManager.calcPage.needToBeUpdated = true

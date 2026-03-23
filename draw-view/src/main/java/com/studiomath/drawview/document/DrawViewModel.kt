@@ -225,6 +225,13 @@ class DrawViewModel(
     fun finishPageReorderMode() = pageManager.finishPageReorderMode(documentData)
 
     /**
+     * Sposta una pagina nella lista in memoria (usato per il drag & drop nella griglia).
+     */
+    fun movePage(fromIndex: Int, toIndex: Int) {
+        pageManager.movePage(documentData, fromIndex, toIndex)
+    }
+
+    /**
      * Calcola il centro assoluto della pagina richiesta e sposta la telecamera
      * per inquadrarla esattamente al centro dello schermo.
      */

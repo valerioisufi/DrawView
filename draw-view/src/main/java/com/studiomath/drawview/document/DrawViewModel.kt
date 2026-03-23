@@ -272,6 +272,13 @@ class DrawViewModel(
         drawManager.requestDraw(
             DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.SCALE_TRANSLATE)
         )
+
+        // 7. Aggiorniamo istantaneamente la telecamera a schermo
+        drawManager.requestDraw(
+            DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+            }
+        )
     }
 
     val selectionManager = SelectionManager(

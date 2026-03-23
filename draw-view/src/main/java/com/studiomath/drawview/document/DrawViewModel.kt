@@ -257,6 +257,22 @@ class DrawViewModel(
     var isStylusOnlyMode by mutableStateOf(false)
         private set
 
+    // --- MODALITÀ LETTURA / DISEGNO ---
+    var isDrawingMode by mutableStateOf(true)
+        private set
+
+    /**
+     * Alterna tra la modalità di sola lettura e quella di disegno.
+     * Se si passa alla modalità lettura, forza lo strumento PAN.
+     */
+    fun toggleDrawingMode() {
+        isDrawingMode = !isDrawingMode
+        if (!isDrawingMode) {
+            // Forza lo strumento Pan/Spostamento quando si disabilita il disegno
+            selectedTool = Tool.PAN
+        }
+    }
+
     init {
         loadDocument()
         observePreferences() // Iniziamo ad ascoltare il database!

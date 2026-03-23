@@ -178,7 +178,7 @@ fun DrawComponent(
 
         // --- FLOATING MENU (Contextual Action Bar) ---
         AnimatedVisibility(
-            visible = drawViewModel.currentSelection != null,
+            visible = drawViewModel.currentSelection != null && drawViewModel.isDrawingMode,
             enter = fadeIn() + slideInVertically(initialOffsetY = { -40 }),
             exit = fadeOut() + slideOutVertically(targetOffsetY = { -40 }),
             modifier = Modifier.align(Alignment.TopCenter)
@@ -218,7 +218,7 @@ fun DrawComponent(
         }
 
         // --- MENU CONTESTUALE (Long Press) ---
-        if (drawViewModel.contextMenuPosition != null) {
+        if (drawViewModel.contextMenuPosition != null && drawViewModel.isDrawingMode) {
             val pos = drawViewModel.contextMenuPosition!!
 
             // Usiamo una Box con un offset assoluto in pixel per posizionarla dove ha toccato l'utente
@@ -271,7 +271,7 @@ fun DrawComponent(
         }
 
         // --- EDITOR DI TESTO RICH TEXT ---
-        if (drawViewModel.activeTextEditPosition != null) {
+        if (drawViewModel.activeTextEditPosition != null && drawViewModel.isDrawingMode) {
             val pos = drawViewModel.activeTextEditPosition!!
             val scale = drawViewModel.activeTextScale
 

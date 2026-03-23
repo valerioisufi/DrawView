@@ -2,6 +2,7 @@ package com.studiomath.drawview
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -162,7 +163,10 @@ fun DrawScreen(
                     Row(
                         modifier = Modifier
                     ) {
-                        ToolButton {
+                        ToolButton(
+                            onClick = { drawViewModel.toggleDrawingMode() },
+                            selected = drawViewModel.isDrawingMode
+                        ) {
                             Icon(
                                 imageVector = Icons.Outlined.Draw,
                                 contentDescription = stringResource(R.string.draw_toolbar_action_draw),
@@ -212,366 +216,388 @@ fun DrawScreen(
                     }
                 }
 
-                HorizontalDivider()
-
-                val scrollState = rememberScrollState()
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .padding(horizontal = 4.dp)
-                        .horizontalScroll(scrollState),
-                    verticalAlignment = Alignment.CenterVertically,
+                AnimatedVisibility(
+                    visible = drawViewModel.isDrawingMode
                 ) {
-                    ToolButton(
-                        onClick = {
-                            drawViewModel.undo()
-                        },
-                        enabled = drawViewModel.canUndo
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Outlined.Undo,
-                            contentDescription = stringResource(R.string.common_action_undo),
-                            tint = if (drawViewModel.canUndo) {
-                                MaterialTheme.colorScheme.onSurface
-                            } else {
-                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                            }
-                        )
-                    }
+                    Column {
+                        HorizontalDivider()
 
-                    ToolButton(
-                        onClick = {
-                            drawViewModel.redo()
-                        },
-                        enabled = drawViewModel.canRedo
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Outlined.Redo,
-                            contentDescription = stringResource(R.string.common_action_redo),
-                            tint = if (drawViewModel.canRedo) {
-                                MaterialTheme.colorScheme.onSurface
-                            } else {
-                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                            }
-                        )
-                    }
+                        val scrollState = rememberScrollState()
 
-                    VerticalDivider(
-                        modifier = Modifier
-                            .padding(8.dp),
-                        thickness = 2.dp
-                    )
-
-                    var penSettingsExpanded by remember { mutableStateOf(false) }
-                    ToolButton(
-                        onClick = {
-                            if (drawViewModel.selectedTool == Tool.INK_PEN) {
-                                penSettingsExpanded = true
-                            } else {
-                                drawViewModel.selectedTool = Tool.INK_PEN
-                            }
-                        },
-                        onLongClick = {
-                            drawViewModel.selectedTool = Tool.INK_PEN
-                            penSettingsExpanded = true
-                        },
-                        selected = drawViewModel.selectedTool == Tool.INK_PEN,
-                        dropDownMenu = {
-                            var currentSize by remember(drawViewModel.selectedTool) {
-                                mutableStateOf(drawViewModel.activeBrushSettings.size)
-                            }
-
-                            Column(
-                                modifier = Modifier.padding(16.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .padding(horizontal = 4.dp)
+                                .horizontalScroll(scrollState),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            ToolButton(
+                                onClick = {
+                                    drawViewModel.undo()
+                                },
+                                enabled = drawViewModel.canUndo
                             ) {
-                                Text(text = stringResource(R.string.common_label_color), fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                ColorWheel(
-                                    // 2. Leggiamo il colore direttamente dai settings
-                                    color = Color(drawViewModel.activeBrushSettings.color),
-                                    onColorChanged = {
-                                        // 3. Aggiorniamo i settings clonando la data class
-                                        drawViewModel.activeBrushSettings =
-                                            drawViewModel.activeBrushSettings.copy(color = it.toArgb())
-                                    }
-                                )
-
-                                Spacer(modifier = Modifier.height(16.dp))
-
-                                Text(
-                                    text = stringResource(R.string.draw_toolbar_label_brush_size),
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                SizeSlider(
-                                    modifier = Modifier.padding(8.dp),
-                                    size = currentSize, // Passiamo direttamente l'oggetto Measure
-                                    onSizeChanged = { newMeasure ->
-                                        currentSize = newMeasure // Aggiorniamo la UI di Compose
-
-                                        // Aggiorniamo i settaggi del ViewModel passando l'oggetto Measure
-                                        drawViewModel.activeBrushSettings = drawViewModel.activeBrushSettings.copy(
-                                            size = newMeasure
-                                        )
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Outlined.Undo,
+                                    contentDescription = stringResource(R.string.common_action_undo),
+                                    tint = if (drawViewModel.canUndo) {
+                                        MaterialTheme.colorScheme.onSurface
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
                                     }
                                 )
                             }
-                        },
-                        expanded = penSettingsExpanded,
-                        onDismissRequest = { penSettingsExpanded = false }
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.icon_ink_pen),
-                            contentDescription = stringResource(R.string.draw_toolbar_action_ink_pen),
-                        )
-                    }
 
-                    var highlighterSettingsExpanded by remember { mutableStateOf(false) }
-                    ToolButton(
-                        onClick = {
-                            if (drawViewModel.selectedTool == Tool.INK_HIGHLIGHTER) {
-                                highlighterSettingsExpanded = true
-                            } else {
-                                drawViewModel.selectedTool = Tool.INK_HIGHLIGHTER
-                            }
-                        },
-                        onLongClick = {
-                            drawViewModel.selectedTool = Tool.INK_HIGHLIGHTER
-                            highlighterSettingsExpanded = true
-                        },
-                        selected = drawViewModel.selectedTool == Tool.INK_HIGHLIGHTER,
-                        dropDownMenu = {
-                            var currentSize by remember(drawViewModel.selectedTool) {
-                                mutableStateOf(drawViewModel.activeBrushSettings.size)
-                            }
-
-                            Column(
-                                modifier = Modifier.padding(16.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
+                            ToolButton(
+                                onClick = {
+                                    drawViewModel.redo()
+                                },
+                                enabled = drawViewModel.canRedo
                             ) {
-                                Text(
-                                    text = stringResource(R.string.draw_toolbar_label_highlighter_color),
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                ColorWheel(
-                                    color = Color(drawViewModel.activeBrushSettings.color),
-                                    onColorChanged = {
-                                        drawViewModel.activeBrushSettings =
-                                            drawViewModel.activeBrushSettings.copy(color = it.toArgb())
-                                    }
-                                )
-
-                                Spacer(modifier = Modifier.height(16.dp))
-
-                                Text(
-                                    text = stringResource(R.string.draw_toolbar_label_highlighter_size),
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                SizeSlider(
-                                    modifier = Modifier.padding(8.dp),
-                                    size = currentSize, // Passiamo direttamente l'oggetto Measure
-                                    onSizeChanged = { newMeasure ->
-                                        currentSize = newMeasure // Aggiorniamo la UI di Compose
-
-                                        // Aggiorniamo i settaggi del ViewModel passando l'oggetto Measure
-                                        drawViewModel.activeBrushSettings = drawViewModel.activeBrushSettings.copy(
-                                            size = newMeasure
-                                        )
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Outlined.Redo,
+                                    contentDescription = stringResource(R.string.common_action_redo),
+                                    tint = if (drawViewModel.canRedo) {
+                                        MaterialTheme.colorScheme.onSurface
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
                                     }
                                 )
                             }
-                        },
-                        expanded = highlighterSettingsExpanded,
-                        onDismissRequest = { highlighterSettingsExpanded = false }
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.icon_ink_highlighter),
-                            contentDescription = stringResource(R.string.draw_toolbar_action_highlighter),
-                        )
-                    }
 
-                    var eraserSettingsExpanded by remember { mutableStateOf(false) }
-                    ToolButton(
-                        onClick = {
-                            if (drawViewModel.selectedTool == Tool.ERASER) {
-                                eraserSettingsExpanded = true
-                            } else {
-                                drawViewModel.selectedTool = Tool.ERASER
-                            }
-                        },
-                        onLongClick = {
-                            drawViewModel.selectedTool = Tool.ERASER
-                            eraserSettingsExpanded = true
-                        },
-                        selected = drawViewModel.selectedTool == Tool.ERASER,
-                        dropDownMenu = {
-                            var currentSize by remember(drawViewModel.selectedTool) {
-                                mutableStateOf(drawViewModel.activeBrushSettings.size)
-                            }
+                            VerticalDivider(
+                                modifier = Modifier
+                                    .padding(8.dp),
+                                thickness = 2.dp
+                            )
 
-                            Column(
-                                modifier = Modifier.padding(16.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.draw_toolbar_label_eraser_size),
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                SizeSlider(
-                                    modifier = Modifier.padding(8.dp),
-                                    size = currentSize, // Passiamo direttamente l'oggetto Measure
-                                    onSizeChanged = { newMeasure ->
-                                        currentSize = newMeasure // Aggiorniamo la UI di Compose
-
-                                        // Aggiorniamo i settaggi del ViewModel passando l'oggetto Measure
-                                        drawViewModel.activeBrushSettings = drawViewModel.activeBrushSettings.copy(
-                                            size = newMeasure
-                                        )
+                            var penSettingsExpanded by remember { mutableStateOf(false) }
+                            ToolButton(
+                                onClick = {
+                                    if (drawViewModel.selectedTool == Tool.INK_PEN) {
+                                        penSettingsExpanded = true
+                                    } else {
+                                        drawViewModel.selectedTool = Tool.INK_PEN
                                     }
-                                )
-                            }
-                        },
-                        expanded = eraserSettingsExpanded,
-                        onDismissRequest = { eraserSettingsExpanded = false }
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.icon_ink_eraser),
-                            contentDescription = stringResource(R.string.draw_toolbar_action_eraser),
-                        )
-                    }
+                                },
+                                onLongClick = {
+                                    drawViewModel.selectedTool = Tool.INK_PEN
+                                    penSettingsExpanded = true
+                                },
+                                selected = drawViewModel.selectedTool == Tool.INK_PEN,
+                                dropDownMenu = {
+                                    var currentSize by remember(drawViewModel.selectedTool) {
+                                        mutableStateOf(drawViewModel.activeBrushSettings.size)
+                                    }
 
-                    var lazoSettingsExpanded by remember { mutableStateOf(false) }
-
-                    ToolButton(
-                        onClick = {
-                            if (drawViewModel.selectedTool == Tool.LAZO) {
-                                lazoSettingsExpanded = true
-                            } else {
-                                drawViewModel.selectedTool = Tool.LAZO
-                            }
-                        },
-                        onLongClick = {
-                            drawViewModel.selectedTool = Tool.LAZO
-                            lazoSettingsExpanded = true
-                        },
-                        selected = drawViewModel.selectedTool == Tool.LAZO,
-                        dropDownMenu = {
-                            Column(
-                                modifier = Modifier.padding(16.dp),
-                                horizontalAlignment = Alignment.Start
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.draw_toolbar_title_lasso_mode),
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(bottom = 12.dp)
-                                )
-
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(MaterialTheme.shapes.small)
-                                        .combinedClickable(
-                                            onClick = { drawViewModel.lassoMode = LassoMode.ALL }
+                                    Column(
+                                        modifier = Modifier.padding(16.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.common_label_color),
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Bold
                                         )
-                                        .padding(vertical = 8.dp, horizontal = 4.dp)
-                                ) {
-                                    androidx.compose.material3.RadioButton(
-                                        selected = drawViewModel.lassoMode == LassoMode.ALL,
-                                        onClick = { drawViewModel.lassoMode = LassoMode.ALL }
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(text = stringResource(R.string.draw_toolbar_option_select_all))
-                                }
+                                        Spacer(modifier = Modifier.height(8.dp))
 
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(MaterialTheme.shapes.small)
-                                        .combinedClickable(
-                                            onClick = {
-                                                drawViewModel.lassoMode = LassoMode.IMAGES_ONLY
+                                        ColorWheel(
+                                            // 2. Leggiamo il colore direttamente dai settings
+                                            color = Color(drawViewModel.activeBrushSettings.color),
+                                            onColorChanged = {
+                                                // 3. Aggiorniamo i settings clonando la data class
+                                                drawViewModel.activeBrushSettings =
+                                                    drawViewModel.activeBrushSettings.copy(color = it.toArgb())
                                             }
                                         )
-                                        .padding(vertical = 8.dp, horizontal = 4.dp)
-                                ) {
-                                    androidx.compose.material3.RadioButton(
-                                        selected = drawViewModel.lassoMode == LassoMode.IMAGES_ONLY,
-                                        onClick = {
-                                            drawViewModel.lassoMode = LassoMode.IMAGES_ONLY
-                                        }
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(text = stringResource(R.string.draw_toolbar_option_images_only))
-                                }
+
+                                        Spacer(modifier = Modifier.height(16.dp))
+
+                                        Text(
+                                            text = stringResource(R.string.draw_toolbar_label_brush_size),
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+
+                                        SizeSlider(
+                                            modifier = Modifier.padding(8.dp),
+                                            size = currentSize, // Passiamo direttamente l'oggetto Measure
+                                            onSizeChanged = { newMeasure ->
+                                                currentSize =
+                                                    newMeasure // Aggiorniamo la UI di Compose
+
+                                                // Aggiorniamo i settaggi del ViewModel passando l'oggetto Measure
+                                                drawViewModel.activeBrushSettings =
+                                                    drawViewModel.activeBrushSettings.copy(
+                                                        size = newMeasure
+                                                    )
+                                            }
+                                        )
+                                    }
+                                },
+                                expanded = penSettingsExpanded,
+                                onDismissRequest = { penSettingsExpanded = false }
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.icon_ink_pen),
+                                    contentDescription = stringResource(R.string.draw_toolbar_action_ink_pen),
+                                )
                             }
-                        },
-                        expanded = lazoSettingsExpanded,
-                        onDismissRequest = { lazoSettingsExpanded = false }
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.icon_lasso_select),
-                            contentDescription = stringResource(R.string.draw_toolbar_action_lasso),
-                        )
-                    }
 
-                    ToolButton(
-                        onClick = {
-                            drawViewModel.selectedTool = Tool.PAN
-                        },
-                        selected = drawViewModel.selectedTool == Tool.PAN
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.icon_pan_tool),
-                            contentDescription = stringResource(R.string.draw_toolbar_action_pan),
-                        )
-                    }
+                            var highlighterSettingsExpanded by remember { mutableStateOf(false) }
+                            ToolButton(
+                                onClick = {
+                                    if (drawViewModel.selectedTool == Tool.INK_HIGHLIGHTER) {
+                                        highlighterSettingsExpanded = true
+                                    } else {
+                                        drawViewModel.selectedTool = Tool.INK_HIGHLIGHTER
+                                    }
+                                },
+                                onLongClick = {
+                                    drawViewModel.selectedTool = Tool.INK_HIGHLIGHTER
+                                    highlighterSettingsExpanded = true
+                                },
+                                selected = drawViewModel.selectedTool == Tool.INK_HIGHLIGHTER,
+                                dropDownMenu = {
+                                    var currentSize by remember(drawViewModel.selectedTool) {
+                                        mutableStateOf(drawViewModel.activeBrushSettings.size)
+                                    }
 
-                    VerticalDivider(
-                        modifier = Modifier
-                            .padding(8.dp),
-                        thickness = 2.dp
-                    )
+                                    Column(
+                                        modifier = Modifier.padding(16.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.draw_toolbar_label_highlighter_color),
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
 
-                    ToolButton(
-                        onClick = {
-                            pdfPickerLauncher.launch("application/pdf")
+                                        ColorWheel(
+                                            color = Color(drawViewModel.activeBrushSettings.color),
+                                            onColorChanged = {
+                                                drawViewModel.activeBrushSettings =
+                                                    drawViewModel.activeBrushSettings.copy(color = it.toArgb())
+                                            }
+                                        )
+
+                                        Spacer(modifier = Modifier.height(16.dp))
+
+                                        Text(
+                                            text = stringResource(R.string.draw_toolbar_label_highlighter_size),
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+
+                                        SizeSlider(
+                                            modifier = Modifier.padding(8.dp),
+                                            size = currentSize, // Passiamo direttamente l'oggetto Measure
+                                            onSizeChanged = { newMeasure ->
+                                                currentSize =
+                                                    newMeasure // Aggiorniamo la UI di Compose
+
+                                                // Aggiorniamo i settaggi del ViewModel passando l'oggetto Measure
+                                                drawViewModel.activeBrushSettings =
+                                                    drawViewModel.activeBrushSettings.copy(
+                                                        size = newMeasure
+                                                    )
+                                            }
+                                        )
+                                    }
+                                },
+                                expanded = highlighterSettingsExpanded,
+                                onDismissRequest = { highlighterSettingsExpanded = false }
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.icon_ink_highlighter),
+                                    contentDescription = stringResource(R.string.draw_toolbar_action_highlighter),
+                                )
+                            }
+
+                            var eraserSettingsExpanded by remember { mutableStateOf(false) }
+                            ToolButton(
+                                onClick = {
+                                    if (drawViewModel.selectedTool == Tool.ERASER) {
+                                        eraserSettingsExpanded = true
+                                    } else {
+                                        drawViewModel.selectedTool = Tool.ERASER
+                                    }
+                                },
+                                onLongClick = {
+                                    drawViewModel.selectedTool = Tool.ERASER
+                                    eraserSettingsExpanded = true
+                                },
+                                selected = drawViewModel.selectedTool == Tool.ERASER,
+                                dropDownMenu = {
+                                    var currentSize by remember(drawViewModel.selectedTool) {
+                                        mutableStateOf(drawViewModel.activeBrushSettings.size)
+                                    }
+
+                                    Column(
+                                        modifier = Modifier.padding(16.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.draw_toolbar_label_eraser_size),
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+
+                                        SizeSlider(
+                                            modifier = Modifier.padding(8.dp),
+                                            size = currentSize, // Passiamo direttamente l'oggetto Measure
+                                            onSizeChanged = { newMeasure ->
+                                                currentSize =
+                                                    newMeasure // Aggiorniamo la UI di Compose
+
+                                                // Aggiorniamo i settaggi del ViewModel passando l'oggetto Measure
+                                                drawViewModel.activeBrushSettings =
+                                                    drawViewModel.activeBrushSettings.copy(
+                                                        size = newMeasure
+                                                    )
+                                            }
+                                        )
+                                    }
+                                },
+                                expanded = eraserSettingsExpanded,
+                                onDismissRequest = { eraserSettingsExpanded = false }
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.icon_ink_eraser),
+                                    contentDescription = stringResource(R.string.draw_toolbar_action_eraser),
+                                )
+                            }
+
+                            var lazoSettingsExpanded by remember { mutableStateOf(false) }
+
+                            ToolButton(
+                                onClick = {
+                                    if (drawViewModel.selectedTool == Tool.LAZO) {
+                                        lazoSettingsExpanded = true
+                                    } else {
+                                        drawViewModel.selectedTool = Tool.LAZO
+                                    }
+                                },
+                                onLongClick = {
+                                    drawViewModel.selectedTool = Tool.LAZO
+                                    lazoSettingsExpanded = true
+                                },
+                                selected = drawViewModel.selectedTool == Tool.LAZO,
+                                dropDownMenu = {
+                                    Column(
+                                        modifier = Modifier.padding(16.dp),
+                                        horizontalAlignment = Alignment.Start
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.draw_toolbar_title_lasso_mode),
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(bottom = 12.dp)
+                                        )
+
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(MaterialTheme.shapes.small)
+                                                .combinedClickable(
+                                                    onClick = {
+                                                        drawViewModel.lassoMode = LassoMode.ALL
+                                                    }
+                                                )
+                                                .padding(vertical = 8.dp, horizontal = 4.dp)
+                                        ) {
+                                            androidx.compose.material3.RadioButton(
+                                                selected = drawViewModel.lassoMode == LassoMode.ALL,
+                                                onClick = {
+                                                    drawViewModel.lassoMode = LassoMode.ALL
+                                                }
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(text = stringResource(R.string.draw_toolbar_option_select_all))
+                                        }
+
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(MaterialTheme.shapes.small)
+                                                .combinedClickable(
+                                                    onClick = {
+                                                        drawViewModel.lassoMode =
+                                                            LassoMode.IMAGES_ONLY
+                                                    }
+                                                )
+                                                .padding(vertical = 8.dp, horizontal = 4.dp)
+                                        ) {
+                                            androidx.compose.material3.RadioButton(
+                                                selected = drawViewModel.lassoMode == LassoMode.IMAGES_ONLY,
+                                                onClick = {
+                                                    drawViewModel.lassoMode = LassoMode.IMAGES_ONLY
+                                                }
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(text = stringResource(R.string.draw_toolbar_option_images_only))
+                                        }
+                                    }
+                                },
+                                expanded = lazoSettingsExpanded,
+                                onDismissRequest = { lazoSettingsExpanded = false }
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.icon_lasso_select),
+                                    contentDescription = stringResource(R.string.draw_toolbar_action_lasso),
+                                )
+                            }
+
+                            ToolButton(
+                                onClick = {
+                                    drawViewModel.selectedTool = Tool.PAN
+                                },
+                                selected = drawViewModel.selectedTool == Tool.PAN
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.icon_pan_tool),
+                                    contentDescription = stringResource(R.string.draw_toolbar_action_pan),
+                                )
+                            }
+
+                            VerticalDivider(
+                                modifier = Modifier
+                                    .padding(8.dp),
+                                thickness = 2.dp
+                            )
+
+                            ToolButton(
+                                onClick = {
+                                    pdfPickerLauncher.launch("application/pdf")
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PictureAsPdf,
+                                    contentDescription = stringResource(R.string.draw_toolbar_action_import_pdf),
+                                )
+                            }
+
+                            ToolButton(
+                                onClick = {
+                                    imagePickerLauncher.launch("image/*")
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Image,
+                                    contentDescription = stringResource(R.string.draw_toolbar_action_import_image),
+                                )
+                            }
+
                         }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PictureAsPdf,
-                            contentDescription = stringResource(R.string.draw_toolbar_action_import_pdf),
-                        )
-                    }
 
-                    ToolButton(
-                        onClick = {
-                            imagePickerLauncher.launch("image/*")
-                        }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Image,
-                            contentDescription = stringResource(R.string.draw_toolbar_action_import_image),
-                        )
                     }
-
                 }
 
 

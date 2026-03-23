@@ -371,18 +371,26 @@ class DrawViewModel(
         page.height = dimension.height.mm
         page.background = background
 
-        // Segniamo la pagina come "sporca" così verrà rigenerata la bitmap ad alta risoluzione
+        // Segniamo la pagina come "sporca" così la vecchia bitmap viene scartata
         page.isPrepared = false
 
         viewModelScope.launch {
-            // 2. Salviamo la modifica nel Database (passando anche il doc.dbId)
+            // 2. Salviamo la modifica nel Database
             repository.updatePageFormatAndBackground(doc.dbId, page)
 
-            // 3. Chiediamo al motore grafico di ricalcolare i rettangoli e ridisegnare il Canvas
+            // 3. Forziamo il ricalcolo delle posizioni delle pagine (es. se la pagina si è allungata)
             drawManager.calcPage.needToBeUpdated = true
+
+            // 4. Aggiorniamo prima la UI a schermo
             drawManager.requestDraw(
                 DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
                     update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                }
+            )
+            // 5. FIX: Diciamo al thread in background di ricreare le bitmap e ridisegnare i tratti!
+            drawManager.requestDraw(
+                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                    update = DrawManager.DrawAttachments.Update.CACHE_ALL
                 }
             )
         }
@@ -419,9 +427,8 @@ class DrawViewModel(
                     page.width = newDim.width.mm
                     page.height = newDim.height.mm
                     page.background = newBg
-                    page.isPrepared = false
+                    page.isPrepared = false // Scartiamo le vecchie bitmap
 
-                    // Aggiorniamo ogni pagina nel DB
                     repository.updatePageFormatAndBackground(doc.dbId, page)
                 }
             }
@@ -430,11 +437,19 @@ class DrawViewModel(
             pendingDocDimension = null
             pendingDocBackground = null
 
-            // 5. Ridisegniamo tutto
+            // 5. Ricalcoliamo il layout
             drawManager.calcPage.needToBeUpdated = true
+
+            // 6. Aggiorniamo lo schermo
             drawManager.requestDraw(
                 DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
                     update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                }
+            )
+            // 7. FIX: Diciamo al thread in background di ricreare tutte le bitmap modificate!
+            drawManager.requestDraw(
+                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                    update = DrawManager.DrawAttachments.Update.CACHE_ALL
                 }
             )
         }

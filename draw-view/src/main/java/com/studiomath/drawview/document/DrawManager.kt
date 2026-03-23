@@ -744,7 +744,6 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         }
 
         synchronized(renderLock) {
-            frontState.bitmap?.recycle()
             frontState.bitmap = createBitmap(width, height)
             onDrawBitmap = frontState.bitmap
         }

@@ -4,43 +4,63 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.studiomath.drawview.document.page.Dimension
 import com.studiomath.drawview.document.page.PageBackground
 import com.studiomath.drawview.document.page.mm
-import java.util.Locale
-import kotlin.math.atan2
-import kotlin.math.cos
-import kotlin.math.hypot
 import kotlin.math.roundToInt
-import kotlin.math.sin
 
-// Enum locale per gestire la selezione della UI
+// Limiti di sicurezza per le dimensioni della pagina (in mm)
+private const val MIN_PAGE_SIZE = 50f   // 5 cm (Post-it piccolo)
+private const val MAX_PAGE_SIZE = 3000f // 3 metri (Oltre si rischia l'Out Of Memory)
+
 private enum class BgType(val label: String) {
-    SOLID("Vuoto"),
-    RULED("Righe"),
-    GRID("Quadretti"),
-    DOTTED("Puntini")
+    SOLID("Vuoto"), RULED("Righe"), GRID("Quadretti"), DOTTED("Puntini")
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -52,14 +72,12 @@ fun PageTemplateConfigurator(
     onApply: (Dimension, PageBackground) -> Unit,
     onCancel: () -> Unit
 ) {
-    // --- STATI DIMENSIONI ---
     val formats = listOf("A4", "A3", "A5", "Personalizzato")
 
-    // Sincronizziamo la larghezza/altezza iniziali
     var customWidth by remember { mutableStateOf(initialDimension.width.mm.toString()) }
     var customHeight by remember { mutableStateOf(initialDimension.height.mm.toString()) }
 
-    // Riconoscimento automatico del formato iniziale
+    // Riconoscimento formato
     val initialFormat = remember {
         val w = initialDimension.width.mm.roundToInt()
         val h = initialDimension.height.mm.roundToInt()
@@ -74,7 +92,6 @@ fun PageTemplateConfigurator(
     var selectedFormat by remember { mutableStateOf(initialFormat) }
     var formatExpanded by remember { mutableStateOf(false) }
 
-    // --- STATI TIPO DI SFONDO ---
     var selectedType by remember {
         mutableStateOf(
             when (initialBackground) {
@@ -108,12 +125,10 @@ fun PageTemplateConfigurator(
         )
     }
 
-    // --- STATI COLORI ---
     val paperColors = listOf(Color.White, Color(0xFFFFFDD0), Color(0xFF2C2C2C))
     var paperColor by remember { mutableStateOf(Color(initialBackground.backgroundColor)) }
 
     val lineColors = listOf(Color(0xFFB0BEC5), Color(0xFF64B5F6), Color(0xFFE57373))
-    // Per le linee, se l'alpha era 40%, lo riportiamo al 100% per la UI, altrimenti sembrerà sempre sbiadito nel selettore
     var lineColor by remember {
         mutableStateOf(
             when (initialBackground) {
@@ -125,22 +140,36 @@ fun PageTemplateConfigurator(
         )
     }
 
-    // Stato per la finestra di dialogo dei colori personalizzati
-    var showColorPickerFor by remember { mutableStateOf<String?>(null) } // "PAPER" o "LINE"
+    var showColorPickerFor by remember { mutableStateOf<String?>(null) }
+
+    // Variabili calcolate in modo sicuro per l'anteprima
+    val currentWidthMm = customWidth.toFloatOrNull()?.coerceIn(1f, 10000f) ?: 210f
+    val currentHeightMm = customHeight.toFloatOrNull()?.coerceIn(1f, 10000f) ?: 297f
+
+    // Validazione per mostrare eventuali errori nella UI
+    val isWidthError = customWidth.toFloatOrNull()?.let { it < MIN_PAGE_SIZE || it > MAX_PAGE_SIZE } ?: true
+    val isHeightError = customHeight.toFloatOrNull()?.let { it < MIN_PAGE_SIZE || it > MAX_PAGE_SIZE } ?: true
 
     Column(
         modifier = modifier
             .fillMaxWidth()
             .padding(16.dp)
-            .verticalScroll(rememberScrollState()), // Aggiungiamo lo scroll se lo schermo è piccolo
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(24.dp)
     ) {
         Text("Configura Pagina", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
 
-        // --- SEZIONE 1: FORMATO E DIMENSIONI ---
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Formato:", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+        // --- SEZIONE 1: FORMATO E ANTEPRIMA (Affiancati) ---
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            // Sinistra: Controlli Formato
+            Column(
+                modifier = Modifier.weight(1.5f),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 ExposedDropdownMenuBox(
                     expanded = formatExpanded,
                     onExpandedChange = { formatExpanded = !formatExpanded }
@@ -149,8 +178,9 @@ fun PageTemplateConfigurator(
                         value = selectedFormat,
                         onValueChange = {},
                         readOnly = true,
+                        label = { Text("Formato") },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = formatExpanded) },
-                        modifier = Modifier.menuAnchor().width(180.dp)
+                        modifier = Modifier.menuAnchor().fillMaxWidth()
                     )
                     ExposedDropdownMenu(
                         expanded = formatExpanded,
@@ -162,7 +192,6 @@ fun PageTemplateConfigurator(
                                 onClick = {
                                     selectedFormat = selectionOption
                                     formatExpanded = false
-                                    // Se seleziona un preset, aggiorniamo automaticamente i millimetri
                                     when (selectionOption) {
                                         "A4" -> { customWidth = "210"; customHeight = "297" }
                                         "A3" -> { customWidth = "297"; customHeight = "420" }
@@ -173,31 +202,51 @@ fun PageTemplateConfigurator(
                         }
                     }
                 }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = customWidth,
+                        onValueChange = { customWidth = it; selectedFormat = "Personalizzato" },
+                        label = { Text("Largh. (mm)") },
+                        isError = isWidthError,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = customHeight,
+                        onValueChange = { customHeight = it; selectedFormat = "Personalizzato" },
+                        label = { Text("Alt. (mm)") },
+                        isError = isHeightError,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f),
+                        singleLine = true
+                    )
+                }
+                if (isWidthError || isHeightError) {
+                    Text(
+                        text = "Limiti: $MIN_PAGE_SIZE mm - $MAX_PAGE_SIZE mm",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
             }
 
-            // Campi manuali per Larghezza e Altezza
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                OutlinedTextField(
-                    value = customWidth,
-                    onValueChange = {
-                        customWidth = it
-                        selectedFormat = "Personalizzato"
-                    },
-                    label = { Text("Larghezza (mm)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.weight(1f),
-                    singleLine = true
-                )
-                OutlinedTextField(
-                    value = customHeight,
-                    onValueChange = {
-                        customHeight = it
-                        selectedFormat = "Personalizzato"
-                    },
-                    label = { Text("Altezza (mm)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.weight(1f),
-                    singleLine = true
+            // Destra: L'Anteprima dal vivo
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 120.dp, max = 160.dp), // Altezza massima fissa per non rompere il layout
+                contentAlignment = Alignment.Center
+            ) {
+                PagePreview(
+                    widthMm = currentWidthMm,
+                    heightMm = currentHeightMm,
+                    bgType = selectedType,
+                    paperColor = paperColor,
+                    lineColor = lineColor.copy(alpha = 0.4f), // Passiamo l'alpha reale del rendering
+                    spacingMm = spacingMm,
+                    thicknessMm = thicknessMm
                 )
             }
         }
@@ -227,12 +276,11 @@ fun PageTemplateConfigurator(
                 paperColors.forEach { color ->
                     ColorDot(color = color, isSelected = paperColor == color) { paperColor = color }
                 }
-                // Bottone per il colore custom (Ruota dei Colori)
                 CustomColorDot { showColorPickerFor = "PAPER" }
             }
         }
 
-        // --- SEZIONE 4: CONTROLLI CONTESTUALI (Solo per pattern) ---
+        // --- SEZIONE 4: CONTROLLI CONTESTUALI ---
         if (selectedType != BgType.SOLID) {
             HorizontalDivider()
 
@@ -242,7 +290,6 @@ fun PageTemplateConfigurator(
                     lineColors.forEach { color ->
                         ColorDot(color = color, isSelected = lineColor == color) { lineColor = color }
                     }
-                    // Bottone per il colore custom
                     CustomColorDot { showColorPickerFor = "LINE" }
                 }
             }
@@ -258,7 +305,7 @@ fun PageTemplateConfigurator(
             Column {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Spessore Tratto:", style = MaterialTheme.typography.bodyLarge)
-                    Text("${String.format(Locale.US, "%.1f", thicknessMm)} mm", fontWeight = FontWeight.Bold)
+                    Text("${String.format(java.util.Locale.US, "%.1f", thicknessMm)} mm", fontWeight = FontWeight.Bold)
                 }
                 Slider(value = thicknessMm, onValueChange = { thicknessMm = it }, valueRange = 0.1f..1.5f, steps = 14)
             }
@@ -272,24 +319,28 @@ fun PageTemplateConfigurator(
         ) {
             TextButton(onClick = onCancel) { Text("Annulla") }
             Spacer(modifier = Modifier.width(8.dp))
-            Button(onClick = {
-                // Parse sicuro delle dimensioni testuali
-                val w = customWidth.toFloatOrNull() ?: 210f
-                val h = customHeight.toFloatOrNull() ?: 297f
-                val finalDimension = Dimension(w.mm, h.mm)
+            Button(
+                // Disabilitiamo il bottone se le dimensioni inserite sono pericolose
+                enabled = !isWidthError && !isHeightError,
+                onClick = {
+                    // Forziamo comunque la sicurezza tramite coerceIn in caso di bug UI
+                    val w = customWidth.toFloatOrNull()?.coerceIn(MIN_PAGE_SIZE, MAX_PAGE_SIZE) ?: 210f
+                    val h = customHeight.toFloatOrNull()?.coerceIn(MIN_PAGE_SIZE, MAX_PAGE_SIZE) ?: 297f
+                    val finalDimension = Dimension(w.mm, h.mm)
 
-                val bgInt = paperColor.toArgb()
-                val lineInt = lineColor.copy(alpha = 0.4f).toArgb() // Riapplichiamo l'alpha tenue per il rendering
+                    val bgInt = paperColor.toArgb()
+                    val lineInt = lineColor.copy(alpha = 0.4f).toArgb()
 
-                val finalBackground = when (selectedType) {
-                    BgType.SOLID -> PageBackground.Solid(bgInt)
-                    BgType.RULED -> PageBackground.Ruled(bgInt, lineInt, spacingMm, thicknessMm)
-                    BgType.GRID -> PageBackground.Grid(bgInt, lineInt, spacingMm, thicknessMm)
-                    BgType.DOTTED -> PageBackground.Dotted(bgInt, lineInt, spacingMm, thicknessMm)
+                    val finalBackground = when (selectedType) {
+                        BgType.SOLID -> PageBackground.Solid(bgInt)
+                        BgType.RULED -> PageBackground.Ruled(bgInt, lineInt, spacingMm, thicknessMm)
+                        BgType.GRID -> PageBackground.Grid(bgInt, lineInt, spacingMm, thicknessMm)
+                        BgType.DOTTED -> PageBackground.Dotted(bgInt, lineInt, spacingMm, thicknessMm)
+                    }
+
+                    onApply(finalDimension, finalBackground)
                 }
-
-                onApply(finalDimension, finalBackground)
-            }) {
+            ) {
                 Text("Applica")
             }
         }
@@ -306,6 +357,83 @@ fun PageTemplateConfigurator(
             },
             onDismiss = { showColorPickerFor = null }
         )
+    }
+}
+
+/**
+ * COMPONENTE DI ANTEPRIMA IN TEMPO REALE.
+ * Replica fedelmente la logica del PageMaker usando il Canvas di Compose.
+ */
+@Composable
+private fun PagePreview(
+    widthMm: Float,
+    heightMm: Float,
+    bgType: BgType,
+    paperColor: Color,
+    lineColor: Color,
+    spacingMm: Float,
+    thicknessMm: Float
+) {
+    // Calcoliamo l'aspect ratio per far sì che la preview abbia la stessa forma del foglio reale
+    val ratio = if (heightMm > 0) widthMm / heightMm else 1f
+
+    Canvas(
+        modifier = Modifier
+            .aspectRatio(ratio)
+            .fillMaxSize() // Si espanderà nel Box contenitore rispettando le proporzioni
+            .background(Color.Transparent) // Il colore lo disegniamo dentro per poter fare i bordi
+    ) {
+        val w = size.width
+        val h = size.height
+
+        // Sfondo del foglio con ombra e bordo leggero per staccare dal background del dialog
+        drawRect(color = Color.Black.copy(alpha = 0.1f), topLeft = Offset(4f, 4f), size = size)
+        drawRect(color = paperColor, size = size)
+        drawRect(color = Color.LightGray, size = size, style = androidx.compose.ui.graphics.drawscope.Stroke(1f))
+
+        if (bgType == BgType.SOLID) return@Canvas
+
+        // Fattore di conversione da mm a pixel *all'interno dell'anteprima*
+        val pixelsPerMm = w / widthMm
+
+        // Sicurezza: se la griglia è troppo fitta nella preview, si impasta.
+        // Forziamo una distanza visiva minima di 8 pixel per far capire il pattern all'utente.
+        val spacingPx = (spacingMm * pixelsPerMm).coerceAtLeast(8f)
+        val thicknessPx = (thicknessMm * pixelsPerMm).coerceAtLeast(1f)
+
+        when (bgType) {
+            BgType.RULED -> {
+                var y = spacingPx
+                while (y < h) {
+                    drawLine(color = lineColor, start = Offset(0f, y), end = Offset(w, y), strokeWidth = thicknessPx)
+                    y += spacingPx
+                }
+            }
+            BgType.GRID -> {
+                var y = spacingPx
+                while (y < h) {
+                    drawLine(color = lineColor, start = Offset(0f, y), end = Offset(w, y), strokeWidth = thicknessPx)
+                    y += spacingPx
+                }
+                var x = spacingPx
+                while (x < w) {
+                    drawLine(color = lineColor, start = Offset(x, 0f), end = Offset(x, h), strokeWidth = thicknessPx)
+                    x += spacingPx
+                }
+            }
+            BgType.DOTTED -> {
+                var x = spacingPx
+                while (x < w) {
+                    var y = spacingPx
+                    while (y < h) {
+                        drawCircle(color = lineColor, radius = thicknessPx, center = Offset(x, y))
+                        y += spacingPx
+                    }
+                    x += spacingPx
+                }
+            }
+            else -> {}
+        }
     }
 }
 

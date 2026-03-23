@@ -7,6 +7,7 @@ import androidx.ink.brush.StockBrushes
 import androidx.ink.storage.decode
 import androidx.ink.storage.encode
 import androidx.ink.strokes.StrokeInputBatch
+import com.studiomath.drawview.data.db.BrushSettingsData
 import com.studiomath.drawview.data.db.DocumentEntity
 import com.studiomath.drawview.data.db.DrawDatabase
 import com.studiomath.drawview.data.db.ImageEntity
@@ -15,6 +16,7 @@ import com.studiomath.drawview.data.db.PdfEntity
 import com.studiomath.drawview.data.db.ResourceEntity
 import com.studiomath.drawview.data.db.StrokeEntity
 import com.studiomath.drawview.data.db.TextEntity
+import com.studiomath.drawview.data.db.UserPreferencesEntity
 import com.studiomath.drawview.document.page.Document
 import com.studiomath.drawview.document.page.Image
 import com.studiomath.drawview.document.page.Page
@@ -22,6 +24,8 @@ import com.studiomath.drawview.document.page.Pdf
 import com.studiomath.drawview.document.page.Resource
 import com.studiomath.drawview.document.page.Stroke
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -74,6 +78,8 @@ class DrawDocumentRepository(context: Context) {
      * Data Access Object for handling PDF entity operations.
      */
     private val pdfDao = db.pdfDao()
+
+    private val preferencesDao = db.preferencesDao()
 
     /**
      * Contains class-level constants.
@@ -583,5 +589,72 @@ class DrawDocumentRepository(context: Context) {
             pdfPageIndex = pdf.pdfPageIndex
         )
         pdfDao.insert(dbPdf)
+    }
+
+    // =========================================================================
+    // FASE 2: GESTIONE PREFERENZE UTENTE
+    // =========================================================================
+
+    /**
+     * Flusso reattivo delle preferenze.
+     * Usiamo l'operatore 'map' per garantire che, se la tabella è vuota (es. al primo avvio),
+     * venga restituita un'istanza con i valori di default anziché 'null'.
+     */
+    val userPreferencesFlow: Flow<UserPreferencesEntity> = preferencesDao.getPreferencesFlow()
+        .map { it ?: UserPreferencesEntity() }
+
+    /**
+     * Metodo privato e generico per aggiornare le preferenze.
+     * Legge lo stato attuale, applica le modifiche e salva tutto nel DB.
+     */
+    private suspend fun updatePreferences(updateBlock: (UserPreferencesEntity) -> UserPreferencesEntity) {
+        // Recuperiamo lo stato attuale o uno di default se non esiste
+        val currentPrefs = preferencesDao.getPreferences() ?: UserPreferencesEntity()
+
+        // Applichiamo il blocco di aggiornamento
+        val updatedPrefs = updateBlock(currentPrefs)
+
+        // Salviamo la nuova riga (sovrascriverà quella vecchia poiché l'id è sempre 1)
+        preferencesDao.insertOrUpdate(updatedPrefs)
+    }
+
+    // --- Comandi pubblici per la UI / ViewModel ---
+
+    suspend fun updateStylusMode(isStylusOnly: Boolean) {
+        updatePreferences { it.copy(isStylusOnlyMode = isStylusOnly) }
+    }
+
+    suspend fun updatePenSettings(sizeMm: Float, color: Int, family: String) {
+        updatePreferences {
+            it.copy(penSettings = BrushSettingsData(sizeMm, color, family))
+        }
+    }
+
+    suspend fun updateHighlighterSettings(sizeMm: Float, color: Int, family: String) {
+        updatePreferences {
+            it.copy(highlighterSettings = BrushSettingsData(sizeMm, color, family))
+        }
+    }
+
+    suspend fun updateEraserSettings(sizeMm: Float) {
+        updatePreferences {
+            // Per la gomma, solitamente cambiamo solo la dimensione, mantenendo inalterati
+            // il colore (trasparente) e la famiglia (LASER) definiti di default.
+            it.copy(eraserSettings = it.eraserSettings.copy(sizeMm = sizeMm))
+        }
+    }
+
+    suspend fun updateTextDefaults(fontSize: Float, color: Int, isLatex: Boolean) {
+        updatePreferences {
+            it.copy(
+                defaultTextFontSize = fontSize,
+                defaultTextColor = color,
+                defaultTextIsLatex = isLatex
+            )
+        }
+    }
+
+    suspend fun updateLastSelectedTool(toolName: String) {
+        updatePreferences { it.copy(lastSelectedTool = toolName) }
     }
 }

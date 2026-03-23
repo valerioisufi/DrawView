@@ -252,8 +252,14 @@ class DrawViewModel(
     fun pasteSelection(targetXPx: Float? = null, targetYPx: Float? = null) = selectionManager.pasteSelection(documentData, targetXPx, targetYPx)
     fun applySelectionTransformation() = selectionManager.applySelectionTransformation(documentData)
 
+
+    // ESPONIAMO LA MODALITÀ STYLUS PER LA UI (Fase 4)
+    var isStylusOnlyMode by mutableStateOf(false)
+        private set
+
     init {
         loadDocument()
+        observePreferences() // Iniziamo ad ascoltare il database!
     }
 
     /**
@@ -319,18 +325,39 @@ class DrawViewModel(
     // --- GESTIONE STRUMENTI (TOOLS) ---
     val toolManager = ToolManager(application.applicationContext)
 
-    // Esponiamo lo stato per la UI in modo trasparente
     var selectedTool: Tool
         get() = toolManager.selectedTool
-        set(value) { toolManager.selectTool(value) }
+        set(value) {
+            toolManager.selectTool(value)
+            // Salviamo asincronamente la scelta nel DB
+            viewModelScope.launch(Dispatchers.IO) {
+                repository.updateLastSelectedTool(value.name)
+            }
+        }
 
-    // Esponiamo i settaggi del pennello per Compose (es. per mostrare colore e spessore nella UI)
     var activeBrushSettings: BrushSettings
         get() = toolManager.activeBrushSettings
         set(value) {
+            // 1. Aggiorniamo subito la RAM per non far laggare Compose
             toolManager.changeActiveBrushSize(value.size)
             toolManager.changeActiveBrushColor(value.color)
             toolManager.changeActiveBrushFamily(value.family)
+
+            // 2. Salviamo in background nel Database in base allo strumento attivo
+            viewModelScope.launch(Dispatchers.IO) {
+                // Estraiamo il valore puro in Float dei millimetri
+                val sizeFloat = value.size.mm
+
+                // Mappiamo approssimativamente la BrushFamily a una stringa per il DB
+                val familyString = if (value.family == toolManager.laserBrushFamily) "LASER" else "NATIVE"
+
+                when (toolManager.selectedTool) {
+                    Tool.INK_PEN -> repository.updatePenSettings(sizeFloat, value.color, familyString)
+                    Tool.INK_HIGHLIGHTER -> repository.updateHighlighterSettings(sizeFloat, value.color, familyString)
+                    Tool.ERASER -> repository.updateEraserSettings(sizeFloat)
+                    else -> {}
+                }
+            }
         }
 
     // --- INK INPUT MANAGER ---
@@ -340,6 +367,36 @@ class DrawViewModel(
     )
 
     var finishActivity: (() -> Unit)? = null
+
+    private fun observePreferences() {
+        viewModelScope.launch {
+            repository.userPreferencesFlow.collect { prefs ->
+                // Quando il DB cambia, aggiorniamo la UI in tempo reale
+                isStylusOnlyMode = prefs.isStylusOnlyMode
+
+                // Aggiorniamo i default del ToolManager
+                toolManager.syncWithPreferences(prefs)
+
+                // Opzionale: Se hai impostazioni di default per il testo, passale qui
+                // textEditorManager.setDefaultColor(prefs.defaultTextColor)
+            }
+        }
+    }
+
+    /**
+     * Aggiorna la modalità Stylus sia in memoria (per la UI immediata)
+     * sia nel database (per la persistenza).
+     */
+    fun updateStylusOnlyMode(isStylusOnly: Boolean) {
+        // Aggiorniamo subito lo stato in RAM
+        isStylusOnlyMode = isStylusOnly
+
+        // Salviamo asincronamente nel Database
+        viewModelScope.launch {
+            repository.updateStylusMode(isStylusOnly)
+        }
+    }
+
 }
 
 /**

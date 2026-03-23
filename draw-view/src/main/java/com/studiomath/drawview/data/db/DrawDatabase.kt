@@ -22,7 +22,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TextEntity::class,
         ImageEntity::class,
         PdfEntity::class,
-        ResourceEntity::class
+        ResourceEntity::class,
+        UserPreferencesEntity::class
     ],
     version = 1,
     exportSchema = false
@@ -76,6 +77,9 @@ abstract class DrawDatabase : RoomDatabase() {
      * @return An instance of [ResourceDao].
      */
     abstract fun resourceDao(): ResourceDao
+
+    
+    abstract fun preferencesDao(): PreferencesDao
 
     companion object {
         /**

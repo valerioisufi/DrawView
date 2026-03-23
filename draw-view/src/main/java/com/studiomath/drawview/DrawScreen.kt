@@ -168,7 +168,42 @@ fun DrawScreen(
                                 contentDescription = stringResource(R.string.draw_toolbar_action_draw),
                             )
                         }
-                        ToolButton {
+
+                        var moreOptionsExpanded by remember { mutableStateOf(false) }
+
+                        ToolButton(
+                            onClick = { moreOptionsExpanded = true },
+                            expanded = moreOptionsExpanded,
+                            onDismissRequest = { moreOptionsExpanded = false },
+                            dropDownMenu = {
+                                Column(
+                                    modifier = Modifier.padding(16.dp)
+                                ) {
+                                    Text(
+                                        text = "Impostazioni", // Sostituisci con stringResource se necessario
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(bottom = 12.dp)
+                                    )
+
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(text = "Modalità solo Stylus") // Sostituisci con stringResource
+
+                                        androidx.compose.material3.Switch(
+                                            checked = drawViewModel.isStylusOnlyMode,
+                                            onCheckedChange = { isChecked ->
+                                                // Richiama la funzione nel ViewModel per aggiornare RAM e Database
+                                                drawViewModel.updateStylusOnlyMode(isChecked)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        ) {
                             Icon(
                                 imageVector = Icons.Outlined.MoreHoriz,
                                 contentDescription = stringResource(R.string.common_action_more_options),

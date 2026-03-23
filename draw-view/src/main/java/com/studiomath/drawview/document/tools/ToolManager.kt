@@ -10,6 +10,7 @@ import androidx.ink.brush.StockBrushes
 import androidx.ink.brush.ExperimentalInkCustomBrushApi
 import androidx.ink.storage.decode
 import com.studiomath.drawview.R
+import com.studiomath.drawview.data.db.UserPreferencesEntity
 import com.studiomath.drawview.document.page.Measure
 import com.studiomath.drawview.document.page.mm // Importiamo l'estensione per i millimetri
 
@@ -127,5 +128,39 @@ class ToolManager(context: Context) {
             Tool.LAZO -> lazoTool
             else -> penTool
         }
+    }
+
+    /**
+     * Sincronizza lo stato degli strumenti in RAM con i dati provenienti dal Database.
+     */
+    fun syncWithPreferences(prefs: UserPreferencesEntity) {
+        // Aggiorniamo la Penna
+        penTool.updateSize(0, prefs.penSettings.sizeMm.mm)
+        penTool.updateColor(0, prefs.penSettings.color)
+
+        // Aggiorniamo l'Evidenziatore
+        highlighterTool.updateSize(0, prefs.highlighterSettings.sizeMm.mm)
+        highlighterTool.updateColor(0, prefs.highlighterSettings.color)
+
+        // Aggiorniamo la Gomma (solo dimensione)
+        eraserTool.updateSize(0, prefs.eraserSettings.sizeMm.mm)
+
+        // Aggiorniamo il Lazo
+        lazoTool.updateSize(0, prefs.lazoSettings.sizeMm.mm)
+        lazoTool.updateColor(0, prefs.lazoSettings.color)
+
+        // Ripristiniamo l'ultimo strumento selezionato in modo sicuro
+        val savedTool = try {
+            Tool.valueOf(prefs.lastSelectedTool)
+        } catch (e: Exception) {
+            Tool.INK_PEN
+        }
+
+        if (selectedTool != savedTool) {
+            selectedTool = savedTool
+        }
+
+        // Forza l'aggiornamento del parametro esposto a Compose
+        refreshActiveBrushSettings()
     }
 }

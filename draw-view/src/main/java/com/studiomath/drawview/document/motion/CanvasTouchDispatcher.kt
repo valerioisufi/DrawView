@@ -90,9 +90,18 @@ class CanvasTouchDispatcher(
         }
 
         // E. Modalità Disegno (Inchiostro e Gomma)
-        val isDrawingInput = (event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS ||
-                (event.pointerCount == 1 && !isStylusActive && !viewportHandler.isTransforming)) &&
-                drawViewModel.selectedTool != Tool.PAN
+        val isStylusEvent = event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS ||
+                event.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER
+
+        // IL CUORE DELLA FASE 4: La logica di smistamento in base alle preferenze
+        val isDrawingInput = if (drawViewModel.isStylusOnlyMode) {
+            // Se l'utente ha forzato la Stylus, disegniamo SOLO con la penna.
+            isStylusEvent && drawViewModel.selectedTool != Tool.PAN
+        } else {
+            // Comportamento ibrido classico: penna o dito singolo (se la penna non è attiva)
+            (isStylusEvent || (event.pointerCount == 1 && !isStylusActive && !viewportHandler.isTransforming)) &&
+                    drawViewModel.selectedTool != Tool.PAN
+        }
 
         val isTextTool = drawViewModel.selectedTool == Tool.TEXT
 
@@ -105,10 +114,15 @@ class CanvasTouchDispatcher(
             return@OnTouchListener inkHandler.handleTouch(view, event, motionEventPredictor)
         }
 
-        // F. Viewport (Pan & Zoom con 2 dita o tool PAN)
-        // Se arriviamo qui, l'utente vuole spostare la visuale
-        if (!isStylusActive && event.pointerCount > 1) {
-            inkHandler.cancelCurrentStroke(event) // Cancella tratti partiti per sbaglio
+        // F. Viewport (Pan & Zoom)
+        // Se arriviamo qui, il tocco NON è stato consumato dal disegno.
+        // Se isStylusOnlyMode è true, i tocchi del dito (anche singoli) arriveranno qui
+        // e il ViewportHandler li trasformerà automaticamente in Pan (spostamento)!
+
+        // Cancelliamo i tratti partiti per sbaglio solo se non stiamo usando la penna e abbiamo più dita
+        // (nella modalità stylus, un dito singolo che fa pan non deve cancellare nulla, è un'azione legittima).
+        if (!isStylusEvent && event.pointerCount > 1) {
+            inkHandler.cancelCurrentStroke(event)
         }
 
         return@OnTouchListener viewportHandler.handleTouch(view, event)

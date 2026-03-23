@@ -75,6 +75,20 @@ class DrawViewModel(
     var isDocumentLoaded by mutableStateOf(false)
     var isDocumentShowed by mutableStateOf(false)
 
+    // --- STATO GRIGLIA PAGINE ---
+    var isPageGridVisible by mutableStateOf(false)
+        private set
+
+    fun togglePageGrid() {
+        isPageGridVisible = !isPageGridVisible
+        // Se apriamo la griglia, assicuriamoci di nascondere eventuali tastiere o menu aperti
+        if (isPageGridVisible) {
+            clearSelection()
+            contextMenuPosition = null
+            cancelTextEditing()
+        }
+    }
+
     // Stato dei colori letto da Compose e usato dal Canvas
     var themeColors by mutableStateOf(DrawThemeColors())
 
@@ -210,6 +224,47 @@ class DrawViewModel(
 
     fun finishPageReorderMode() = pageManager.finishPageReorderMode(documentData)
 
+    /**
+     * Calcola il centro assoluto della pagina richiesta e sposta la telecamera
+     * per inquadrarla esattamente al centro dello schermo.
+     */
+    fun jumpToPage(pageIndex: Int) {
+        val calcPage = drawManager.calcPage
+
+        // Verifica di sicurezza sull'indice
+        if (pageIndex < 0 || pageIndex >= calcPage.pagesRectOnWindow.size) return
+
+        // 1. Troviamo il centro matematico "puro" della pagina (senza zoom applicato)
+        val targetRect = calcPage.pagesRectOnWindow[pageIndex]
+        val worldX = targetRect.centerX()
+        val worldY = targetRect.centerY()
+
+        // 2. Recuperiamo la scala attuale e le dimensioni dello schermo
+        val currentScale = drawManager.cameraPhysics.getCurrentScale()
+        val screenWidth = drawManager.windowRect.width()
+        val screenHeight = drawManager.windowRect.height()
+
+        // 3. Spostiamo la telecamera
+        drawManager.cameraPhysics.centerOnWorldPoint(
+            worldX = worldX,
+            worldY = worldY,
+            scale = currentScale,
+            screenWidth = screenWidth,
+            screenHeight = screenHeight
+        )
+
+        // 4. Assicuriamoci che la telecamera non esca dai bordi (es. se la pagina è l'ultima)
+        drawManager.cameraPhysics.restoreToBounds(animated = false)
+
+        // 5. Chiudiamo la griglia visiva
+        isPageGridVisible = false
+
+        // 6. Richiediamo al Canvas di ridisegnarsi con le nuove coordinate
+        drawManager.requestDraw(
+            DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.SCALE_TRANSLATE)
+        )
+    }
+
     val selectionManager = SelectionManager(
         application = application,
         repository = repository,
@@ -268,8 +323,13 @@ class DrawViewModel(
     fun toggleDrawingMode() {
         isDrawingMode = !isDrawingMode
         if (!isDrawingMode) {
-            // Forza lo strumento Pan/Spostamento quando si disabilita il disegno
+            // Forza lo strumento Pan
             selectedTool = Tool.PAN
+
+            // Pulisce gli stati aperti per evitare menu "fantasma" in background
+            clearSelection()
+            contextMenuPosition = null
+            cancelTextEditing()
         }
     }
 

@@ -3,6 +3,7 @@ package com.studiomath.drawview.document.page
 import android.graphics.Bitmap
 import android.graphics.Matrix
 import android.graphics.RectF
+import androidx.compose.runtime.mutableStateListOf
 import androidx.core.graphics.createBitmap
 import androidx.ink.brush.Brush
 import androidx.ink.brush.InputToolType
@@ -199,6 +200,6 @@ data class Document(val name: String) {
     var modifiedAt: Long = System.currentTimeMillis()
     var lastOpenedAt: Long? = null
 
-    val pages = mutableListOf<Page>()
+    val pages = mutableStateListOf<Page>()
     val resources = mutableListOf<Resource>()
 }

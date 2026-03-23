@@ -27,6 +27,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.studiomath.drawview.document.DrawViewModel
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.zIndex
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -67,21 +77,105 @@ fun PageGridOverlay(
 
         HorizontalDivider()
 
+        // --- STATI PER IL DRAG & DROP ---
+        val gridState = rememberLazyStaggeredGridState()
+        var draggedIndex by remember { mutableStateOf<Int?>(null) }
+        var dragOffset by remember { mutableStateOf(Offset.Zero) }
+
         // --- LA GRIGLIA SFALSATA ---
         LazyVerticalStaggeredGrid(
-            columns = StaggeredGridCells.Adaptive(minSize = 160.dp), // Si adatta su tablet e smartphone
+            state = gridState, // Assegniamo lo stato per poterne leggere le posizioni
+            columns = StaggeredGridCells.Adaptive(minSize = 160.dp),
             contentPadding = PaddingValues(16.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalItemSpacing = 16.dp,
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    // Rileviamo il trascinamento dopo una pressione lunga
+                    detectDragGesturesAfterLongPress(
+                        onDragStart = { offset ->
+                            // 1. Troviamo quale miniatura abbiamo toccato
+                            gridState.layoutInfo.visibleItemsInfo.firstOrNull { item ->
+                                offset.x.toInt() in item.offset.x..(item.offset.x + item.size.width) &&
+                                        offset.y.toInt() in item.offset.y..(item.offset.y + item.size.height)
+                            }?.let { item ->
+                                draggedIndex = item.index
+                                // Avvisiamo il ViewModel che stiamo iniziando a riordinare (salva la RAM)
+                                drawViewModel.startPageReorderMode()
+                            }
+                        },
+                        onDragEnd = {
+                            // 2. Quando l'utente rilascia il dito, salviamo tutto nel DB e nella History
+                            if (draggedIndex != null) {
+                                drawViewModel.finishPageReorderMode()
+                                draggedIndex = null
+                                dragOffset = Offset.Zero
+                            }
+                        },
+                        onDragCancel = {
+                            if (draggedIndex != null) {
+                                drawViewModel.finishPageReorderMode()
+                                draggedIndex = null
+                                dragOffset = Offset.Zero
+                            }
+                        },
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            dragOffset += dragAmount
+
+                            val draggedIdx = draggedIndex ?: return@detectDragGesturesAfterLongPress
+
+                            // 1. Troviamo l'item che stiamo trascinando nel layout CORRENTE
+                            val draggedItem = gridState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == draggedIdx }
+
+                            if (draggedItem != null) {
+                                // 2. Calcoliamo il centro visivo attuale della card trascinata
+                                val currentCenterX = draggedItem.offset.x + (draggedItem.size.width / 2f) + dragOffset.x
+                                val currentCenterY = draggedItem.offset.y + (draggedItem.size.height / 2f) + dragOffset.y
+
+                                // 3. Identifichiamo se il centro è sopra un'altra card (il bersaglio)
+                                val targetItem = gridState.layoutInfo.visibleItemsInfo.firstOrNull { item ->
+                                    currentCenterX.toInt() in item.offset.x..(item.offset.x + item.size.width) &&
+                                            currentCenterY.toInt() in item.offset.y..(item.offset.y + item.size.height)
+                                }
+
+                                // 4. Logica di scambio con COMPENSAZIONE
+                                if (targetItem != null && targetItem.index != draggedIdx) {
+
+                                    // --- LA CORREZIONE CRUCIALE (Fase 3 & 4 Fix) ---
+
+                                    // Calcoliamo la differenza di posizione tra la card trascinata e il bersaglio.
+                                    // Questa è la distanza esatta di cui la card "salterà" nel layout.
+                                    val offsetXFix = draggedItem.offset.x - targetItem.offset.x
+                                    val offsetYFix = draggedItem.offset.y - targetItem.offset.y
+
+                                    // Applichiamo la correzione all'offset visivo PRIMA di spostare i dati.
+                                    // In questo modo, quando Compose riordina la griglia, l'offset compenserà il salto.
+                                    dragOffset = Offset(
+                                        x = dragOffset.x + offsetXFix,
+                                        y = dragOffset.y + offsetYFix
+                                    )
+
+                                    // -------------------------------------------------
+
+                                    // 5. Ora spostiamo i dati. Compose riordinerà la griglia, ma
+                                    // grazie alla correzione sopra, la card rimarrà sotto il dito.
+                                    drawViewModel.movePage(draggedIdx, targetItem.index)
+                                    draggedIndex = targetItem.index
+                                }
+                            }
+                        }
+                    )
+                }
         ) {
             items(document.pages.size) { index ->
                 val page = document.pages[index]
-
-                // Stato locale per gestire il menu a tendina di QUESTA specifica pagina
                 var menuExpanded by remember { mutableStateOf(false) }
 
-                // Calcoliamo l'aspect ratio
+                // Determiniamo se QUESTA specifica card è quella che stiamo trascinando
+                val isDragged = index == draggedIndex
+
                 val aspectRatio = if (page.dimension != null) {
                     page.dimension!!.width.mm / page.dimension!!.height.mm
                 } else {
@@ -91,8 +185,22 @@ fun PageGridOverlay(
                 ElevatedCard(
                     onClick = { drawViewModel.jumpToPage(index) },
                     shape = RoundedCornerShape(8.dp),
-                    elevation = CardDefaults.elevatedCardElevation(defaultElevation = 6.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    // Aumentiamo l'ombra se la card è sollevata
+                    elevation = CardDefaults.elevatedCardElevation(defaultElevation = if (isDragged) 16.dp else 6.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        // Portiamo la card in primo piano rispetto alle altre
+                        .zIndex(if (isDragged) 1f else 0f)
+                        // Applichiamo la trasformazione visiva fluida
+                        .graphicsLayer {
+                            if (isDragged) {
+                                translationX = dragOffset.x
+                                translationY = dragOffset.y
+                                scaleX = 1.05f
+                                scaleY = 1.05f
+                                alpha = 0.9f
+                            }
+                        }
                 ) {
                     Box(
                         modifier = Modifier
@@ -101,6 +209,7 @@ fun PageGridOverlay(
                             .background(Color.White),
                         contentAlignment = Alignment.Center
                     ) {
+                        // [IL RESTO DEL TUO CODICE RIMANE IDENTICO: Image(), Badge del numero, IconButton con il DropdownMenu]
                         // 1. IL THUMBNAIL DELLA PAGINA
                         page.bitmapPage?.let { bmp ->
                             Image(

@@ -365,9 +365,13 @@ class PageMaker(
         pageRect: RectF,
         windowRect: RectF,
         page: Page,
+        document: Document,
         themeColors: DrawThemeColors
     ) {
-        val bg = page.background
+        val bg = page.background ?: document.defaultBackground
+
+        pageBackgroundPaint.color = bg.backgroundColor
+        canvas.drawRect(pageRect, pageBackgroundPaint)
 
         // FIX 2: Usa il colore matematico impostato nel pattern!
         pageBackgroundPaint.color = bg.backgroundColor

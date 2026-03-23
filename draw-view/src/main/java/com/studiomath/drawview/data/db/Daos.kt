@@ -269,8 +269,8 @@ interface DocumentDao {
     @Query("UPDATE documents SET modifiedAt = :timestamp WHERE id = :documentId")
     suspend fun touchDocument(documentId: Int, timestamp: Long = System.currentTimeMillis())
 
-    @Query("UPDATE documents SET defaultBackground = :background WHERE id = :documentId")
-    suspend fun updateDefaultBackground(documentId: Int, background: PageBackground)
+    @Query("UPDATE documents SET defaultBackground = :background, defaultWidth = :width, defaultHeight = :height WHERE id = :documentId")
+    suspend fun updateDocumentDefaults(documentId: Int, background: PageBackground, width: Float, height: Float)
 }
 
 /**

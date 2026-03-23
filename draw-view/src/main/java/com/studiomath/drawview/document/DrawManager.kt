@@ -457,7 +457,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             // Estraiamo la pagina reale
             val docPage = document?.pages?.getOrNull(pageInfo.index) ?: continue
             // Passiamo docPage alla funzione
-            drawViewModel.pageMaker.makePageBackground(canvas, pageInfo.rect, windowRect, docPage, drawViewModel.themeColors)
+            drawViewModel.pageMaker.makePageBackground(canvas, pageInfo.rect, windowRect, docPage, document, drawViewModel.themeColors)
         }
 
         snapshot.bitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
@@ -473,7 +473,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             val docPage = document?.pages?.getOrNull(pageInfo.index) ?: continue
 
             // Passiamo docPage alla funzione
-            drawViewModel.pageMaker.makePageBackground(canvas, pageInfo.rect, windowRect, docPage, drawViewModel.themeColors)
+            drawViewModel.pageMaker.makePageBackground(canvas, pageInfo.rect, windowRect, docPage, document, drawViewModel.themeColors)
 
             if (drawViewModel.isReorderingPages) {
                 if (pageInfo.index == drawViewModel.draggedPageIndex) {
@@ -521,7 +521,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         // e faranno da sfondo alla bitmap in cache.
         for (pageInfo in snapshot.pagesRect) {
             val docPage = document?.pages?.getOrNull(pageInfo.index) ?: continue
-            drawViewModel.pageMaker.makePageBackground(canvas, pageInfo.rect, windowRect, docPage, drawViewModel.themeColors)
+            drawViewModel.pageMaker.makePageBackground(canvas, pageInfo.rect, windowRect, docPage, document, drawViewModel.themeColors)
         }
 
         canvas.withSave {
@@ -598,7 +598,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             canvas.drawRect(rect, shadowPaint)
 
             // Passiamo docPage alla funzione
-            drawViewModel.pageMaker.makePageBackground(canvas, rect, windowRect, docPage, drawViewModel.themeColors)
+            drawViewModel.pageMaker.makePageBackground(canvas, rect, windowRect, docPage, document, drawViewModel.themeColors)
 
             canvas.drawBitmap(bmp, null, rect, null)
 

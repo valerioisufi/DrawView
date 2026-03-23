@@ -359,40 +359,29 @@ class DrawViewModel(
     fun changeSinglePageTemplate(dimension: Dimension, background: PageBackground) {
         val doc = documentData ?: return
         val targetIndex = contextMenuTargetPageIndex
-
-        // Controllo di sicurezza
         if (targetIndex !in doc.pages.indices) return
-
         val page = doc.pages[targetIndex]
 
-        // 1. Aggiorniamo i dati in RAM
         page.dimension = dimension
         page.width = dimension.width.mm
         page.height = dimension.height.mm
-        page.background = background
 
-        // Segniamo la pagina come "sporca" così la vecchia bitmap viene scartata
+        // TRUCCO UX: Se lo sfondo che l'utente ha scelto è matematicamente identico
+        // a quello di default, impostiamo null per (ri)allacciare la pagina al default.
+        if (background == doc.defaultBackground) {
+            page.background = null
+        } else {
+            page.background = background
+        }
+
         page.isPrepared = false
 
         viewModelScope.launch {
-            // 2. Salviamo la modifica nel Database
             repository.updatePageFormatAndBackground(doc.dbId, page)
-
-            // 3. Forziamo il ricalcolo delle posizioni delle pagine (es. se la pagina si è allungata)
             drawManager.calcPage.needToBeUpdated = true
 
-            // 4. Aggiorniamo prima la UI a schermo
-            drawManager.requestDraw(
-                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
-                }
-            )
-            // 5. FIX: Diciamo al thread in background di ricreare le bitmap e ridisegnare i tratti!
-            drawManager.requestDraw(
-                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                    update = DrawManager.DrawAttachments.Update.CACHE_ALL
-                }
-            )
+            drawManager.requestDraw(DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply { update = DrawManager.DrawAttachments.Update.DRAW_BITMAP })
+            drawManager.requestDraw(DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply { update = DrawManager.DrawAttachments.Update.CACHE_ALL })
         }
     }
 
@@ -413,45 +402,44 @@ class DrawViewModel(
         val newDim = pendingDocDimension ?: return
         val newBg = pendingDocBackground ?: return
 
-        // 1. Aggiorniamo il default del documento in RAM
         doc.defaultBackground = newBg
+        doc.defaultWidth = newDim.width.mm
+        doc.defaultHeight = newDim.height.mm
 
         viewModelScope.launch {
-            // 2. Salviamo il nuovo default nel DB
-            repository.updateDocumentDefaultBackground(doc.dbId, newBg)
+            repository.updateDocumentDefaults(doc.dbId, newBg, doc.defaultWidth, doc.defaultHeight)
 
-            // 3. Se l'utente ha scelto di sovrascrivere, iteriamo su tutte le pagine
-            if (overrideAll) {
-                doc.pages.forEach { page ->
+            doc.pages.forEach { page ->
+                var needUpdate = false
+
+                if (overrideAll) {
+                    // L'utente vuole sovrascrivere tutto: rimettiamo a null tutti i background locali
+                    // in modo che d'ora in poi TUTTE le pagine seguano il nuovo default
                     page.dimension = newDim
                     page.width = newDim.width.mm
                     page.height = newDim.height.mm
-                    page.background = newBg
-                    page.isPrepared = false // Scartiamo le vecchie bitmap
+                    page.background = null
+                    needUpdate = true
+                } else {
+                    // L'utente non vuole sovrascrivere. Però, le pagine "linkate" (con background = null)
+                    // devono essere ridisegnate perché il default da cui dipendono è appena cambiato!
+                    if (page.background == null) {
+                        needUpdate = true
+                    }
+                }
 
+                if (needUpdate) {
+                    page.isPrepared = false
                     repository.updatePageFormatAndBackground(doc.dbId, page)
                 }
             }
 
-            // 4. Puliamo le variabili temporanee
             pendingDocDimension = null
             pendingDocBackground = null
 
-            // 5. Ricalcoliamo il layout
             drawManager.calcPage.needToBeUpdated = true
-
-            // 6. Aggiorniamo lo schermo
-            drawManager.requestDraw(
-                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
-                }
-            )
-            // 7. FIX: Diciamo al thread in background di ricreare tutte le bitmap modificate!
-            drawManager.requestDraw(
-                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                    update = DrawManager.DrawAttachments.Update.CACHE_ALL
-                }
-            )
+            drawManager.requestDraw(DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply { update = DrawManager.DrawAttachments.Update.DRAW_BITMAP })
+            drawManager.requestDraw(DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply { update = DrawManager.DrawAttachments.Update.CACHE_ALL })
         }
     }
 

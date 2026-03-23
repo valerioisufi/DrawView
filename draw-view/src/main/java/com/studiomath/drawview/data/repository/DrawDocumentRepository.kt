@@ -116,6 +116,8 @@ class DrawDocumentRepository(context: Context) {
                 this.lastOpenedAt = dbDocWithPages.document.lastOpenedAt
 
                 this.defaultBackground = dbDocWithPages.document.defaultBackground
+                this.defaultWidth = dbDocWithPages.document.defaultWidth
+                this.defaultHeight = dbDocWithPages.document.defaultHeight
             }
 
             val dbResources = resourceDao.getResourcesForDocument(documentId)
@@ -211,7 +213,9 @@ class DrawDocumentRepository(context: Context) {
         withContext(Dispatchers.IO) {
             val dbDoc = DocumentEntity(
                 name = defaultDocumentName,
-                defaultBackground = PageBackground.Solid()
+                defaultBackground = PageBackground.Solid(),
+                defaultWidth = 210f,
+                defaultHeight = 297f
             )
 
             val newDocId = documentDao.insert(dbDoc).toInt()
@@ -221,7 +225,7 @@ class DrawDocumentRepository(context: Context) {
                 pageNumber = 0,
                 width = 210f,
                 height = 297f,
-                background = PageBackground.Solid()
+                background = null
             )
             val newPageId = pageDao.insert(dbPage).toInt()
 
@@ -691,9 +695,10 @@ class DrawDocumentRepository(context: Context) {
     }
 
     /**
-     * Aggiorna lo sfondo di default di un documento.
+     * Aggiorna lo sfondo e le dimensioni di default di un documento.
      */
-    suspend fun updateDocumentDefaultBackground(documentId: Int, background: PageBackground) = withContext(Dispatchers.IO) {
-        documentDao.updateDefaultBackground(documentId, background)
+    suspend fun updateDocumentDefaults(documentId: Int, background: PageBackground, width: Float, height: Float) = withContext(Dispatchers.IO) {
+        // Usiamo la nuova funzione del DAO
+        documentDao.updateDocumentDefaults(documentId, background, width, height)
     }
 }

@@ -197,9 +197,10 @@ class PageManager(
 
         coroutineScope.launch {
             val newPage = Page(nextIndex).apply {
-                dimension = Dimension.A4()
-                width = dimension!!.width.mm
-                height = dimension!!.height.mm
+                dimension = Dimension(currentDoc.defaultWidth.mm, currentDoc.defaultHeight.mm)
+                width = currentDoc.defaultWidth
+                height = currentDoc.defaultHeight
+                background = null
             }
 
             newPage.dbId = repository.insertPageAt(actualDocId, newPage)
@@ -223,9 +224,10 @@ class PageManager(
 
         coroutineScope.launch {
             val newPage = Page(newPageIndex).apply {
-                dimension = Dimension.A4()
-                width = dimension!!.width.mm
-                height = dimension!!.height.mm
+                dimension = Dimension(currentDoc.defaultWidth.mm, currentDoc.defaultHeight.mm)
+                width = currentDoc.defaultWidth
+                height = currentDoc.defaultHeight
+                background = null
             }
 
             newPage.dbId = repository.insertPageAt(actualDocId, newPage)

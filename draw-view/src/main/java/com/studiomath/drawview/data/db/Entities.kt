@@ -41,7 +41,9 @@ data class DocumentEntity(
     val modifiedAt: Long = System.currentTimeMillis(),
     val lastOpenedAt: Long? = null,
 
-    val defaultBackground: PageBackground = PageBackground.Solid()
+    val defaultBackground: PageBackground = PageBackground.Solid(),
+    val defaultWidth: Float = 210f,
+    val defaultHeight: Float = 297f
 )
 
 /**
@@ -68,7 +70,7 @@ data class PageEntity(
     val height: Float,
     val isDeleted: Boolean = false,
 
-    val background: PageBackground = PageBackground.Solid()
+    val background: PageBackground? = null
 )
 
 /**

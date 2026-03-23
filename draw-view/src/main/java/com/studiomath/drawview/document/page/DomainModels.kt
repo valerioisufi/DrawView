@@ -170,9 +170,7 @@ class Page(var index: Int) {
     var height = 0f // mm
     var dimension: Dimension? = null
 
-    // NUOVO: Sfondo specifico di questa pagina.
-    // Di default è Solid bianco, ma l'utente o il documento potranno sovrascriverlo.
-    var background: PageBackground = PageBackground.Solid()
+    var background: PageBackground? = null
 
     var bitmapPage: Bitmap? = null
     var isPrepared = false
@@ -204,6 +202,8 @@ data class Document(val name: String) {
 
     // NUOVO: Sfondo di default per le nuove pagine aggiunte a questo documento
     var defaultBackground: PageBackground = PageBackground.Solid()
+    var defaultWidth: Float = 210f  // A4 standard
+    var defaultHeight: Float = 297f // A4 standard
 
     // Lascia la modifica mutableStateListOf che avevamo fatto in precedenza
     val pages = mutableStateListOf<Page>()

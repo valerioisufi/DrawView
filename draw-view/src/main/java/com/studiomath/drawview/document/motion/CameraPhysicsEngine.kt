@@ -116,6 +116,29 @@ class CameraPhysicsEngine(
     }
 
     /**
+     * FASE 4: Riposiziona la telecamera forzando un punto specifico del documento
+     * al centro esatto dello schermo, mantenendo la scala desiderata.
+     */
+    fun centerOnWorldPoint(worldX: Float, worldY: Float, scale: Float, screenWidth: Float, screenHeight: Float) {
+        stopAllAnimations()
+        scaleAxis.position = scale
+
+        // Calcolo inverso della matrice di rendering:
+        // ScreenX = (WorldX * Scale) + TranslateX ---> TranslateX = ScreenX - (WorldX * Scale)
+        axisX.position = (screenWidth / 2f) - (worldX * scale)
+        axisY.position = (screenHeight / 2f) - (worldY * scale)
+
+        updateDynamicBoundaries()
+    }
+
+    /**
+     * Restituisce il livello di zoom (scala) attualmente applicato.
+     */
+    fun getCurrentScale(): Float {
+        return scaleAxis.position
+    }
+
+    /**
      * Determines whether an inertial animation or elastic bounce is currently active.
      * This is generally used to evaluate if the render loop needs to request further draw frames.
      *

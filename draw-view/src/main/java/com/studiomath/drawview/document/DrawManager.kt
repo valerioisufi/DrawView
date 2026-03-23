@@ -691,6 +691,58 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
      * @param oldHeight Previous height.
      */
     fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
+        // --- FASE 1: Snapshot ancorato alla pagina (Fix Deriva Anti-Padding) ---
+
+        // 1. Fermiamo la fisica per non leggere una matrice a metà di un "bounce"
+        cameraPhysics.stopAllAnimations()
+
+        var targetPageIndex = 0
+        var percentageXOnPage = 0.5f
+        var percentageYOnPage = 0f
+        var hasValidPreviousState = false
+        val previousScale = cameraPhysics.getCurrentScale()
+
+        // 2. Usiamo il nostro windowRect interno (che ha ancora le vecchie dimensioni)
+        // anziché oldWidth/oldHeight di Android, che potrebbero essere stati intermedi sballati.
+        if (!windowRect.isEmpty && calcPage.pagesRectOnWindow.isNotEmpty()) {
+            val screenToWorldMatrix = getScreenToWorldMatrix()
+            val worldCenter = floatArrayOf(windowRect.centerX(), windowRect.centerY())
+            screenToWorldMatrix.mapPoints(worldCenter)
+
+            val worldX = worldCenter[0]
+            val worldY = worldCenter[1]
+
+            var found = false
+            for (i in calcPage.pagesRectOnWindow.indices) {
+                val rect = calcPage.pagesRectOnWindow[i]
+
+                val zoneBottom = if (i < calcPage.pagesRectOnWindow.size - 1) {
+                    calcPage.pagesRectOnWindow[i + 1].top
+                } else {
+                    calcPage.contentRect.bottom
+                }
+
+                if (worldY <= zoneBottom) {
+                    targetPageIndex = i
+                    // 3. CLAMPING: coerceIn(0f, 1f) impedisce l'accumulo di errori se il
+                    // centro cade esattamente nel padding fisso tra una pagina e l'altra.
+                    percentageXOnPage = ((worldX - rect.left) / rect.width()).coerceIn(0f, 1f)
+                    percentageYOnPage = ((worldY - rect.top) / rect.height()).coerceIn(0f, 1f)
+                    found = true
+                    break
+                }
+            }
+
+            if (!found) {
+                targetPageIndex = calcPage.pagesRectOnWindow.size - 1
+                val rect = calcPage.pagesRectOnWindow.last()
+                percentageXOnPage = ((worldX - rect.left) / rect.width()).coerceIn(0f, 1f)
+                percentageYOnPage = ((worldY - rect.top) / rect.height()).coerceIn(0f, 1f)
+            }
+
+            hasValidPreviousState = true
+        }
+
         synchronized(renderLock) {
             frontState.bitmap?.recycle()
             frontState.bitmap = createBitmap(width, height)
@@ -698,12 +750,48 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         }
 
         windowRect = RectF(0f, 0f, width.toFloat(), height.toFloat())
-        calcPage.needToBeUpdated = true
+
+        // --- FASE 2: Riorganizzazione Sincrona del Layout ---
+        val document = drawViewModel.documentData
+        if (document != null && document.pages.isNotEmpty()) {
+            calcPage.calcPagesRectOnWindow(
+                document.pages,
+                windowRect,
+                CalcPage.PagePositionOnWindowOption()
+            )
+            contentConstraintsOnWindow = calcPage.getContentConstraintsOnWindow(windowRect)
+            calcPage.needToBeUpdated = false
+        }
 
         cameraPhysics.setViewport(width, height)
+
+        // --- FASE 3, 4 e 5: Riposizionamento Esatto sulla Pagina ---
+        if (hasValidPreviousState && document != null && document.pages.isNotEmpty() && targetPageIndex < calcPage.pagesRectOnWindow.size) {
+
+            // FASE 4: Recuperiamo il nuovo rettangolo della STESSA pagina
+            val newRect = calcPage.pagesRectOnWindow[targetPageIndex]
+
+            // Riapplichiamo le percentuali interne a questa pagina per trovare il nuovo centro assoluto
+            val newWorldFocusX = newRect.left + (newRect.width() * percentageXOnPage)
+            val newWorldFocusY = newRect.top + (newRect.height() * percentageYOnPage)
+
+            // FASE 3: Centriamo la telecamera mantenendo lo zoom
+            cameraPhysics.centerOnWorldPoint(
+                worldX = newWorldFocusX,
+                worldY = newWorldFocusY,
+                scale = previousScale,
+                screenWidth = width.toFloat(),
+                screenHeight = height.toFloat()
+            )
+        }
+
+        // FASE 5: Scatto ai limiti legali e dispatch dei frame
         cameraPhysics.restoreToBounds(animated = false)
 
-        if (drawViewModel.isDocumentLoaded){
+        if (drawViewModel.isDocumentLoaded) {
+            // Frame immediato per evitare il nero
+            updateDrawView(DrawAttachments(DrawAttachments.DrawMode.SCALE_TRANSLATE))
+            // Ricalcolo sfondo pesante
             requestDraw(DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
                 update = DrawAttachments.Update.DRAW_BITMAP
             })

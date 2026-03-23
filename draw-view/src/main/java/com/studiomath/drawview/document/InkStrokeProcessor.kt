@@ -224,9 +224,9 @@ class InkStrokeProcessor(
      * Utile per spostare un tratto dal sistema di coordinate di una pagina a un'altra.
      */
     private fun transformInkStroke(
-        originalStroke: androidx.ink.strokes.Stroke,
+        originalStroke: InkStroke,
         matrix: Matrix
-    ): androidx.ink.strokes.Stroke {
+    ): InkStroke {
         val transformedBatch = MutableStrokeInputBatch()
         val scratch = StrokeInput()
         val pt = FloatArray(2)

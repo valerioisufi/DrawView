@@ -1,6 +1,7 @@
 package com.studiomath.drawview.ui.composeComponents
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -23,6 +24,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -86,9 +88,17 @@ fun DocumentInfoSelector(
         elevation = if (expanded) 8.dp else 0.dp,
 
         collapsedContent = {
+            // Creiamo un gestore per lo stato del tocco
+            val interactionSource = remember { MutableInteractionSource() }
+
             Row(
                 modifier = Modifier
-                    .clickable { expanded = true }
+                    .clickable(
+                        interactionSource = interactionSource,
+                        // Coloriamo il ripple di primary per abbinarlo al testo
+                        indication = ripple(color = MaterialTheme.colorScheme.primary),
+                        onClick = { expanded = true }
+                    )
                     .padding(horizontal = 16.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center
@@ -97,27 +107,36 @@ fun DocumentInfoSelector(
                     modifier = Modifier.padding(end = 8.dp),
                     text = document?.name ?: stringResource(R.string.common_state_loading),
                     style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary,
                     overflow = TextOverflow.Ellipsis,
                     maxLines = 1
                 )
                 Icon(
                     imageVector = Icons.Outlined.KeyboardArrowDown,
                     contentDescription = stringResource(R.string.document_info_action_expand),
+                    tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(20.dp)
                 )
             }
         },
-
         expandedContent = {
             Column(
                 modifier = Modifier
                     .widthIn(min = 260.dp, max = 320.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                // Creiamo il gestore anche per la riga di chiusura
+                val interactionSource = remember { MutableInteractionSource() }
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { expanded = false }
+                        .clickable(
+                            interactionSource = interactionSource,
+                            // Coloriamo il ripple anche qui
+                            indication = ripple(color = MaterialTheme.colorScheme.primary),
+                            onClick = { expanded = false }
+                        )
                         .padding(horizontal = 16.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
@@ -126,12 +145,14 @@ fun DocumentInfoSelector(
                         modifier = Modifier.padding(end = 8.dp),
                         text = document?.name ?: stringResource(R.string.common_state_loading),
                         style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary,
                         overflow = TextOverflow.Ellipsis,
                         maxLines = 1
                     )
                     Icon(
                         imageVector = Icons.Outlined.KeyboardArrowUp,
                         contentDescription = stringResource(R.string.document_info_action_collapse),
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(20.dp)
                     )
                 }

@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Redo
@@ -660,10 +661,10 @@ fun ToolButton(
     onLongClick: (() -> Unit) = {},
     selected: Boolean = false,
     enabled: Boolean = true,
-    dropDownMenu: @Composable() () -> Unit = {},
+    dropDownMenu: @Composable () -> Unit = {},
     expanded: Boolean = false,
     onDismissRequest: () -> Unit = {},
-    content: @Composable() RowScope.() -> Unit = {}
+    content: @Composable RowScope.() -> Unit = {}
 ){
     Box{
         val selectedModifier = if (selected) {
@@ -690,7 +691,12 @@ fun ToolButton(
             modifier = Modifier
                 .width(300.dp),
             expanded = expanded,
-            onDismissRequest = { onDismissRequest() }
+            onDismissRequest = { onDismissRequest() },
+            // --- STILE MATERIAL 3 ---
+            shape = RoundedCornerShape(16.dp), // Bordi arrotondati e moderni
+            containerColor = MaterialTheme.colorScheme.surface, // Colore di fondo in risalto
+            tonalElevation = 8.dp, // Aggiunge profondità cromatica
+            shadowElevation = 8.dp // Aggiunge l'ombra fisica
         ) {
             dropDownMenu()
         }

@@ -326,14 +326,7 @@ class PageManager(
         val pageToMove = currentDoc.pages.removeAt(fromIndex)
         currentDoc.pages.add(toIndex, pageToMove)
 
-        // 2. Aggiorniamo la proprietà 'index' interna delle pagine coinvolte
-        val start = minOf(fromIndex, toIndex)
-        val end = maxOf(fromIndex, toIndex)
-        for (i in start..end) {
-            currentDoc.pages[i].index = i
-        }
-
-        // 3. Diciamo al motore di calcolo che i rettangoli andranno ricalcolati
+        // 2. Diciamo al motore di calcolo che i rettangoli andranno ricalcolati
         getDrawManager().calcPage.needToBeUpdated = true
     }
 

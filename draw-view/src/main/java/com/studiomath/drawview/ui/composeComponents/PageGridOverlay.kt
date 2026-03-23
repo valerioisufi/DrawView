@@ -180,11 +180,15 @@ fun PageGridOverlay(
                         }
                     )
                 }
-        ) {
-            items(document.pages.size) { index ->
+        ){
+            items(
+                count = document.pages.size,
+                key = { index -> document.pages[index].dbId }
+            ) { index ->
                 val page = document.pages[index]
 
                 var menuExpanded by remember { mutableStateOf(false) }
+
                 val isDragged = index == draggedIndex
 
                 // FIX 3: Usiamo la larghezza e altezza assolute della pagina per una proporzione perfetta!
@@ -206,6 +210,7 @@ fun PageGridOverlay(
                                 alpha = 0.9f
                             }
                         }
+                        .then(if (isDragged) Modifier else Modifier.animateItem())
                 ) {
                     Box(
                         modifier = Modifier

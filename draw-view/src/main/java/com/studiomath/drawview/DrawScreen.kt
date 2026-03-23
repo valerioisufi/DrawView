@@ -5,6 +5,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -38,13 +39,17 @@ import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.outlined.Draw
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.MoreHoriz
+import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -70,12 +75,15 @@ import androidx.compose.ui.zIndex
 import androidx.ink.authoring.InProgressStrokesView
 import com.studiomath.drawview.document.DrawComponent
 import com.studiomath.drawview.document.DrawViewModel
+import com.studiomath.drawview.document.page.Dimension
+import com.studiomath.drawview.document.page.PageBackground
 import com.studiomath.drawview.document.page.pt
 import com.studiomath.drawview.document.selection.LassoMode
 import com.studiomath.drawview.document.tools.Tool
 import com.studiomath.drawview.ui.composeComponents.ColorWheel
 import com.studiomath.drawview.ui.composeComponents.DocumentInfoSelector
 import com.studiomath.drawview.ui.composeComponents.PageGridOverlay
+import com.studiomath.drawview.ui.composeComponents.PageTemplateConfigurator
 import com.studiomath.drawview.ui.composeComponents.SizeSlider
 
 /**
@@ -194,7 +202,7 @@ fun DrawScreen(
                                         modifier = Modifier.padding(16.dp)
                                     ) {
                                         Text(
-                                            text = "Impostazioni", // Sostituisci con stringResource se necessario
+                                            text = "Impostazioni",
                                             fontSize = 16.sp,
                                             fontWeight = FontWeight.Bold,
                                             modifier = Modifier.padding(bottom = 12.dp)
@@ -205,14 +213,38 @@ fun DrawScreen(
                                             horizontalArrangement = Arrangement.SpaceBetween,
                                             modifier = Modifier.fillMaxWidth()
                                         ) {
-                                            Text(text = "Modalità solo Stylus") // Sostituisci con stringResource
+                                            Text(text = "Modalità solo Stylus")
 
                                             androidx.compose.material3.Switch(
                                                 checked = drawViewModel.isStylusOnlyMode,
                                                 onCheckedChange = { isChecked ->
-                                                    // Richiama la funzione nel ViewModel per aggiornare RAM e Database
                                                     drawViewModel.updateStylusOnlyMode(isChecked)
                                                 }
+                                            )
+                                        }
+
+                                        // --- NUOVO: VOCE SFONDO INTERO DOCUMENTO ---
+                                        HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    moreOptionsExpanded = false
+                                                    drawViewModel.showDocumentConfigurator = true
+                                                }
+                                                .padding(vertical = 8.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.Palette,
+                                                contentDescription = null,
+                                                modifier = Modifier.padding(end = 16.dp),
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            Text(
+                                                text = "Sfondo del documento",
+                                                color = MaterialTheme.colorScheme.onSurface
                                             )
                                         }
                                     }
@@ -634,6 +666,70 @@ fun DrawScreen(
         ) {
             PageGridOverlay(drawViewModel = drawViewModel)
         }
+    }
+
+    // =========================================================
+    // MODALS E DIALOGS PER IL TEMPLATE DI SFONDO
+    // =========================================================
+
+    // 1. Bottom Sheet per la SINGOLA PAGINA
+    if (drawViewModel.showSinglePageConfigurator) {
+        val targetPage = drawViewModel.documentData?.pages?.getOrNull(drawViewModel.contextMenuTargetPageIndex)
+
+        ModalBottomSheet(onDismissRequest = { drawViewModel.showSinglePageConfigurator = false }) {
+            PageTemplateConfigurator(
+                initialDimension = targetPage?.dimension ?: Dimension.A4(),
+                initialBackground = targetPage?.background ?: PageBackground.Solid(),
+                onApply = { newDimension, newBackground ->
+                    drawViewModel.changeSinglePageTemplate(newDimension, newBackground)
+                    drawViewModel.showSinglePageConfigurator = false
+                },
+                onCancel = { drawViewModel.showSinglePageConfigurator = false }
+            )
+        }
+    }
+
+    // 2. Bottom Sheet per l'INTERO DOCUMENTO
+    if (drawViewModel.showDocumentConfigurator) {
+        val doc = drawViewModel.documentData
+
+        ModalBottomSheet(onDismissRequest = { drawViewModel.showDocumentConfigurator = false }) {
+            PageTemplateConfigurator(
+                initialDimension = Dimension.A4(), // o la dimensione di default del doc
+                initialBackground = doc?.defaultBackground ?: PageBackground.Solid(),
+                onApply = { newDimension, newBackground ->
+                    // Nascondiamo il foglio e avviamo la logica di cambio documento
+                    drawViewModel.showDocumentConfigurator = false
+                    drawViewModel.prepareDocumentTemplateChange(newDimension, newBackground)
+                },
+                onCancel = { drawViewModel.showDocumentConfigurator = false }
+            )
+        }
+    }
+
+    // 3. Dialog di Conferma (Sovrascrittura)
+    if (drawViewModel.showOverrideConfirmationDialog) {
+        AlertDialog(
+            onDismissRequest = { drawViewModel.showOverrideConfirmationDialog = false },
+            title = { Text("Applica a tutte le pagine?") },
+            text = { Text("Vuoi che questo sfondo diventi il predefinito per le nuove pagine o vuoi sovrascrivere anche le pagine a cui avevi dato uno sfondo personalizzato in precedenza?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    drawViewModel.applyDocumentTemplateChange(overrideAll = true)
+                    drawViewModel.showOverrideConfirmationDialog = false
+                }) {
+                    Text("Sovrascrivi Tutte")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    drawViewModel.applyDocumentTemplateChange(overrideAll = false)
+                    drawViewModel.showOverrideConfirmationDialog = false
+                }) {
+                    Text("Solo Default")
+                }
+            }
+        )
     }
 
 

@@ -9,6 +9,7 @@ import androidx.room.Query
 import androidx.room.Relation
 import androidx.room.Transaction
 import androidx.room.Update
+import com.studiomath.drawview.document.page.PageBackground
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -267,6 +268,9 @@ interface DocumentDao {
      */
     @Query("UPDATE documents SET modifiedAt = :timestamp WHERE id = :documentId")
     suspend fun touchDocument(documentId: Int, timestamp: Long = System.currentTimeMillis())
+
+    @Query("UPDATE documents SET defaultBackground = :background WHERE id = :documentId")
+    suspend fun updateDefaultBackground(documentId: Int, background: PageBackground)
 }
 
 /**
@@ -353,6 +357,9 @@ interface PageDao {
      */
     @Query("UPDATE pages SET isDeleted = 0, pageNumber = :newIndex WHERE id = :pageId")
     suspend fun restorePage(pageId: Int, newIndex: Int)
+
+    @Update
+    suspend fun update(page: PageEntity)
 }
 
 /**

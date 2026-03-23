@@ -348,19 +348,116 @@ class PageMaker(
         style = Paint.Style.FILL
     }
 
+    private val patternPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL_AND_STROKE
+    }
+
     private val windowBackgroundWithShadowPaint = Paint().apply {
         style = Paint.Style.FILL
     }
 
     /**
-     * Paints the basic background of a page onto the canvas using the current theme colors.
+     * Paints the background of a page onto the canvas, including mathematical patterns
+     * like Grids, Rules, or Dots, perfectly scaled to the current zoom level.
      */
-    fun makePageBackground(canvas: Canvas, pageRect: RectF, windowRect: RectF, themeColors: DrawThemeColors) {
-        // Aggiorniamo dinamicamente il colore senza riallocare memoria
+    fun makePageBackground(
+        canvas: Canvas,
+        pageRect: RectF,
+        windowRect: RectF,
+        page: com.studiomath.drawview.document.page.Page, // NUOVO PARAMETRO
+        themeColors: DrawThemeColors
+    ) {
+        // 1. Dipingiamo il colore base del foglio (adattato al tema Chiaro/Scuro)
         pageBackgroundPaint.color = themeColors.surfaceColor
-
-        // Sostituito drawPath con drawRect per prestazioni migliori
         canvas.drawRect(pageRect, pageBackgroundPaint)
+
+        // 2. Estraiamo il background configurato per questa pagina
+        val bg = page.background
+
+        // Se è una tinta unita, abbiamo già finito!
+        if (bg is com.studiomath.drawview.document.page.PageBackground.Solid) return
+
+        // 3. Calcoliamo il fattore di scala (Quanti pixel dello schermo equivalgono a 1 mm logico?)
+        val pixelsPerMm = pageRect.width() / page.width
+
+        canvas.withSave {
+            // Blocchiamo il disegno all'interno dei bordi della pagina
+            canvas.clipRect(pageRect)
+            // Spostiamo l'origine (0,0) nell'angolo in alto a sinistra della pagina
+            canvas.translate(pageRect.left, pageRect.top)
+
+            when (bg) {
+                is com.studiomath.drawview.document.page.PageBackground.Ruled -> {
+                    val spacingPx = bg.spacingMm * pixelsPerMm
+
+                    // Ottimizzazione Pro: Se rimpiccioliamo troppo la visuale (zoom out estremo),
+                    // non disegniamo le linee per evitare lag e l'effetto "Moiré"
+                    if (spacingPx < 4f) return@withSave
+
+                    // Assicuriamoci che la linea sia spessa almeno 1 pixel per non sparire
+                    patternPaint.strokeWidth = maxOf(1f, bg.thicknessMm * pixelsPerMm)
+                    patternPaint.color = bg.lineColor
+
+                    var y = spacingPx
+                    val width = pageRect.width()
+                    val height = pageRect.height()
+                    while (y < height) {
+                        canvas.drawLine(0f, y, width, y, patternPaint)
+                        y += spacingPx
+                    }
+                }
+
+                is com.studiomath.drawview.document.page.PageBackground.Grid -> {
+                    val spacingPx = bg.spacingMm * pixelsPerMm
+                    if (spacingPx < 4f) return@withSave
+
+                    patternPaint.strokeWidth = maxOf(1f, bg.thicknessMm * pixelsPerMm)
+                    patternPaint.color = bg.lineColor
+
+                    val width = pageRect.width()
+                    val height = pageRect.height()
+
+                    // Linee Orizzontali
+                    var y = spacingPx
+                    while (y < height) {
+                        canvas.drawLine(0f, y, width, y, patternPaint)
+                        y += spacingPx
+                    }
+                    // Linee Verticali
+                    var x = spacingPx
+                    while (x < width) {
+                        canvas.drawLine(x, 0f, x, height, patternPaint)
+                        x += spacingPx
+                    }
+                }
+
+                is com.studiomath.drawview.document.page.PageBackground.Dotted -> {
+                    val spacingPx = bg.spacingMm * pixelsPerMm
+                    if (spacingPx < 6f) return@withSave // I puntini richiedono più spazio visivo
+
+                    val radiusPx = maxOf(1f, bg.dotRadiusMm * pixelsPerMm)
+                    patternPaint.color = bg.dotColor
+                    // Per i puntini usiamo solo FILL
+                    patternPaint.style = Paint.Style.FILL
+
+                    val width = pageRect.width()
+                    val height = pageRect.height()
+
+                    var x = spacingPx
+                    while (x < width) {
+                        var y = spacingPx
+                        while (y < height) {
+                            canvas.drawCircle(x, y, radiusPx, patternPaint)
+                            y += spacingPx
+                        }
+                        x += spacingPx
+                    }
+                    // Ripristiniamo lo stile di default per i prossimi cicli
+                    patternPaint.style = Paint.Style.FILL_AND_STROKE
+                }
+                else -> {}
+            }
+        }
     }
 
     /**

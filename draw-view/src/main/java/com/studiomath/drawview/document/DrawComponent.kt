@@ -265,6 +265,20 @@ fun DrawComponent(
                         IconButton(onClick = { drawViewModel.startPageReorderMode() }) {
                             Icon(Icons.Default.SwapVert, contentDescription = stringResource(R.string.context_menu_action_reorder_page))
                         }
+
+                        // --- NUOVO: BOTTONE SFONDO SINGOLA PAGINA ---
+                        IconButton(onClick = {
+                            // Apriamo il configuratore per la pagina selezionata
+                            drawViewModel.showSinglePageConfigurator = true
+                            // Chiudiamo il menu a comparsa
+                            drawViewModel.contextMenuPosition = null
+                        }) {
+                            Icon(
+                                Icons.Default.Palette,
+                                contentDescription = "Modifica sfondo pagina",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
                 }
             }

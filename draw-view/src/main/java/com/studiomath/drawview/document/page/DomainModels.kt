@@ -165,10 +165,14 @@ class Image(var zIndex: Int) {
 class Pdf(var zIndex: Int, var pdfPageIndex: Int = 0) { var id: String = "" }
 
 class Page(var index: Int) {
-    var dbId: Int = 0 // Room Database ID
+    var dbId: Int = 0
     var width = 0f // mm
     var height = 0f // mm
     var dimension: Dimension? = null
+
+    // NUOVO: Sfondo specifico di questa pagina.
+    // Di default è Solid bianco, ma l'utente o il documento potranno sovrascriverlo.
+    var background: PageBackground = PageBackground.Solid()
 
     var bitmapPage: Bitmap? = null
     var isPrepared = false
@@ -187,8 +191,6 @@ class Page(var index: Int) {
             dimension!!.calcWidthFromResolutionPxInch(resolution).toInt(),
             dimension!!.calcHeightFromResolutionPxInch(resolution).toInt()
         )
-        // NOTA: Rimossa la chiamata lenta strokeData.forEach { it.toInkStroke() }
-        // I tratti nativi vengono ora generati direttamente dal Repository!
         isPrepared = true
     }
 }
@@ -200,6 +202,10 @@ data class Document(val name: String) {
     var modifiedAt: Long = System.currentTimeMillis()
     var lastOpenedAt: Long? = null
 
+    // NUOVO: Sfondo di default per le nuove pagine aggiunte a questo documento
+    var defaultBackground: PageBackground = PageBackground.Solid()
+
+    // Lascia la modifica mutableStateListOf che avevamo fatto in precedenza
     val pages = mutableStateListOf<Page>()
     val resources = mutableListOf<Resource>()
 }

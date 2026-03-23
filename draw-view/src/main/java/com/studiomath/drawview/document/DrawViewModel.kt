@@ -28,9 +28,11 @@ import com.studiomath.drawview.data.repository.DrawDocumentRepository
 import com.studiomath.drawview.document.history.DrawAction
 import com.studiomath.drawview.document.history.HistoryManager
 import com.studiomath.drawview.document.io.MediaImporter
+import com.studiomath.drawview.document.page.Dimension
 import com.studiomath.drawview.document.page.Document
 import com.studiomath.drawview.document.page.Image
 import com.studiomath.drawview.document.page.Measure
+import com.studiomath.drawview.document.page.PageBackground
 import com.studiomath.drawview.document.page.PageMaker
 import com.studiomath.drawview.document.page.PageManager
 import com.studiomath.drawview.document.page.Stroke
@@ -337,6 +339,104 @@ class DrawViewModel(
             clearSelection()
             contextMenuPosition = null
             cancelTextEditing()
+        }
+    }
+
+    // =========================================================
+    // STATI PER IL CONFIGURATORE DI SFONDI E FORMATI
+    // =========================================================
+    var showSinglePageConfigurator by mutableStateOf(false)
+    var showDocumentConfigurator by mutableStateOf(false)
+    var showOverrideConfirmationDialog by mutableStateOf(false)
+
+    // Variabili temporanee per il Dialog di conferma
+    private var pendingDocDimension: Dimension? = null
+    private var pendingDocBackground: PageBackground? = null
+
+    /**
+     * Modifica lo sfondo e la dimensione della singola pagina selezionata dal menu contestuale.
+     */
+    fun changeSinglePageTemplate(dimension: Dimension, background: PageBackground) {
+        val doc = documentData ?: return
+        val targetIndex = contextMenuTargetPageIndex
+
+        // Controllo di sicurezza
+        if (targetIndex !in doc.pages.indices) return
+
+        val page = doc.pages[targetIndex]
+
+        // 1. Aggiorniamo i dati in RAM
+        page.dimension = dimension
+        page.width = dimension.width.mm
+        page.height = dimension.height.mm
+        page.background = background
+
+        // Segniamo la pagina come "sporca" così verrà rigenerata la bitmap ad alta risoluzione
+        page.isPrepared = false
+
+        viewModelScope.launch {
+            // 2. Salviamo la modifica nel Database (passando anche il doc.dbId)
+            repository.updatePageFormatAndBackground(doc.dbId, page)
+
+            // 3. Chiediamo al motore grafico di ricalcolare i rettangoli e ridisegnare il Canvas
+            drawManager.calcPage.needToBeUpdated = true
+            drawManager.requestDraw(
+                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                }
+            )
+        }
+    }
+
+    /**
+     * Prepara il cambio di sfondo per l'intero documento e apre il dialog di conferma.
+     */
+    fun prepareDocumentTemplateChange(dimension: Dimension, background: PageBackground) {
+        pendingDocDimension = dimension
+        pendingDocBackground = background
+        showOverrideConfirmationDialog = true
+    }
+
+    /**
+     * Applica il nuovo sfondo al documento. Se overrideAll è true, formatta anche tutte le pagine esistenti.
+     */
+    fun applyDocumentTemplateChange(overrideAll: Boolean) {
+        val doc = documentData ?: return
+        val newDim = pendingDocDimension ?: return
+        val newBg = pendingDocBackground ?: return
+
+        // 1. Aggiorniamo il default del documento in RAM
+        doc.defaultBackground = newBg
+
+        viewModelScope.launch {
+            // 2. Salviamo il nuovo default nel DB
+            repository.updateDocumentDefaultBackground(doc.dbId, newBg)
+
+            // 3. Se l'utente ha scelto di sovrascrivere, iteriamo su tutte le pagine
+            if (overrideAll) {
+                doc.pages.forEach { page ->
+                    page.dimension = newDim
+                    page.width = newDim.width.mm
+                    page.height = newDim.height.mm
+                    page.background = newBg
+                    page.isPrepared = false
+
+                    // Aggiorniamo ogni pagina nel DB
+                    repository.updatePageFormatAndBackground(doc.dbId, page)
+                }
+            }
+
+            // 4. Puliamo le variabili temporanee
+            pendingDocDimension = null
+            pendingDocBackground = null
+
+            // 5. Ridisegniamo tutto
+            drawManager.calcPage.needToBeUpdated = true
+            drawManager.requestDraw(
+                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                }
+            )
         }
     }
 

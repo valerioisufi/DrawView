@@ -449,8 +449,15 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     /** Draws the high-resolution bitmap and page backgrounds during a full document update. */
     private fun renderUpdateMode(canvas: Canvas, snapshot: RenderSnapshot, attachments: DrawAttachments) {
         drawViewModel.pageMaker.makeWindowBackground(canvas, snapshot.pagesRect, snapshot.currentRenderMatrix, drawViewModel.themeColors)
-        for (page in snapshot.pagesRect) {
-            drawViewModel.pageMaker.makePageBackground(canvas, page.rect, windowRect, drawViewModel.themeColors)
+
+        // Recuperiamo il documento
+        val document = drawViewModel.documentData
+
+        for (pageInfo in snapshot.pagesRect) {
+            // Estraiamo la pagina reale
+            val docPage = document?.pages?.getOrNull(pageInfo.index) ?: continue
+            // Passiamo docPage alla funzione
+            drawViewModel.pageMaker.makePageBackground(canvas, pageInfo.rect, windowRect, docPage, drawViewModel.themeColors)
         }
 
         snapshot.bitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
@@ -461,17 +468,22 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         drawViewModel.pageMaker.makeWindowBackground(canvas, snapshot.pagesRect, snapshot.currentRenderMatrix, drawViewModel.themeColors)
         val document = drawViewModel.documentData
 
-        for (page in snapshot.pagesRect) {
-            drawViewModel.pageMaker.makePageBackground(canvas, page.rect, windowRect, drawViewModel.themeColors)
+        for (pageInfo in snapshot.pagesRect) {
+            // Estraiamo la pagina reale
+            val docPage = document?.pages?.getOrNull(pageInfo.index) ?: continue
+
+            // Passiamo docPage alla funzione
+            drawViewModel.pageMaker.makePageBackground(canvas, pageInfo.rect, windowRect, docPage, drawViewModel.themeColors)
 
             if (drawViewModel.isReorderingPages) {
-                if (page.index == drawViewModel.draggedPageIndex) {
+                if (pageInfo.index == drawViewModel.draggedPageIndex) {
                     placeholderPaint.color = drawViewModel.themeColors.primaryColor
                     placeholderPaint.alpha = 30
-                    canvas.drawRect(page.rect, placeholderPaint)
+                    canvas.drawRect(pageInfo.rect, placeholderPaint)
                 } else {
-                    document?.pages?.getOrNull(page.index)?.bitmapPage?.let { bmp ->
-                        canvas.drawBitmap(bmp, null, page.rect, null)
+                    // Usiamo direttamente docPage che abbiamo appena estratto
+                    docPage.bitmapPage?.let { bmp ->
+                        canvas.drawBitmap(bmp, null, pageInfo.rect, null)
                     }
                 }
             }
@@ -509,17 +521,20 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 clipOutRect(onDrawBitmapBounds)
             }
 
-            for (page in snapshot.pagesRect) {
-                drawViewModel.pageMaker.makePageBackground(canvas, page.rect, windowRect, drawViewModel.themeColors)
+            for (pageInfo in snapshot.pagesRect) {
+                // Estraiamo la pagina reale
+                val docPage = document?.pages?.getOrNull(pageInfo.index) ?: continue
 
-                if (drawViewModel.isReorderingPages && page.index == drawViewModel.draggedPageIndex) {
+                // Passiamo docPage alla funzione
+                drawViewModel.pageMaker.makePageBackground(canvas, pageInfo.rect, windowRect, docPage, drawViewModel.themeColors)
+
+                if (drawViewModel.isReorderingPages && pageInfo.index == drawViewModel.draggedPageIndex) {
                     placeholderPaint.color = drawViewModel.themeColors.primaryColor
                     placeholderPaint.alpha = 30
-                    canvas.drawRect(page.rect, placeholderPaint)
+                    canvas.drawRect(pageInfo.rect, placeholderPaint)
                 } else {
-                    val docPage = document?.pages?.getOrNull(page.index) ?: continue
                     if (!docPage.isPrepared) docPage.prepare()
-                    docPage.bitmapPage?.let { drawBitmap(it, null, page.rect, null) }
+                    docPage.bitmapPage?.let { drawBitmap(it, null, pageInfo.rect, null) }
                 }
             }
         }
@@ -564,12 +579,20 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         val isReordering = drawViewModel.isReorderingPages
         val rect = drawViewModel.floatingPageRect
         val bmp = drawViewModel.draggedPageBitmap
+        val draggedIndex = drawViewModel.draggedPageIndex
 
-        if (!isReordering || rect == null || bmp == null) return
+        if (!isReordering || rect == null || bmp == null || draggedIndex == -1) return
+
+        // Recuperiamo la pagina trascinata per disegnarne il pattern di sfondo
+        val document = drawViewModel.documentData
+        val docPage = document?.pages?.getOrNull(draggedIndex) ?: return
 
         canvas.withSave {
             canvas.drawRect(rect, shadowPaint)
-            drawViewModel.pageMaker.makePageBackground(canvas, rect, windowRect, drawViewModel.themeColors)
+
+            // Passiamo docPage alla funzione
+            drawViewModel.pageMaker.makePageBackground(canvas, rect, windowRect, docPage, drawViewModel.themeColors)
+
             canvas.drawBitmap(bmp, null, rect, null)
 
             borderPaint.color = drawViewModel.themeColors.primaryColor

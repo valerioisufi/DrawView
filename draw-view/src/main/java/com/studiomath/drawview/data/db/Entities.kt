@@ -4,6 +4,7 @@ import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import com.studiomath.drawview.document.page.PageBackground
 
 /**
  * Table for Folders
@@ -38,7 +39,9 @@ data class DocumentEntity(
     val folderId: Int? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val modifiedAt: Long = System.currentTimeMillis(),
-    val lastOpenedAt: Long? = null
+    val lastOpenedAt: Long? = null,
+
+    val defaultBackground: PageBackground = PageBackground.Solid()
 )
 
 /**
@@ -63,7 +66,9 @@ data class PageEntity(
     val pageNumber: Int,
     val width: Float,
     val height: Float,
-    val isDeleted: Boolean = false
+    val isDeleted: Boolean = false,
+
+    val background: PageBackground = PageBackground.Solid()
 )
 
 /**

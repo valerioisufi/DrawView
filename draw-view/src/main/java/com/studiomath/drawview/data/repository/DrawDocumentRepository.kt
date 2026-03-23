@@ -20,6 +20,7 @@ import com.studiomath.drawview.data.db.UserPreferencesEntity
 import com.studiomath.drawview.document.page.Document
 import com.studiomath.drawview.document.page.Image
 import com.studiomath.drawview.document.page.Page
+import com.studiomath.drawview.document.page.PageBackground
 import com.studiomath.drawview.document.page.Pdf
 import com.studiomath.drawview.document.page.Resource
 import com.studiomath.drawview.document.page.Stroke
@@ -113,6 +114,8 @@ class DrawDocumentRepository(context: Context) {
                 this.createdAt = dbDocWithPages.document.createdAt
                 this.modifiedAt = dbDocWithPages.document.modifiedAt
                 this.lastOpenedAt = dbDocWithPages.document.lastOpenedAt
+
+                this.defaultBackground = dbDocWithPages.document.defaultBackground
             }
 
             val dbResources = resourceDao.getResourcesForDocument(documentId)
@@ -139,6 +142,8 @@ class DrawDocumentRepository(context: Context) {
                         this.dbId = dbPage.id
                         this.width = dbPage.width
                         this.height = dbPage.height
+
+                        this.background = dbPage.background
                     }
 
                     pageWithContent.strokes.forEach { dbStroke ->
@@ -204,14 +209,19 @@ class DrawDocumentRepository(context: Context) {
      */
     suspend fun createNewDefaultDocument(defaultDocumentName: String): Document =
         withContext(Dispatchers.IO) {
-            val dbDoc = DocumentEntity(name = defaultDocumentName)
+            val dbDoc = DocumentEntity(
+                name = defaultDocumentName,
+                defaultBackground = PageBackground.Solid()
+            )
+
             val newDocId = documentDao.insert(dbDoc).toInt()
 
             val dbPage = PageEntity(
                 documentId = newDocId,
                 pageNumber = 0,
                 width = 210f,
-                height = 297f
+                height = 297f,
+                background = PageBackground.Solid()
             )
             val newPageId = pageDao.insert(dbPage).toInt()
 
@@ -267,7 +277,8 @@ class DrawDocumentRepository(context: Context) {
             documentId = documentId,
             pageNumber = page.index,
             width = page.width,
-            height = page.height
+            height = page.height,
+            background = page.background
         )
         val newPageId = pageDao.insert(dbPage).toInt()
         page.dbId = newPageId
@@ -656,5 +667,33 @@ class DrawDocumentRepository(context: Context) {
 
     suspend fun updateLastSelectedTool(toolName: String) {
         updatePreferences { it.copy(lastSelectedTool = toolName) }
+    }
+
+    // =========================================================================
+    // FASE 3: GESTIONE TEMPLATE E SFONDI
+    // =========================================================================
+
+    /**
+     * Aggiorna le dimensioni e lo sfondo di una pagina esistente.
+     */
+    suspend fun updatePageFormatAndBackground(documentId: Int, page: Page) = withContext(Dispatchers.IO) {
+        // Ricostruiamo l'entità per il database
+        val entity = PageEntity(
+            id = page.dbId,
+            documentId = documentId, // Ci serve per mantenere l'integrità referenziale in Room
+            pageNumber = page.index,
+            width = page.width,
+            height = page.height,
+            background = page.background
+        )
+        // Aggiorniamo l'intera riga nel database
+        pageDao.update(entity)
+    }
+
+    /**
+     * Aggiorna lo sfondo di default di un documento.
+     */
+    suspend fun updateDocumentDefaultBackground(documentId: Int, background: PageBackground) = withContext(Dispatchers.IO) {
+        documentDao.updateDefaultBackground(documentId, background)
     }
 }

@@ -41,7 +41,7 @@ class ToolUtilities(
             val defaultSetting = when (toolType) {
                 Tool.INK_PEN -> BrushSettings(0.8f.mm, Color.BLUE, defaultFamily) // Penna da 0.8mm
                 Tool.INK_HIGHLIGHTER -> BrushSettings(4.0f.mm, Color.argb(64, 255, 255, 0), defaultFamily) // Evidenziatore da 4mm
-                Tool.ERASER -> BrushSettings(8.0f.mm, Color.argb(204, 255, 255, 255), defaultFamily) // Gomma da 8mm
+                Tool.ERASER -> BrushSettings(8.0f.mm, Color.argb(200, 255, 141, 161), defaultFamily) // Gomma da 8mm
                 Tool.LAZO -> BrushSettings(0.5f.mm, Color.argb(255, 135, 153, 178), defaultFamily) // Tratteggio fine
                 else -> BrushSettings(1.0f.mm, Color.BLACK, defaultFamily)
             }

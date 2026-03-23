@@ -21,7 +21,8 @@ import com.studiomath.drawview.document.page.pt
 fun SizeSlider(
     modifier: Modifier = Modifier,
     onSizeChanged: (Measure) -> Unit = {},
-    size: Measure = 6.pt
+    size: Measure = 6.pt,
+    valueRange: ClosedFloatingPointRange<Float> = 0.1f..15f
 ) {
     Row(
         modifier = modifier
@@ -39,7 +40,7 @@ fun SizeSlider(
         Slider(
             value = size.pt,
             onValueChange = { onSizeChanged(it.pt) },
-            valueRange = 0.1f..15f,
+            valueRange = valueRange,
             colors = SliderDefaults.colors(
                 thumbColor = MaterialTheme.colorScheme.secondary,
                 activeTrackColor = MaterialTheme.colorScheme.secondary

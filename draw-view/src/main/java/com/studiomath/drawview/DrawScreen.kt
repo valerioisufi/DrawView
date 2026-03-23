@@ -401,6 +401,7 @@ fun DrawScreen(
                                             SizeSlider(
                                                 modifier = Modifier.padding(8.dp),
                                                 size = currentSize, // Passiamo direttamente l'oggetto Measure
+                                                valueRange = 1f..20f, // Range più ampio
                                                 onSizeChanged = { newMeasure ->
                                                     currentSize =
                                                         newMeasure // Aggiorniamo la UI di Compose
@@ -456,6 +457,7 @@ fun DrawScreen(
                                             SizeSlider(
                                                 modifier = Modifier.padding(8.dp),
                                                 size = currentSize, // Passiamo direttamente l'oggetto Measure
+                                                valueRange = 1f..30f, // Range più ampio per la gomma
                                                 onSizeChanged = { newMeasure ->
                                                     currentSize =
                                                         newMeasure // Aggiorniamo la UI di Compose

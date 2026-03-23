@@ -44,7 +44,7 @@ data class UserPreferencesEntity(
     val highlighterSettings: BrushSettingsData = BrushSettingsData(4.0f, Color.argb(64, 255, 255, 0), "HIGHLIGHTER"),
 
     @Embedded(prefix = "eraser_")
-    val eraserSettings: BrushSettingsData = BrushSettingsData(8.0f, Color.argb(204, 255, 255, 255), "LASER"),
+    val eraserSettings: BrushSettingsData = BrushSettingsData(8.0f, Color.argb(200, 255, 141, 161), "LASER"),
 
     @Embedded(prefix = "lazo_")
     val lazoSettings: BrushSettingsData = BrushSettingsData(0.5f, Color.argb(255, 135, 153, 178), "DASHED")

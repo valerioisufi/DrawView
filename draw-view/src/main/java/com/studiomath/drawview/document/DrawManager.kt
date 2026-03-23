@@ -516,17 +516,23 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
         val document = drawViewModel.documentData
 
+        // FIX 1: DISEGNAMO GLI SFONDI DELLE PAGINE PRIMA DEL CLIP!
+        // In questo modo i quadretti saranno sempre disegnati su tutto il foglio
+        // e faranno da sfondo alla bitmap in cache.
+        for (pageInfo in snapshot.pagesRect) {
+            val docPage = document?.pages?.getOrNull(pageInfo.index) ?: continue
+            drawViewModel.pageMaker.makePageBackground(canvas, pageInfo.rect, windowRect, docPage, drawViewModel.themeColors)
+        }
+
         canvas.withSave {
+            // Ritagliamo l'area DOVE disegneremo la cache (evita sovrapposizioni strane)
             if (!drawViewModel.isReorderingPages && relativeTransform != null && !onDrawBitmapBounds.isEmpty) {
                 clipOutRect(onDrawBitmapBounds)
             }
 
+            // Qui disegniamo SOLO il contenuto della pagina (tratti, immagini) nelle aree "scoperte" dal pan
             for (pageInfo in snapshot.pagesRect) {
-                // Estraiamo la pagina reale
                 val docPage = document?.pages?.getOrNull(pageInfo.index) ?: continue
-
-                // Passiamo docPage alla funzione
-                drawViewModel.pageMaker.makePageBackground(canvas, pageInfo.rect, windowRect, docPage, drawViewModel.themeColors)
 
                 if (drawViewModel.isReorderingPages && pageInfo.index == drawViewModel.draggedPageIndex) {
                     placeholderPaint.color = drawViewModel.themeColors.primaryColor
@@ -539,6 +545,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             }
         }
 
+        // Infine disegniamo la cache frontale
         if (!drawViewModel.isReorderingPages && relativeTransform != null && snapshot.bitmap != null) {
             canvas.withClip(windowRect) {
                 drawBitmap(snapshot.bitmap, relativeTransform, bitmapFilterPaint)

@@ -364,18 +364,17 @@ class PageMaker(
         canvas: Canvas,
         pageRect: RectF,
         windowRect: RectF,
-        page: com.studiomath.drawview.document.page.Page, // NUOVO PARAMETRO
+        page: Page,
         themeColors: DrawThemeColors
     ) {
-        // 1. Dipingiamo il colore base del foglio (adattato al tema Chiaro/Scuro)
-        pageBackgroundPaint.color = themeColors.surfaceColor
-        canvas.drawRect(pageRect, pageBackgroundPaint)
-
-        // 2. Estraiamo il background configurato per questa pagina
         val bg = page.background
 
+        // FIX 2: Usa il colore matematico impostato nel pattern!
+        pageBackgroundPaint.color = bg.backgroundColor
+        canvas.drawRect(pageRect, pageBackgroundPaint)
+
         // Se è una tinta unita, abbiamo già finito!
-        if (bg is com.studiomath.drawview.document.page.PageBackground.Solid) return
+        if (bg is PageBackground.Solid) return
 
         // 3. Calcoliamo il fattore di scala (Quanti pixel dello schermo equivalgono a 1 mm logico?)
         val pixelsPerMm = pageRect.width() / page.width

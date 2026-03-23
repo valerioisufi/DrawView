@@ -68,7 +68,8 @@ fun ColorWheel(
     color: Color = Color.Blue,
     onColorChanged: (Color) -> Unit = {},
     hueRingRadius: Dp = 32.dp,
-    alphaWidth: Dp = 32.dp
+    alphaWidth: Dp = 32.dp,
+    showAlphaSlider: Boolean = true
 ) {
     val colorWheelMask = ImageBitmap.imageResource(id = R.drawable.maschera_color_wheel)
 
@@ -200,89 +201,96 @@ fun ColorWheel(
                 }
         )
 
-        Spacer(
-            modifier = Modifier
-                .padding(start = 16.dp)
-                .width(alphaWidth)
-                .fillMaxHeight()
-                .drawWithCache {
-                    val alphaHeight = size.height
+        if (showAlphaSlider) {
+            Spacer(
+                modifier = Modifier
+                    .padding(start = 16.dp)
+                    .width(alphaWidth)
+                    .fillMaxHeight()
+                    .drawWithCache {
+                        val alphaHeight = size.height
 
-                    val alphaBrush = Brush.linearGradient(
-                        0.0f to Color.hsv(hue, sat, hsvValue, 1f),
-                        1.0f to Color.hsv(hue, sat, hsvValue, 0f),
-                        start = Offset.Zero,
-                        end = Offset(0f, alphaHeight)
-                    )
+                        val alphaBrush = Brush.linearGradient(
+                            0.0f to Color.hsv(hue, sat, hsvValue, 1f),
+                            1.0f to Color.hsv(hue, sat, hsvValue, 0f),
+                            start = Offset.Zero,
+                            end = Offset(0f, alphaHeight)
+                        )
 
-                    val checkerPath = Path()
-                    val squareSize = 4.dp.toPx()
-                    val cols = (size.width / squareSize).toInt() + 1
-                    val rows = (alphaHeight / squareSize).toInt() + 1
+                        val checkerPath = Path()
+                        val squareSize = 4.dp.toPx()
+                        val cols = (size.width / squareSize).toInt() + 1
+                        val rows = (alphaHeight / squareSize).toInt() + 1
 
-                    for (i in 0 until cols) {
-                        for (j in 0 until rows) {
-                            if ((i + j) % 2 != 0) {
-                                checkerPath.addRect(
-                                    Rect(
-                                        left = i * squareSize,
-                                        top = j * squareSize,
-                                        right = (i + 1) * squareSize,
-                                        bottom = (j + 1) * squareSize
+                        for (i in 0 until cols) {
+                            for (j in 0 until rows) {
+                                if ((i + j) % 2 != 0) {
+                                    checkerPath.addRect(
+                                        Rect(
+                                            left = i * squareSize,
+                                            top = j * squareSize,
+                                            right = (i + 1) * squareSize,
+                                            bottom = (j + 1) * squareSize
+                                        )
                                     )
+                                }
+                            }
+                        }
+
+                        val checkerColor = Color(0x4D808080)
+                        val clipRectPath = Path().apply {
+                            addRoundRect(
+                                RoundRect(
+                                    Rect(Offset.Zero, size),
+                                    CornerRadius(alphaWidth.toPx())
                                 )
-                            }
-                        }
-                    }
-
-                    val checkerColor = Color(0x4D808080)
-                    val clipRectPath = Path().apply {
-                        addRoundRect(RoundRect(Rect(Offset.Zero, size), CornerRadius(alphaWidth.toPx())))
-                    }
-
-                    onDrawBehind {
-                        clipPath(clipRectPath) {
-                            drawPath(checkerPath, color = checkerColor, style = Fill)
+                            )
                         }
 
-                        drawRoundRect(
-                            brush = alphaBrush,
-                            topLeft = Offset.Zero,
-                            size = Size(size.width, size.height),
-                            cornerRadius = CornerRadius(alphaWidth.toPx()),
-                            style = Fill
-                        )
-
-                        val pAlphaY = (1f - alpha) * alphaHeight
-                        val trackerHeight = alphaWidth.toPx() / 2
-                        drawRoundRect(
-                            color = Color.White,
-                            topLeft = Offset(0f, pAlphaY - trackerHeight / 2),
-                            size = Size(size.width, trackerHeight),
-                            cornerRadius = CornerRadius(trackerHeight),
-                            style = Stroke(2.dp.toPx())
-                        )
-                    }
-                }
-                .pointerInput(Unit) {
-                    awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        down.consume()
-                        alpha = yToAlpha(down.position.y, size.height.toFloat())
-                        onColorChanged(Color.hsv(hue, sat, hsvValue, alpha))
-
-                        do {
-                            val event = awaitPointerEvent()
-                            val drag = event.changes.firstOrNull()
-                            if (drag != null && drag.pressed && drag.positionChange() != Offset.Zero) {
-                                drag.consume()
-                                alpha = yToAlpha(drag.position.y, size.height.toFloat())
-                                onColorChanged(Color.hsv(hue, sat, hsvValue, alpha))
+                        onDrawBehind {
+                            clipPath(clipRectPath) {
+                                drawPath(checkerPath, color = checkerColor, style = Fill)
                             }
-                        } while (event.changes.any { it.pressed })
+
+                            drawRoundRect(
+                                brush = alphaBrush,
+                                topLeft = Offset.Zero,
+                                size = Size(size.width, size.height),
+                                cornerRadius = CornerRadius(alphaWidth.toPx()),
+                                style = Fill
+                            )
+
+                            val pAlphaY = (1f - alpha) * alphaHeight
+                            val trackerHeight = alphaWidth.toPx() / 2
+                            drawRoundRect(
+                                color = Color.White,
+                                topLeft = Offset(0f, pAlphaY - trackerHeight / 2),
+                                size = Size(size.width, trackerHeight),
+                                cornerRadius = CornerRadius(trackerHeight),
+                                style = Stroke(2.dp.toPx())
+                            )
+                        }
                     }
-                }
-        )
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            down.consume()
+                            alpha = yToAlpha(down.position.y, size.height.toFloat())
+                            onColorChanged(Color.hsv(hue, sat, hsvValue, alpha))
+
+                            do {
+                                val event = awaitPointerEvent()
+                                val drag = event.changes.firstOrNull()
+                                if (drag != null && drag.pressed && drag.positionChange() != Offset.Zero) {
+                                    drag.consume()
+                                    alpha = yToAlpha(drag.position.y, size.height.toFloat())
+                                    onColorChanged(Color.hsv(hue, sat, hsvValue, alpha))
+                                }
+                            } while (event.changes.any { it.pressed })
+                        }
+                    }
+            )
+        }
     }
 }
 

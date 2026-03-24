@@ -17,7 +17,20 @@ import com.studiomath.drawview.document.page.Measure
 import com.studiomath.drawview.document.page.pt
 import kotlin.math.ln
 import kotlin.math.pow
+import kotlin.math.round
 
+/**
+ * A Jetpack Compose UI component that provides a logarithmic slider for selecting dimensional sizes.
+ * * This slider maps a normalized linear track position (0f to 1f) to an exponential value scale,
+ * making it ideal for adjusting properties like stroke widths or text sizes where finer granularity
+ * is required at lower values. The component displays the current size formatted to one decimal place
+ * and outputs the adjusted value as a [Measure] in points (pt).
+ *
+ * @param modifier The [Modifier] to be applied to the surrounding [Row] layout.
+ * @param onSizeChanged Callback invoked whenever the user drags the slider. It emits the newly calculated, rounded [Measure].
+ * @param size The current [Measure] state to reflect on the slider and text display.
+ * @param valueRange The allowable minimum and maximum limits for the exponential size calculation.
+ */
 @Preview
 @Composable
 fun SizeSlider(
@@ -26,13 +39,9 @@ fun SizeSlider(
     size: Measure = 6.pt,
     valueRange: ClosedFloatingPointRange<Float> = 0.1f..15f
 ) {
-    // Sicurezza: in una scala esponenziale (logaritmica), il minimo non può mai essere 0 o negativo.
-    // Forziamo un minimo di 0.001f per evitare crash matematici (log(0) = -Infinity).
     val minVal = valueRange.start.coerceAtLeast(0.001f)
     val maxVal = valueRange.endInclusive.coerceAtLeast(minVal + 0.001f)
 
-    // 1. Convertiamo il valore attuale (esponenziale) nella posizione lineare dello slider (da 0f a 1f)
-    // Formula inversa: t = ln(valore / min) / ln(max / min)
     val sliderPosition = (ln(size.pt / minVal) / ln(maxVal / minVal)).coerceIn(0f, 1f)
 
     Row(
@@ -41,22 +50,18 @@ fun SizeSlider(
             .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Mostriamo la dimensione formattata a un decimale.
-        // Il width fisso evita che lo slider "tremi" durante il trascinamento.
         Text(
             text = "${"%.1f".format(size.pt)} pt",
             modifier = Modifier.width(55.dp)
         )
 
         Slider(
-            // Lo slider interno lavora sempre tra 0.0 e 1.0
             value = sliderPosition,
             valueRange = 0f..1f,
             onValueChange = { t ->
-                // 2. Convertiamo la posizione lineare (t) nel nuovo valore esponenziale
-                // Formula: valore = min * (max / min)^t
-                val newValue = minVal * (maxVal / minVal).pow(t)
-                onSizeChanged(newValue.pt)
+                val rawValue = minVal * (maxVal / minVal).pow(t)
+                val roundedValue = round(rawValue * 10f) / 10f
+                onSizeChanged(roundedValue.pt)
             },
             colors = SliderDefaults.colors(
                 thumbColor = MaterialTheme.colorScheme.secondary,

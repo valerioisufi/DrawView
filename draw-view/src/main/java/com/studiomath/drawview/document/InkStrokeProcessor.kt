@@ -51,7 +51,16 @@ class InkStrokeProcessor(
             val page = document.pages.getOrNull(targetPageIndex) ?: return
 
             // 2. Il Lazo è GIA' in millimetri esatti! Nessuna matrice da applicare.
-            val selectionRegion = lassoInkStroke.shape
+            val selectionRegion = try {
+                lassoInkStroke.inputs.createClosedShape()
+            } catch (e: Exception) {
+                e.printStackTrace()
+                drawViewModel.inkInputManager.removeFinishedStrokes?.invoke(strokes.keys)
+                drawManager.requestDraw(DrawManager.DrawAttachments(drawMode = DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                })
+                return
+            }
             val lassoBox = selectionRegion.computeBoundingBox()
 
             if (lassoBox != null) {

@@ -387,8 +387,16 @@ class DrawViewModel(
             repository.updatePageFormatAndBackground(doc.dbId, page)
             drawManager.calcPage.needToBeUpdated = true
 
-            drawManager.requestDraw(DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply { update = DrawManager.DrawAttachments.Update.DRAW_BITMAP })
-            drawManager.requestDraw(DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply { update = DrawManager.DrawAttachments.Update.CACHE_ALL })
+            drawManager.requestDraw(DrawManager.DrawAttachments(
+                DrawManager.DrawAttachments.DrawMode.UPDATE
+            ).apply { update = DrawManager.DrawAttachments.Update.DRAW_BITMAP })
+
+            drawManager.requestDraw(DrawManager.DrawAttachments(
+                DrawManager.DrawAttachments.DrawMode.UPDATE
+            ).apply {
+                update = DrawManager.DrawAttachments.Update.CACHE_PAGE_ONLY
+                pageId = page.dbId
+            })
         }
     }
 

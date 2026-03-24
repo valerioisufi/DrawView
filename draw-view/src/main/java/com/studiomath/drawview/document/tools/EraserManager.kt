@@ -111,14 +111,20 @@ class EraserManager(
                     strokesToRemove.forEach { repository.deleteStroke(it.dbId) }
                 }
 
-                // Chiediamo al nuovo Render Loop di rigenerare e mostrare le bitmap
-                // Niente più blocchi manuali di canvas qui dentro!
                 drawManager.requestDraw(
                     DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                        update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                        update = DrawManager.DrawAttachments.Update.CACHE_PAGE_ONLY
+                        pageId = page.dbId
                     }
                 )
             }
         }
+
+        // Chiediamo al nuovo Render Loop di rigenerare e mostrare le bitmap
+        drawManager.requestDraw(
+            DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+            }
+        )
     }
 }

@@ -176,7 +176,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         var animation: (() -> Unit)? = null
         var animationType = AnimationType.NONE
 
-        var newStrokesToBake: Map<Int, List<androidx.ink.strokes.Stroke>>? = null
+        var newStrokesToBake: Map<Int, List<Stroke>>? = null
+        var pageId: Int? = null
     }
 
     /**
@@ -238,10 +239,26 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                             }
                         }
                     }
+                    DrawAttachments.Update.CACHE_PAGE_ONLY -> {
+                        scope.launch {
+                            val document = drawViewModel.documentData ?: return@launch
+
+                            val page = document.pages.find { it.dbId == drawAttachments.pageId }
+                            page?.isPrepared?.let { if (!it) page.prepare() }
+
+                            page?.bitmapPage?.let {
+                                page.bitmapPage = drawViewModel.pageMaker.makePage(
+                                    Rect(0, 0, it.width, it.height), null, page, document
+                                )
+                            }
+                        }
+                    }
                     DrawAttachments.Update.CACHE_ALL -> {
                         scope.launch {
                             val document = drawViewModel.documentData ?: return@launch
                             for (page in document.pages) {
+                                if (!page.isPrepared) page.prepare()
+
                                 page.bitmapPage?.let {
                                     page.bitmapPage = drawViewModel.pageMaker.makePage(
                                         Rect(0, 0, it.width, it.height), null, page, document

@@ -51,7 +51,8 @@ class CalcPage(
 
     /**
      * Computes the initial bounding rectangles for a sequence of pages, stacking them vertically
-     * in a continuous scroll format. Scales the content uniformly to fit the window's width.
+     * in a continuous scroll format. Scales the content uniformly to fit the window's width
+     * based on the widest page.
      *
      * @param pages The list of domain model pages containing raw dimension properties.
      * @param windowRect The physical bounds of the Android View rendering the document.
@@ -70,7 +71,9 @@ class CalcPage(
         val betweenPadding = TypedValueCompat.dpToPx(options.betweenPadding, displayMetrics)
         val bottomPadding = TypedValueCompat.dpToPx(options.bottomPadding, displayMetrics)
 
-        val scaleFactor = (windowRect.width() - horizontalPadding * 2) / pages.first().dimension!!.width.mm
+        val maxPageWidthMm = pages.maxOf { it.dimension!!.width.mm }
+
+        val scaleFactor = (windowRect.width() - horizontalPadding * 2) / maxPageWidthMm
 
         var leftMostPosition = horizontalPadding
         var rightMostPosition = windowRect.width() - horizontalPadding

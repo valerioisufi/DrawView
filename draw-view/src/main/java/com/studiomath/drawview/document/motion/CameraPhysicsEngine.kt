@@ -40,14 +40,28 @@ class CameraPhysicsEngine(
     var rubberBandTension: Float = 0.55f
 
     /**
-     * The minimum allowed zoom scale factor.
+     * Il rapporto minimo consentito: quanti dp dello schermo servono per rappresentare 1 mm del documento.
+     * Es: 0.2f significa Zoom Out estremo (un foglio A4 largo 210mm occuperà solo 42 dp, permettendoti di vedere decine di pagine).
      */
-    var minScale: Float = 0.5f
+    var minDpPerMm: Float = 0.2f
 
     /**
-     * The maximum allowed zoom scale factor.
+     * Il rapporto massimo consentito: quanti dp dello schermo servono per rappresentare 1 mm del documento.
+     * Es: 80f significa Zoom In estremo (1 singolo millimetro riempirà 80 dp sullo schermo, utile per scrivere pedici o formule minuscole).
      */
-    var maxScale: Float = 5.0f
+    var maxDpPerMm: Float = 50f
+
+    /**
+     * La scala minima calcolata dinamicamente in base alla densità dello schermo del dispositivo corrente.
+     */
+    val minScale: Float
+        get() = minDpPerMm * displayMetrics.density
+
+    /**
+     * La scala massima calcolata dinamicamente in base alla densità dello schermo del dispositivo corrente.
+     */
+    val maxScale: Float
+        get() = maxDpPerMm * displayMetrics.density
 
     /**
      * The horizontal padding applied around the document content in pixels.
@@ -100,7 +114,10 @@ class CameraPhysicsEngine(
     private var lastFocusY = 0f
 
     init {
-        scaleAxis.position = 1f
+        // Partiamo con uno zoom iniziale ragionevole in cui 1mm = 1dp (moltiplicato per la densità),
+        // assicurandoci che rientri sempre e comunque nei limiti matematici consentiti.
+        val defaultStartScale = 0.5f * displayMetrics.density
+        scaleAxis.position = defaultStartScale.coerceIn(minScale, maxScale)
     }
 
     /**

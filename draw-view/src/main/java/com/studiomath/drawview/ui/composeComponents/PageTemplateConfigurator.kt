@@ -25,6 +25,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
@@ -57,7 +58,7 @@ import kotlin.math.roundToInt
 
 // Limiti di sicurezza per le dimensioni della pagina (in mm)
 private const val MIN_PAGE_SIZE = 50f   // 5 cm (Post-it piccolo)
-private const val MAX_PAGE_SIZE = 3000f // 3 metri (Oltre si rischia l'Out Of Memory)
+private const val MAX_PAGE_AREA = 250000f // 500mm x 500mm. Limita l'area totale per evitare OutOfMemory
 
 private enum class BgType(val label: String) {
     SOLID("Vuoto"), RULED("Righe"), GRID("Quadretti"), DOTTED("Puntini")
@@ -142,13 +143,19 @@ fun PageTemplateConfigurator(
 
     var showColorPickerFor by remember { mutableStateOf<String?>(null) }
 
-    // Variabili calcolate in modo sicuro per l'anteprima
-    val currentWidthMm = customWidth.toFloatOrNull()?.coerceIn(1f, 10000f) ?: 210f
-    val currentHeightMm = customHeight.toFloatOrNull()?.coerceIn(1f, 10000f) ?: 297f
+    // --- VALIDAZIONE SICURA ---
+    val wValue = customWidth.toFloatOrNull() ?: 0f
+    val hValue = customHeight.toFloatOrNull() ?: 0f
+    val currentArea = wValue * hValue
 
-    // Validazione per mostrare eventuali errori nella UI
-    val isWidthError = customWidth.toFloatOrNull()?.let { it < MIN_PAGE_SIZE || it > MAX_PAGE_SIZE } ?: true
-    val isHeightError = customHeight.toFloatOrNull()?.let { it < MIN_PAGE_SIZE || it > MAX_PAGE_SIZE } ?: true
+    // Errori singoli per evidenziare di rosso i campi
+    val isWidthError = wValue < MIN_PAGE_SIZE
+    val isHeightError = hValue < MIN_PAGE_SIZE
+    // Errore combinato per l'area troppo grande
+    val isAreaError = currentArea > MAX_PAGE_AREA
+
+    // Se c'è un errore qualsiasi, consideriamo le dimensioni non valide
+    val isDimensionInvalid = isWidthError || isHeightError || isAreaError
 
     Column(
         modifier = modifier
@@ -180,7 +187,12 @@ fun PageTemplateConfigurator(
                         readOnly = true,
                         label = { Text("Formato") },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = formatExpanded) },
-                        modifier = Modifier.menuAnchor().fillMaxWidth()
+                        modifier = Modifier
+                            .menuAnchor(
+                                type = ExposedDropdownMenuAnchorType.PrimaryNotEditable,
+                                enabled = true
+                            )
+                            .fillMaxWidth()
                     )
                     ExposedDropdownMenu(
                         expanded = formatExpanded,
@@ -206,7 +218,12 @@ fun PageTemplateConfigurator(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = customWidth,
-                        onValueChange = { customWidth = it; selectedFormat = "Personalizzato" },
+                        onValueChange = {
+                            if (it.length <= 5) {
+                                customWidth = it
+                                selectedFormat = "Personalizzato"
+                            }
+                        },
                         label = { Text("Largh. (mm)") },
                         isError = isWidthError,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -215,7 +232,12 @@ fun PageTemplateConfigurator(
                     )
                     OutlinedTextField(
                         value = customHeight,
-                        onValueChange = { customHeight = it; selectedFormat = "Personalizzato" },
+                        onValueChange = {
+                            if (it.length <= 5) {
+                                customHeight = it
+                                selectedFormat = "Personalizzato"
+                            }
+                        },
                         label = { Text("Alt. (mm)") },
                         isError = isHeightError,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -225,7 +247,13 @@ fun PageTemplateConfigurator(
                 }
                 if (isWidthError || isHeightError) {
                     Text(
-                        text = "Limiti: $MIN_PAGE_SIZE mm - $MAX_PAGE_SIZE mm",
+                        text = "Il lato minimo è $MIN_PAGE_SIZE mm.",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                } else if (isAreaError) {
+                    Text(
+                        text = "Area troppo grande! Max 500x500mm.",
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall
                     )
@@ -239,15 +267,29 @@ fun PageTemplateConfigurator(
                     .heightIn(min = 120.dp, max = 160.dp), // Altezza massima fissa per non rompere il layout
                 contentAlignment = Alignment.Center
             ) {
-                PagePreview(
-                    widthMm = currentWidthMm,
-                    heightMm = currentHeightMm,
-                    bgType = selectedType,
-                    paperColor = paperColor,
-                    lineColor = lineColor.copy(alpha = 0.4f), // Passiamo l'alpha reale del rendering
-                    spacingMm = spacingMm,
-                    thicknessMm = thicknessMm
-                )
+                if (isDimensionInvalid) {
+                    // Se le dimensioni sono assurde, non proviamo nemmeno a calcolare la Canvas.
+                    // Mostriamo un placeholder grigio per non far saltare il layout.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.LightGray.copy(alpha = 0.3f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("Dimensione\nNon Valida", color = Color.Gray)
+                    }
+                } else {
+                    // Solo se i dati sono sicuri, disegniamo l'anteprima!
+                    PagePreview(
+                        widthMm = wValue, // Usiamo wValue e hValue già parsati e sicuri
+                        heightMm = hValue,
+                        bgType = selectedType,
+                        paperColor = paperColor,
+                        lineColor = lineColor.copy(alpha = 0.4f),
+                        spacingMm = spacingMm,
+                        thicknessMm = thicknessMm
+                    )
+                }
             }
         }
 
@@ -320,13 +362,11 @@ fun PageTemplateConfigurator(
             TextButton(onClick = onCancel) { Text("Annulla") }
             Spacer(modifier = Modifier.width(8.dp))
             Button(
-                // Disabilitiamo il bottone se le dimensioni inserite sono pericolose
-                enabled = !isWidthError && !isHeightError,
+                // Il bottone è abilitato solo se NON ci sono errori
+                enabled = !isDimensionInvalid,
                 onClick = {
-                    // Forziamo comunque la sicurezza tramite coerceIn in caso di bug UI
-                    val w = customWidth.toFloatOrNull()?.coerceIn(MIN_PAGE_SIZE, MAX_PAGE_SIZE) ?: 210f
-                    val h = customHeight.toFloatOrNull()?.coerceIn(MIN_PAGE_SIZE, MAX_PAGE_SIZE) ?: 297f
-                    val finalDimension = Dimension(w.mm, h.mm)
+                    // A questo punto siamo certi che i valori siano sicuri
+                    val finalDimension = Dimension(wValue.mm, hValue.mm)
 
                     val bgInt = paperColor.toArgb()
                     val lineInt = lineColor.copy(alpha = 0.4f).toArgb()
@@ -374,14 +414,20 @@ private fun PagePreview(
     spacingMm: Float,
     thicknessMm: Float
 ) {
-    // Calcoliamo l'aspect ratio per far sì che la preview abbia la stessa forma del foglio reale
-    val ratio = if (heightMm > 0) widthMm / heightMm else 1f
+    // Sicurezza di base: evitiamo divisioni per zero.
+    // I numeri arrivano qui già validati dal contenitore genitore (minimo 50mm).
+    val safeWidth = widthMm.coerceAtLeast(1f)
+    val safeHeight = heightMm.coerceAtLeast(1f)
+
+    val ratio = safeWidth / safeHeight
 
     Canvas(
         modifier = Modifier
-            .aspectRatio(ratio)
-            .fillMaxSize() // Si espanderà nel Box contenitore rispettando le proporzioni
-            .background(Color.Transparent) // Il colore lo disegniamo dentro per poter fare i bordi
+            // Limitiamo l'aspectRatio estremo per evitare crash di layout in Compose
+            // (es. previene formati assurdi come 1000:1)
+            .aspectRatio(ratio.coerceIn(0.1f, 10f))
+            .fillMaxSize()
+            .background(Color.Transparent)
     ) {
         val w = size.width
         val h = size.height
@@ -394,9 +440,9 @@ private fun PagePreview(
         if (bgType == BgType.SOLID) return@Canvas
 
         // Fattore di conversione da mm a pixel *all'interno dell'anteprima*
-        val pixelsPerMm = w / widthMm
+        val pixelsPerMm = w / safeWidth
 
-        // Sicurezza: se la griglia è troppo fitta nella preview, si impasta.
+        // Sicurezza visuale: se la griglia è troppo fitta nella preview, si impasta.
         // Forziamo una distanza visiva minima di 8 pixel per far capire il pattern all'utente.
         val spacingPx = (spacingMm * pixelsPerMm).coerceAtLeast(8f)
         val thicknessPx = (thicknessMm * pixelsPerMm).coerceAtLeast(1f)

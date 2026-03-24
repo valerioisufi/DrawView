@@ -48,7 +48,7 @@ class InkInputManager(
     ): InProgressStrokeId? {
 
         val target = drawManager.getTouchTarget(event.x, event.y) ?: return null
-        val tolerancePx = 0.5f
+        val tolerancePx = 0.1f
         val dynamicEpsilon = tolerancePx / target.pixelsPerMm
 
         val brush = Brush.createWithColorIntArgb(

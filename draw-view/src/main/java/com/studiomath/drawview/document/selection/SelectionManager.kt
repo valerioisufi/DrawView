@@ -78,7 +78,6 @@ class SelectionManager(
     private val application: Application,
     private val repository: DrawDocumentRepository,
     private val historyManager: HistoryManager,
-    private val pageMaker: PageMaker,
     private val coroutineScope: CoroutineScope,
     private val getDrawManager: () -> DrawManager,
     private val onExternalImagePaste: (Uri, Float?, Float?) -> Unit // Callback per passare l'immagine al MediaImporter
@@ -126,10 +125,8 @@ class SelectionManager(
         currentSelection = null
 
         coroutineScope.launch(Dispatchers.Default) {
-            page.bitmapPage?.let { oldBitmap ->
-                page.bitmapPage = pageMaker.makePage(
-                    android.graphics.Rect(0, 0, oldBitmap.width, oldBitmap.height), null, page, doc
-                )
+            getDrawManager().apply {
+                requestUpdatePageBitmap(page.dbId)
             }
             requestRedraw()
         }
@@ -149,10 +146,8 @@ class SelectionManager(
             selection.strokes.forEach { repository.deleteStroke(it.dbId) }
             selection.texts.forEach { repository.deleteText(it.dbId) }
 
-            page.bitmapPage?.let { oldBitmap ->
-                page.bitmapPage = pageMaker.makePage(
-                    android.graphics.Rect(0, 0, oldBitmap.width, oldBitmap.height), null, page, doc
-                )
+            getDrawManager().apply {
+                requestUpdatePageBitmap(page.dbId)
             }
 
             requestRedraw()
@@ -254,8 +249,8 @@ class SelectionManager(
                 targetPage.strokeData.addAll(pastedStrokes)
                 targetPage.textData.addAll(pastedTexts)
 
-                targetPage.bitmapPage?.let { oldBitmap ->
-                    targetPage.bitmapPage = pageMaker.makePage(android.graphics.Rect(0, 0, oldBitmap.width, oldBitmap.height), null, targetPage, doc)
+                getDrawManager().apply {
+                    requestUpdatePageBitmap(targetPage.dbId)
                 }
 
                 requestRedraw()
@@ -556,11 +551,9 @@ class SelectionManager(
 
         coroutineScope.launch(Dispatchers.Default) {
             if (isPageChanged) {
-                oldPage.bitmapPage?.let { oldBitmap ->
-                    oldPage.bitmapPage = pageMaker.makePage(android.graphics.Rect(0, 0, oldBitmap.width, oldBitmap.height), null, oldPage, doc)
-                }
-                targetPage.bitmapPage?.let { targetBitmap ->
-                    targetPage.bitmapPage = pageMaker.makePage(android.graphics.Rect(0, 0, targetBitmap.width, targetBitmap.height), null, targetPage, doc)
+                getDrawManager().apply {
+                    requestUpdatePageBitmap(oldPage.dbId)
+                    requestUpdatePageBitmap(targetPage.dbId)
                 }
             }
 

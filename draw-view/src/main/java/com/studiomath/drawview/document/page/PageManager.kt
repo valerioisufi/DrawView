@@ -29,7 +29,10 @@ class PageManager(
     var isReorderingPages by mutableStateOf(false)
     var isDropAnimating = false
     var draggedPageIndex by mutableIntStateOf(-1)
-    var draggedPageBitmap: Bitmap? = null
+
+    var draggedPdfBitmap: Bitmap? = null
+    var draggedContentBitmap: Bitmap? = null
+
     var floatingPageRect by mutableStateOf<RectF?>(null)
 
     // --- VARIABILI PER AUTO-SCROLL ---
@@ -75,7 +78,9 @@ class PageManager(
 
         draggedPageIndex = pageIndex
         val doc = getDocumentData() ?: return
-        draggedPageBitmap = doc.pages[pageIndex].bitmapPage
+
+        draggedPdfBitmap = doc.pages[pageIndex].pdfBitmapCache
+        draggedContentBitmap = doc.pages[pageIndex].contentBitmapCache
 
         floatingPageRect = RectF(originalRect)
         getDrawManager().cameraPhysics.stopAllAnimations()
@@ -144,7 +149,10 @@ class PageManager(
                         isDropAnimating = false
                         draggedPageIndex = -1
                         floatingPageRect = null
-                        draggedPageBitmap = null
+
+                        draggedPdfBitmap = null
+                        draggedContentBitmap = null
+
                         finishPageReorderMode(getDocumentData())
                     }
                 })
@@ -154,7 +162,10 @@ class PageManager(
             isDropAnimating = false
             draggedPageIndex = -1
             floatingPageRect = null
-            draggedPageBitmap = null
+
+            draggedPdfBitmap = null
+            draggedContentBitmap = null
+
             finishPageReorderMode(getDocumentData())
         }
     }

@@ -81,11 +81,12 @@ class TextEditorManager(
                 cancelTextEditing()
 
                 // Aggiorniamo la cache visiva
-                page.bitmapPage?.let { oldBitmap ->
-                    page.bitmapPage = pageMaker.makePage(
-                        Rect(0, 0, oldBitmap.width, oldBitmap.height), null, page, doc
-                    )
-                }
+                drawManager.requestDraw(
+                    DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                        update = DrawManager.DrawAttachments.Update.CACHE_PAGE_ONLY
+                        pageId = page.dbId
+                    }
+                )
 
                 drawManager.requestDraw(
                     DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {

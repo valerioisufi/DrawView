@@ -223,15 +223,30 @@ fun PageGridOverlay(
                         // FIX 4: DISEGNIAMO LO SFONDO DELLA PAGINA (Dietro la bitmap)
                         PageThumbnailBackground(page = page, document = document)
 
-                        // LA BITMAP DELLA PAGINA (I tratti vettoriali e le immagini)
-                        page.bitmapPage?.let { bmp ->
+                        // 1. Render PDF Layer (if available)
+                        page.pdfBitmapCache?.let { bmp ->
+                            Image(
+                                bitmap = bmp.asImageBitmap(),
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Fit
+                            )
+                        }
+
+                        // 2. Render Content Layer (strokes, text, images)
+                        page.contentBitmapCache?.let { bmp ->
                             Image(
                                 bitmap = bmp.asImageBitmap(),
                                 contentDescription = "Pagina ${index + 1}",
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.Fit
                             )
-                        } ?: Text("Caricamento...", color = Color.Gray)
+                        }
+
+                        // Show loading text if content is null and page is not ready
+                        if (page.contentBitmapCache == null && !page.isPrepared) {
+                            Text("Caricamento...", color = Color.Gray)
+                        }
 
                         // BADGE NUMERO PAGINA
                         Box(

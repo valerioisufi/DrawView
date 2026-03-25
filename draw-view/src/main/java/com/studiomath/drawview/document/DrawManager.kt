@@ -48,16 +48,18 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     var scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
     /**
-     * Encapsulates the visual state of the canvas at a specific point in time.
-     * Used to implement a double-buffering mechanism between the background calculation
-     * thread and the hardware-accelerated rendering thread.
+     * Represents a discrete snapshot of the canvas rendering pipeline at a specific point in time.
+     * This data structure facilitates a thread-safe double-buffering synchronization mechanism
+     * between background rasterization workers and the main hardware-accelerated UI thread in custom Views.
      *
-     * @property bitmap The high-resolution rasterized representation of the document.
-     * @property matrix The transformation matrix currently applied to the view.
-     * @property pagesRect A set of calculated page boundaries relative to the viewport.
+     * @property pdfBitmap The pre-rendered pixel data of the underlying PDF document background. Acts as the static base layer during the Canvas drawing phase.
+     * @property contentBitmap The rasterized pixel data containing dynamic user-generated content, such as ink strokes and annotations, intended to be composited over the base layer.
+     * @property matrix The Android [android.graphics.Matrix] defining the spatial transformations (translation, scaling) applied to the viewport for this specific render pass.
+     * @property pagesRect A collection of pre-calculated spatial boundaries mapping the document's logical pages to physical screen coordinates, utilized to optimize visibility checks and rendering regions.
      */
     data class RenderState(
-        var bitmap: Bitmap? = null,
+        var pdfBitmap: Bitmap? = null,
+        var contentBitmap: Bitmap? = null,
         var matrix: Matrix = Matrix(),
         var pagesRect: Set<CalcPage.PageRectWithIndex> = mutableSetOf()
     )
@@ -71,7 +73,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     /** The state being prepared in the background for the next render pass. */
     var backState = RenderState()
 
-    var onDrawBitmap: Bitmap? = null
+    var onDrawPdfBitmap: Bitmap? = null
+    var onDrawContentBitmap: Bitmap? = null
     var onDrawBitmapMatrix = Matrix()
     var pagesRectOnWindow = mutableSetOf<CalcPage.PageRectWithIndex>()
 
@@ -157,14 +160,12 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         enum class DrawMode {
             UPDATE, REFRESH, SCALE_TRANSLATE, PREVIEW, ANIMATE
         }
+
         /** Defines internal cache invalidation requirements. */
         enum class Update {
             DRAW_BITMAP, CACHE_ALL, CACHE_PAGE_ONLY, BAKE_NEW_STROKES
         }
-        /** Methods of notifying the Android View system. */
-        enum class Invalidate {
-            INVALIDATE, POST_INVALIDATE, POST_INVALIDATE_ON_ANIMATION
-        }
+
         /** Types of ongoing procedural animations. */
         enum class AnimationType {
             NONE, BOUNCE_BACK, FLING
@@ -172,12 +173,13 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
         var update: Update? = null
         var strokesIdToRemove: Set<InProgressStrokeId>? = null
-        var invalidateType = Invalidate.INVALIDATE
+
         var animation: (() -> Unit)? = null
         var animationType = AnimationType.NONE
 
         var newStrokesToBake: Map<Int, List<Stroke>>? = null
         var pageId: Int? = null
+        var updatePdfBitmap: Boolean = true
     }
 
     /**
@@ -192,7 +194,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 when (drawAttachments.update) {
                     DrawAttachments.Update.DRAW_BITMAP -> {
                         val document = drawViewModel.documentData ?: return
-                        if (onDrawBitmap == null) return
+                        // Use contentBitmap as the source of truth for initialization
+                        if (onDrawContentBitmap == null) return
 
                         jobOnDrawBitmap?.cancel()
 
@@ -210,22 +213,28 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
                             drawViewModel.inkInputManager.maskPath?.invoke(getMaskPath(newPagesRect))
 
-                            val tempBitmap = frontState.bitmap?.let { currentBmp ->
+                            // Generate the separated dual-layer bitmaps
+                            val tempBitmaps = frontState.contentBitmap?.let { currentBmp ->
                                 drawViewModel.pageMaker.makePagesOnBitmap(
                                     Rect(0, 0, currentBmp.width, currentBmp.height),
                                     newPagesRect,
-                                    document
+                                    document,
+                                    existingPdfBitmap = frontState.pdfBitmap,
+                                    renderPdf = drawAttachments.updatePdfBitmap
                                 )
                             }
 
                             synchronized(renderLock) {
-                                backState.bitmap = frontState.bitmap
+                                backState.pdfBitmap = frontState.pdfBitmap
+                                backState.contentBitmap = frontState.contentBitmap
 
-                                frontState.bitmap = tempBitmap
+                                frontState.pdfBitmap = tempBitmaps?.pdf
+                                frontState.contentBitmap = tempBitmaps?.content
                                 frontState.matrix = Matrix(renderMatrix)
                                 frontState.pagesRect = newPagesRect
 
-                                onDrawBitmap = frontState.bitmap
+                                onDrawPdfBitmap = frontState.pdfBitmap
+                                onDrawContentBitmap = frontState.contentBitmap
                                 onDrawBitmapMatrix = frontState.matrix
                                 pagesRectOnWindow = frontState.pagesRect.toMutableSet()
                             }
@@ -246,10 +255,17 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                             val page = document.pages.find { it.dbId == drawAttachments.pageId }
                             page?.isPrepared?.let { if (!it) page.prepare() }
 
-                            page?.bitmapPage?.let {
-                                page.bitmapPage = drawViewModel.pageMaker.makePage(
-                                    Rect(0, 0, it.width, it.height), null, page, document
+                            page?.contentBitmapCache?.let {
+                                val bitmaps = drawViewModel.pageMaker.makePage(
+                                    Rect(0, 0, it.width, it.height),
+                                    page.pdfBitmapCache,
+                                    it,
+                                    page,
+                                    document,
+                                    renderPdf = drawAttachments.updatePdfBitmap
                                 )
+                                page.pdfBitmapCache = bitmaps.pdf
+                                page.contentBitmapCache = bitmaps.content
                             }
                         }
                     }
@@ -259,10 +275,12 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                             for (page in document.pages) {
                                 if (!page.isPrepared) page.prepare()
 
-                                page.bitmapPage?.let {
-                                    page.bitmapPage = drawViewModel.pageMaker.makePage(
-                                        Rect(0, 0, it.width, it.height), null, page, document
+                                page.contentBitmapCache?.let {
+                                    val bitmaps = drawViewModel.pageMaker.makePage(
+                                        Rect(0, 0, it.width, it.height), page.pdfBitmapCache, it, page, document
                                     )
+                                    page.pdfBitmapCache = bitmaps.pdf
+                                    page.contentBitmapCache = bitmaps.content
                                 }
                             }
                         }
@@ -281,11 +299,11 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 }
             }
             DrawAttachments.DrawMode.REFRESH -> {
-                if (onDrawBitmap == null) return
+                if (onDrawContentBitmap == null) return
                 updateDrawView(drawAttachments)
             }
             DrawAttachments.DrawMode.SCALE_TRANSLATE, DrawAttachments.DrawMode.ANIMATE -> {
-                if (onDrawBitmap == null) return
+                if (onDrawContentBitmap == null) return
                 jobOnDrawBitmap?.cancel()
 
                 val renderMatrix = cameraPhysics.getRenderMatrix()
@@ -294,9 +312,16 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 updateDrawView(drawAttachments)
             }
             DrawAttachments.DrawMode.PREVIEW -> {
-                if (onDrawBitmap == null) return
+                if (onDrawContentBitmap == null) return
             }
         }
+    }
+
+    fun requestUpdatePageBitmap(pageId: Int){
+        requestDraw(DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
+            update = DrawAttachments.Update.CACHE_PAGE_ONLY
+            this.pageId = pageId
+        })
     }
 
     var isDrawing = false
@@ -404,7 +429,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     }
 
     private data class RenderSnapshot(
-        val bitmap: Bitmap?,
+        val pdfBitmap: Bitmap?,
+        val contentBitmap: Bitmap?,
         val matrix: Matrix,
         val pagesRect: Set<CalcPage.PageRectWithIndex>,
         val currentRenderMatrix: Matrix
@@ -437,7 +463,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             }
 
             snapshot = RenderSnapshot(
-                bitmap = frontState.bitmap,
+                pdfBitmap = frontState.pdfBitmap,
+                contentBitmap = frontState.contentBitmap,
                 matrix = Matrix(frontState.matrix),
                 pagesRect = currentPagesRect,
                 currentRenderMatrix = currentRenderMatrix
@@ -477,7 +504,9 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             drawViewModel.pageMaker.makePageBackground(canvas, pageInfo.rect, windowRect, docPage, document, drawViewModel.themeColors)
         }
 
-        snapshot.bitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
+        // Draw the PDF layer first, then the content layer (strokes, text, etc.)
+        snapshot.pdfBitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
+        snapshot.contentBitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
     }
 
     /** Refreshes the view, handling special states like page reordering and placeholders. */
@@ -498,8 +527,10 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     placeholderPaint.alpha = 30
                     canvas.drawRect(pageInfo.rect, placeholderPaint)
                 } else {
-                    // Usiamo direttamente docPage che abbiamo appena estratto
-                    docPage.bitmapPage?.let { bmp ->
+                    docPage.pdfBitmapCache?.let { bmp ->
+                        canvas.drawBitmap(bmp, null, pageInfo.rect, null)
+                    }
+                    docPage.contentBitmapCache?.let { bmp ->
                         canvas.drawBitmap(bmp, null, pageInfo.rect, null)
                     }
                 }
@@ -507,7 +538,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         }
 
         if (!drawViewModel.isReorderingPages) {
-            snapshot.bitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
+            snapshot.pdfBitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
+            snapshot.contentBitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
         }
 
         renderFloatingPage(canvas)
@@ -557,15 +589,19 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     canvas.drawRect(pageInfo.rect, placeholderPaint)
                 } else {
                     if (!docPage.isPrepared) docPage.prepare()
-                    docPage.bitmapPage?.let { drawBitmap(it, null, pageInfo.rect, null) }
+
+                    // Draw individual page caches during panning for uncovered areas
+                    docPage.pdfBitmapCache?.let { drawBitmap(it, null, pageInfo.rect, null) }
+                    docPage.contentBitmapCache?.let { drawBitmap(it, null, pageInfo.rect, null) }
                 }
             }
         }
 
-        // Infine disegniamo la cache frontale
-        if (!drawViewModel.isReorderingPages && relativeTransform != null && snapshot.bitmap != null) {
+        // Draw the front cache layers
+        if (!drawViewModel.isReorderingPages && relativeTransform != null && snapshot.contentBitmap != null) {
             canvas.withClip(windowRect) {
-                drawBitmap(snapshot.bitmap, relativeTransform, bitmapFilterPaint)
+                snapshot.pdfBitmap?.let { drawBitmap(it, relativeTransform, bitmapFilterPaint) }
+                drawBitmap(snapshot.contentBitmap, relativeTransform, bitmapFilterPaint)
             }
         }
 
@@ -602,22 +638,21 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     private fun renderFloatingPage(canvas: Canvas) {
         val isReordering = drawViewModel.isReorderingPages
         val rect = drawViewModel.floatingPageRect
-        val bmp = drawViewModel.draggedPageBitmap
+        val pdfBmp = drawViewModel.draggedPdfBitmap
+        val contentBmp = drawViewModel.draggedContentBitmap
         val draggedIndex = drawViewModel.draggedPageIndex
 
-        if (!isReordering || rect == null || bmp == null || draggedIndex == -1) return
+        if (!isReordering || rect == null || draggedIndex == -1) return
 
-        // Recuperiamo la pagina trascinata per disegnarne il pattern di sfondo
         val document = drawViewModel.documentData
         val docPage = document?.pages?.getOrNull(draggedIndex) ?: return
 
         canvas.withSave {
             canvas.drawRect(rect, shadowPaint)
-
-            // Passiamo docPage alla funzione
             drawViewModel.pageMaker.makePageBackground(canvas, rect, windowRect, docPage, document, drawViewModel.themeColors)
 
-            canvas.drawBitmap(bmp, null, rect, null)
+            pdfBmp?.let { canvas.drawBitmap(it, null, rect, null) }
+            contentBmp?.let { canvas.drawBitmap(it, null, rect, null) }
 
             borderPaint.color = drawViewModel.themeColors.primaryColor
             canvas.drawRect(rect, borderPaint)
@@ -636,7 +671,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             val pageStrokes = strokesByPage[pageRectWithIndex.index] ?: continue
             val page = document.pages.getOrNull(pageRectWithIndex.index) ?: continue
 
-            page.bitmapPage?.let { bitmapCache ->
+            // Bake into the content cache ONLY
+            page.contentBitmapCache?.let { bitmapCache ->
                 val canvasCache = Canvas(bitmapCache)
                 val bitmapRect = RectF(0f, 0f, bitmapCache.width.toFloat(), bitmapCache.height.toFloat())
 
@@ -657,7 +693,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             }
         }
 
-        frontState.bitmap?.let { bitmap ->
+        // Bake into the front state content bitmap ONLY
+        frontState.contentBitmap?.let { bitmap ->
             val canvas = Canvas(bitmap)
 
             for (pageRectWithIndex in frontState.pagesRect) {
@@ -791,8 +828,12 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         }
 
         synchronized(renderLock) {
-            frontState.bitmap = createBitmap(width, height)
-            onDrawBitmap = frontState.bitmap
+            // PDF bitmap will be generated dynamically if required, content bitmap is always generated
+            frontState.pdfBitmap = null
+            frontState.contentBitmap = createBitmap(width, height)
+
+            onDrawPdfBitmap = frontState.pdfBitmap
+            onDrawContentBitmap = frontState.contentBitmap
         }
 
         windowRect = RectF(0f, 0f, width.toFloat(), height.toFloat())

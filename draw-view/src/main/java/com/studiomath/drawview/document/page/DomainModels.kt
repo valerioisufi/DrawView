@@ -172,7 +172,10 @@ class Page(var index: Int) {
 
     var background: PageBackground? = null
 
-    var bitmapPage: Bitmap? = null
+    // Separated bitmap caches for rendering optimization
+    var pdfBitmapCache: Bitmap? = null
+    var contentBitmapCache: Bitmap? = null
+
     var isPrepared = false
 
     fun rect(): RectF = RectF(0f, 0f, width, height)
@@ -185,7 +188,10 @@ class Page(var index: Int) {
     fun prepare() {
         dimension = Dimension(width.mm, height.mm)
         val resolution = 72f
-        bitmapPage = createBitmap(
+
+        // Initialize only the content bitmap by default to save memory.
+        // The pdfBitmapCache will be allocated dynamically by PageMaker only if pdfData is present.
+        contentBitmapCache = createBitmap(
             dimension!!.calcWidthFromResolutionPxInch(resolution).toInt(),
             dimension!!.calcHeightFromResolutionPxInch(resolution).toInt()
         )

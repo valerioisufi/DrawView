@@ -20,7 +20,7 @@ import kotlin.math.hypot
 class DocumentMediaManager(
     application: Application,
     private val repository: DrawDocumentRepository,
-    private val pageMaker: PageMaker,
+    private val drawManager: DrawManager,
     private val historyManager: HistoryManager,
     private val coroutineScope: CoroutineScope,
     private val getDrawManager: () -> DrawManager,
@@ -28,7 +28,7 @@ class DocumentMediaManager(
     private val updateSelection: (SelectionGroup?) -> Unit,
     private val getSelection: () -> SelectionGroup?
 ) {
-    private val mediaImporter = MediaImporter(application, repository, pageMaker)
+    private val mediaImporter = MediaImporter(application, repository, drawManager)
 
     fun importPdfFromUri(uri: Uri) {
         val currentDoc = getDocumentData() ?: return
@@ -131,14 +131,7 @@ class DocumentMediaManager(
         coroutineScope.launch(Dispatchers.IO) {
             repository.updateImage(pageDbId, image)
 
-            val currentDoc = getDocumentData() ?: return@launch
-            val page = currentDoc.pages.find { it.dbId == pageDbId } ?: return@launch
-
-            page.bitmapPage?.let { bmp ->
-                page.bitmapPage = pageMaker.makePage(
-                    android.graphics.Rect(0, 0, bmp.width, bmp.height), null, page, currentDoc
-                )
-            }
+            drawManager.requestUpdatePageBitmap(pageDbId)
         }
     }
 }

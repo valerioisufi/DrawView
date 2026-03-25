@@ -201,9 +201,13 @@ class DrawViewModel(
         get() = pageManager.draggedPageIndex
         set(value) { pageManager.draggedPageIndex = value }
 
-    var draggedPageBitmap: Bitmap?
-        get() = pageManager.draggedPageBitmap
-        set(value) { pageManager.draggedPageBitmap = value }
+    var draggedContentBitmap: Bitmap?
+        get() = pageManager.draggedContentBitmap
+        set(value) { pageManager.draggedContentBitmap = value }
+
+    var draggedPdfBitmap: Bitmap?
+        get() = pageManager.draggedPdfBitmap
+        set(value) { pageManager.draggedPdfBitmap = value }
 
     var floatingPageRect: RectF?
         get() = pageManager.floatingPageRect
@@ -285,7 +289,6 @@ class DrawViewModel(
         application = application,
         repository = repository,
         historyManager = historyManager,
-        pageMaker = pageMaker,
         coroutineScope = viewModelScope,
         getDrawManager = { drawManager },
         onExternalImagePaste = { uri, targetX, targetY ->
@@ -507,7 +510,7 @@ class DrawViewModel(
     val mediaManager = DocumentMediaManager(
         application = application,
         repository = repository,
-        pageMaker = pageMaker,
+        drawManager = drawManager,
         historyManager = historyManager,
         coroutineScope = viewModelScope,
         getDrawManager = { drawManager },

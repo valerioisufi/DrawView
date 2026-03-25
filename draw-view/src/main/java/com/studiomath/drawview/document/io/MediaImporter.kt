@@ -7,6 +7,7 @@ import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import com.studiomath.drawview.data.repository.DrawDocumentRepository
+import com.studiomath.drawview.document.DrawManager
 import com.studiomath.drawview.document.page.Document
 import com.studiomath.drawview.document.page.Image
 import com.studiomath.drawview.document.page.Page
@@ -32,7 +33,7 @@ import java.util.UUID
 class MediaImporter(
     private val application: Application,
     private val repository: DrawDocumentRepository,
-    private val pageMaker: PageMaker
+    private val drawManager: DrawManager
 ) {
 
     /**
@@ -91,9 +92,7 @@ class MediaImporter(
             repository.addPdfToPage(newPage.dbId, pdfObj)
 
             newPage.prepare()
-            newPage.bitmapPage?.let { bmp ->
-                newPage.bitmapPage = pageMaker.makePage(Rect(0, 0, bmp.width, bmp.height), null, newPage, currentDoc)
-            }
+            drawManager.requestUpdatePageBitmap(newPage.dbId)
             newPages.add(newPage)
         }
         renderer.close()

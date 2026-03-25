@@ -15,20 +15,14 @@ import kotlinx.coroutines.withContext
  * della pagina e chiedere al motore grafico di aggiornare lo schermo.
  */
 private suspend fun refreshPageCache(viewModel: DrawViewModel, page: Page) {
-    withContext(Dispatchers.Default) {
-        val doc = viewModel.documentData ?: return@withContext
-        page.bitmapPage?.let { oldBitmap ->
-            page.bitmapPage = viewModel.pageMaker.makePage(
-                Rect(0, 0, oldBitmap.width, oldBitmap.height), null, page, doc
-            )
-        }
-        withContext(Dispatchers.Main) {
-            viewModel.drawManager.requestDraw(
-                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
-                }
-            )
-        }
+    withContext(Dispatchers.Main) {
+        viewModel.drawManager.requestUpdatePageBitmap(page.dbId)
+
+        viewModel.drawManager.requestDraw(
+            DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
+                update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+            }
+        )
     }
 }
 

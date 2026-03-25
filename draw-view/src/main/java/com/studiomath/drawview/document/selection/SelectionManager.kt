@@ -22,6 +22,7 @@ import com.studiomath.drawview.document.page.Image
 import com.studiomath.drawview.document.page.PageMaker
 import com.studiomath.drawview.document.page.Stroke
 import com.studiomath.drawview.document.page.Text
+import com.studiomath.drawview.document.render.DrawAttachments
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -107,7 +108,7 @@ class SelectionManager(
             )
 
             drawManager.requestDraw(
-                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.SCALE_TRANSLATE)
+                DrawAttachments(DrawAttachments.DrawMode.SCALE_TRANSLATE)
             )
             view.postOnAnimation(this)
         }
@@ -349,7 +350,7 @@ class SelectionManager(
         applySelectionTransformation(drawViewModel.documentData)
 
         drawManager.requestDraw(
-            DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.SCALE_TRANSLATE)
+            DrawAttachments(DrawAttachments.DrawMode.SCALE_TRANSLATE)
         )
     }
 
@@ -581,7 +582,7 @@ class SelectionManager(
 
     private fun requestRedraw() {
         getDrawManager().requestDraw(
-            DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply { update = DrawManager.DrawAttachments.Update.DRAW_BITMAP }
+            DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply { update = DrawAttachments.Update.DRAW_BITMAP }
         )
     }
 }

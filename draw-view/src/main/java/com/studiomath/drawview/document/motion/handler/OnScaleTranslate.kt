@@ -4,8 +4,8 @@ import android.content.Context
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
-import com.studiomath.drawview.document.render.DrawManager.DrawAttachments
-import com.studiomath.drawview.document.render.DrawManager.DrawAttachments.DrawMode
+import com.studiomath.drawview.document.render.DrawAttachments
+import com.studiomath.drawview.document.render.DrawAttachments.DrawMode
 import com.studiomath.drawview.document.DrawViewModel
 
 /**

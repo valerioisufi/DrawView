@@ -152,39 +152,6 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         return maskPath
     }
 
-    /**
-     * Data transfer object containing parameters for a specific rendering request.
-     *
-     * @property drawMode Specifies the visual intent (e.g., full update vs. simple transformation).
-     */
-    data class DrawAttachments(
-        val drawMode: DrawMode,
-    ){
-        /** Defines how the frame should be processed by the rendering engine. */
-        enum class DrawMode {
-            UPDATE, REFRESH, SCALE_TRANSLATE, PREVIEW, ANIMATE
-        }
-
-        /** Defines internal cache invalidation requirements. */
-        enum class Update {
-            DRAW_BITMAP, CACHE_ALL, CACHE_PAGE_ONLY, BAKE_NEW_STROKES
-        }
-
-        /** Types of ongoing procedural animations. */
-        enum class AnimationType {
-            NONE, BOUNCE_BACK, FLING
-        }
-
-        var update: Update? = null
-        var strokesIdToRemove: Set<InProgressStrokeId>? = null
-
-        var animation: (() -> Unit)? = null
-        var animationType = AnimationType.NONE
-
-        var newStrokesToBake: Map<Int, List<Stroke>>? = null
-        var pageId: Int? = null
-        var updatePdfBitmap: Boolean = true
-    }
 
     /**
      * Submits a request to the rendering pipeline to update the view.

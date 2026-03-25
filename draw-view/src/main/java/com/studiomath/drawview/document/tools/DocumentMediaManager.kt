@@ -11,6 +11,7 @@ import com.studiomath.drawview.document.io.MediaImporter
 import com.studiomath.drawview.document.page.Document
 import com.studiomath.drawview.document.page.Image
 import com.studiomath.drawview.document.page.PageMaker
+import com.studiomath.drawview.document.render.DrawAttachments
 import com.studiomath.drawview.document.selection.SelectionGroup
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -41,8 +42,8 @@ class DocumentMediaManager(
 
                 drawManager.calcPage.needToBeUpdated = true
                 drawManager.requestDraw(
-                    DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                        update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                    DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
+                        update = DrawAttachments.Update.DRAW_BITMAP
                     }
                 )
             } catch (e: Exception) {
@@ -116,8 +117,8 @@ class DocumentMediaManager(
                     )
 
                     drawManager.requestDraw(
-                        DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                            update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                        DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
+                            update = DrawAttachments.Update.DRAW_BITMAP
                         }
                     )
                 }

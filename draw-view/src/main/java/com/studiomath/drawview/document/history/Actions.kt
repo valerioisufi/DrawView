@@ -7,6 +7,7 @@ import com.studiomath.drawview.document.page.Image
 import com.studiomath.drawview.document.page.Page
 import com.studiomath.drawview.document.page.Stroke
 import com.studiomath.drawview.document.page.Text
+import com.studiomath.drawview.document.render.DrawAttachments
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -19,8 +20,8 @@ private suspend fun refreshPageCache(viewModel: DrawViewModel, page: Page) {
         viewModel.drawManager.requestUpdatePageBitmap(page.dbId)
 
         viewModel.drawManager.requestDraw(
-            DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+            DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
+                update = DrawAttachments.Update.DRAW_BITMAP
             }
         )
     }
@@ -275,8 +276,8 @@ class AddPageAction(
         withContext(Dispatchers.Main) {
             viewModel.drawManager.calcPage.needToBeUpdated = true
             viewModel.drawManager.requestDraw(
-                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
+                    update = DrawAttachments.Update.DRAW_BITMAP
                 }
             )
         }
@@ -333,8 +334,8 @@ class DeletePageAction(
         withContext(Dispatchers.Main) {
             viewModel.drawManager.calcPage.needToBeUpdated = true
             viewModel.drawManager.requestDraw(
-                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
+                    update = DrawAttachments.Update.DRAW_BITMAP
                 }
             )
         }
@@ -357,8 +358,8 @@ class ReorderPagesAction(
         withContext(Dispatchers.Main) {
             viewModel.drawManager.calcPage.needToBeUpdated = true
             viewModel.drawManager.requestDraw(
-                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
+                    update = DrawAttachments.Update.DRAW_BITMAP
                 }
             )
         }
@@ -375,8 +376,8 @@ class ReorderPagesAction(
         withContext(Dispatchers.Main) {
             viewModel.drawManager.calcPage.needToBeUpdated = true
             viewModel.drawManager.requestDraw(
-                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
+                    update = DrawAttachments.Update.DRAW_BITMAP
                 }
             )
         }

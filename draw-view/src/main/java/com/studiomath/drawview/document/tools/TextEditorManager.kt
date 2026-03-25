@@ -14,6 +14,7 @@ import com.studiomath.drawview.document.history.HistoryManager
 import com.studiomath.drawview.document.page.Document
 import com.studiomath.drawview.document.page.PageMaker
 import com.studiomath.drawview.document.page.Text
+import com.studiomath.drawview.document.render.DrawAttachments
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -82,15 +83,15 @@ class TextEditorManager(
 
                 // Aggiorniamo la cache visiva
                 drawManager.requestDraw(
-                    DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                        update = DrawManager.DrawAttachments.Update.CACHE_PAGE_ONLY
+                    DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
+                        update = DrawAttachments.Update.CACHE_PAGE_ONLY
                         pageId = page.dbId
                     }
                 )
 
                 drawManager.requestDraw(
-                    DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                        update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                    DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
+                        update = DrawAttachments.Update.DRAW_BITMAP
                     }
                 )
             }

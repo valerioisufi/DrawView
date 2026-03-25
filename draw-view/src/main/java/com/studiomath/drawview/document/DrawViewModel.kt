@@ -37,6 +37,7 @@ import com.studiomath.drawview.document.page.PageMaker
 import com.studiomath.drawview.document.page.PageManager
 import com.studiomath.drawview.document.page.Stroke
 import com.studiomath.drawview.document.page.Text
+import com.studiomath.drawview.document.render.DrawAttachments
 import com.studiomath.drawview.document.render.DrawManager
 import com.studiomath.drawview.document.selection.LassoMode
 import com.studiomath.drawview.document.selection.SelectionGroup
@@ -275,13 +276,13 @@ class DrawViewModel(
 
         // 6. Richiediamo al Canvas di ridisegnarsi con le nuove coordinate
         drawManager.requestDraw(
-            DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.SCALE_TRANSLATE)
+            DrawAttachments(DrawAttachments.DrawMode.SCALE_TRANSLATE)
         )
 
         // 7. Aggiorniamo istantaneamente la telecamera a schermo
         drawManager.requestDraw(
-            DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+            DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
+                update = DrawAttachments.Update.DRAW_BITMAP
             }
         )
     }
@@ -392,17 +393,11 @@ class DrawViewModel(
             drawManager.calcPage.needToBeUpdated = true
 
             drawManager.requestDraw(
-                DrawManager.DrawAttachments(
-                DrawManager.DrawAttachments.DrawMode.UPDATE
-            ).apply { update = DrawManager.DrawAttachments.Update.DRAW_BITMAP })
+                DrawAttachments(
+                DrawAttachments.DrawMode.UPDATE
+            ).apply { update = DrawAttachments.Update.DRAW_BITMAP })
 
-            drawManager.requestDraw(
-                DrawManager.DrawAttachments(
-                DrawManager.DrawAttachments.DrawMode.UPDATE
-            ).apply {
-                update = DrawManager.DrawAttachments.Update.CACHE_PAGE_ONLY
-                pageId = page.dbId
-            })
+            drawManager.requestUpdatePageBitmap(page.dbId)
         }
     }
 
@@ -459,8 +454,8 @@ class DrawViewModel(
             pendingDocBackground = null
 
             drawManager.calcPage.needToBeUpdated = true
-            drawManager.requestDraw(DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply { update = DrawManager.DrawAttachments.Update.DRAW_BITMAP })
-            drawManager.requestDraw(DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply { update = DrawManager.DrawAttachments.Update.CACHE_ALL })
+            drawManager.requestDraw(DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply { update = DrawAttachments.Update.DRAW_BITMAP })
+            drawManager.requestDraw(DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply { update = DrawAttachments.Update.CACHE_ALL })
         }
     }
 
@@ -493,13 +488,13 @@ class DrawViewModel(
             if (isDocumentLoaded) {
                 // Initialize the rendering of the first loaded page
                 drawManager.requestDraw(
-                    DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                        update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                    DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
+                        update = DrawAttachments.Update.DRAW_BITMAP
                     }
                 )
                 drawManager.requestDraw(
-                    DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                        update = DrawManager.DrawAttachments.Update.CACHE_ALL
+                    DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
+                        update = DrawAttachments.Update.CACHE_ALL
                     }
                 )
             } else {

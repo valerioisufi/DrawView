@@ -6,6 +6,7 @@ import android.view.MotionEvent
 import android.view.View
 import com.studiomath.drawview.document.render.DrawManager
 import com.studiomath.drawview.document.DrawViewModel
+import com.studiomath.drawview.document.render.DrawAttachments
 import kotlin.math.atan2
 import kotlin.math.hypot
 
@@ -182,7 +183,7 @@ class SelectionTouchHandler(
                 }
 
                 if (currentDragState != DragState.NONE && !drawViewModel.selectionManager.isAutoScrollingSelection) {
-                    drawManager.requestDraw(DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.SCALE_TRANSLATE))
+                    drawManager.requestDraw(DrawAttachments(DrawAttachments.DrawMode.SCALE_TRANSLATE))
                     return true
                 }
             }

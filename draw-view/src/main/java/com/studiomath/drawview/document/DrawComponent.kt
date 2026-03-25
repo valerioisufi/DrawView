@@ -69,6 +69,7 @@ import androidx.ink.authoring.InProgressStrokesView
 import androidx.input.motionprediction.MotionEventPredictor
 import com.studiomath.drawview.R
 import com.studiomath.drawview.document.motion.CanvasTouchDispatcher
+import com.studiomath.drawview.document.render.DrawAttachments
 import com.studiomath.drawview.document.render.DrawManager
 import com.studiomath.drawview.document.tools.RichTextUtil
 import kotlin.math.min
@@ -100,8 +101,8 @@ fun DrawComponent(
         // chiediamo al motore grafico di ridisegnare la schermata per applicare i nuovi colori.
         if (drawViewModel.isDocumentLoaded) {
             drawViewModel.drawManager.requestDraw(
-                DrawManager.DrawAttachments(DrawManager.DrawAttachments.DrawMode.UPDATE).apply {
-                    update = DrawManager.DrawAttachments.Update.DRAW_BITMAP
+                DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
+                    update = DrawAttachments.Update.DRAW_BITMAP
                 }
             )
         }

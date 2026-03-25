@@ -15,12 +15,10 @@ import kotlinx.coroutines.withContext
  */
 private suspend fun refreshPageCache(viewModel: DrawViewModel, page: Page) {
     withContext(Dispatchers.Main) {
-        viewModel.drawManager.requestUpdatePageBitmap(page.dbId)
+        viewModel.drawManager.requestDraw(RenderRequest.rebuildSinglePage(page.dbId))
 
         viewModel.drawManager.requestDraw(
-            RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
-                cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
-            }
+            RenderRequest.rebuildViewport()
         )
     }
 }
@@ -274,9 +272,7 @@ class AddPageAction(
         withContext(Dispatchers.Main) {
             viewModel.drawManager.calcPage.needToBeUpdated = true
             viewModel.drawManager.requestDraw(
-                RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
-                    cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
-                }
+                RenderRequest.rebuildViewport()
             )
         }
     }
@@ -332,9 +328,7 @@ class DeletePageAction(
         withContext(Dispatchers.Main) {
             viewModel.drawManager.calcPage.needToBeUpdated = true
             viewModel.drawManager.requestDraw(
-                RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
-                    cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
-                }
+                RenderRequest.rebuildViewport()
             )
         }
     }
@@ -356,9 +350,7 @@ class ReorderPagesAction(
         withContext(Dispatchers.Main) {
             viewModel.drawManager.calcPage.needToBeUpdated = true
             viewModel.drawManager.requestDraw(
-                RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
-                    cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
-                }
+                RenderRequest.rebuildViewport()
             )
         }
     }
@@ -374,9 +366,7 @@ class ReorderPagesAction(
         withContext(Dispatchers.Main) {
             viewModel.drawManager.calcPage.needToBeUpdated = true
             viewModel.drawManager.requestDraw(
-                RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
-                    cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
-                }
+                RenderRequest.rebuildViewport()
             )
         }
     }

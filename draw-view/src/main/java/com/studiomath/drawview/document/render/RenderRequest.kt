@@ -36,7 +36,7 @@ data class RenderRequest(
     }
 
     var cacheStrategy: CacheStrategy? = null
-    var includePdfLayer: Boolean = true
+    var includePdfLayer: Boolean = false
     var strokesIdToRemove: Set<InProgressStrokeId>? = null
 
     var onAnimationTick: (() -> Unit)? = null
@@ -48,25 +48,25 @@ data class RenderRequest(
     companion object {
         /** * Creates a standard update request with a specific cache invalidation strategy.
          */
-        fun update(strategy: CacheStrategy) = RenderRequest(DrawMode.UPDATE).apply {
+        private fun update(strategy: CacheStrategy) = RenderRequest(DrawMode.UPDATE).apply {
             this.cacheStrategy = strategy
         }
 
         /** * Triggers a viewport rebuild. Often used after zooming/panning stops.
          */
-        fun rebuildViewport(includePdf: Boolean = true) = update(CacheStrategy.REBUILD_VIEWPORT).apply {
+        fun rebuildViewport(includePdf: Boolean = false) = update(CacheStrategy.REBUILD_VIEWPORT).apply {
             this.includePdfLayer = includePdf
         }
 
         /** * Forces a complete re-render of all page caches in the document.
          */
-        fun rebuildAllPages(includePdf: Boolean = true) = update(CacheStrategy.REBUILD_ALL_PAGES).apply {
+        fun rebuildAllPages(includePdf: Boolean = false) = update(CacheStrategy.REBUILD_ALL_PAGES).apply {
             this.includePdfLayer = includePdf
         }
 
         /** * Rebuilds the cache for a specific page. Useful for targeted edits (e.g., deleting an image).
          */
-        fun rebuildSinglePage(pageId: Int, includePdf: Boolean = true) = update(CacheStrategy.REBUILD_SINGLE_PAGE).apply {
+        fun rebuildSinglePage(pageId: Int, includePdf: Boolean = false) = update(CacheStrategy.REBUILD_SINGLE_PAGE).apply {
             this.targetPageId = pageId
             this.includePdfLayer = includePdf
         }

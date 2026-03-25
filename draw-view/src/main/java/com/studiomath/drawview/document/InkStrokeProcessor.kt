@@ -56,9 +56,9 @@ class InkStrokeProcessor(
             } catch (e: Exception) {
                 e.printStackTrace()
                 drawViewModel.inkInputManager.removeFinishedStrokes?.invoke(strokes.keys)
-                drawManager.requestDraw(RenderRequest(drawMode = RenderRequest.DrawMode.UPDATE).apply {
-                    cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
-                })
+                drawManager.requestDraw(
+                    RenderRequest.rebuildViewport()
+                )
                 return
             }
             val lassoBox = selectionRegion.computeBoundingBox()
@@ -128,9 +128,9 @@ class InkStrokeProcessor(
             }
 
             drawViewModel.inkInputManager.removeFinishedStrokes?.invoke(strokes.keys)
-            drawManager.requestDraw(RenderRequest(drawMode = RenderRequest.DrawMode.UPDATE).apply {
-                cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
-            })
+            drawManager.requestDraw(
+                RenderRequest.rebuildViewport()
+            )
             return
         }
 
@@ -140,9 +140,9 @@ class InkStrokeProcessor(
             strokes.keys.forEach { drawViewModel.inkInputManager.activeStrokePageMap.remove(it) }
 
             drawViewModel.inkInputManager.removeFinishedStrokes?.invoke(strokes.keys)
-            drawManager.requestDraw(RenderRequest(drawMode = RenderRequest.DrawMode.UPDATE).apply {
-                cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
-            })
+            drawManager.requestDraw(
+                RenderRequest.rebuildViewport()
+            )
             return
         }
 

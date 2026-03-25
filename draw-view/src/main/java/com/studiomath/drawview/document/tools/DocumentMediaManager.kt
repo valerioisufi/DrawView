@@ -41,9 +41,10 @@ class DocumentMediaManager(
 
                 drawManager.calcPage.needToBeUpdated = true
                 drawManager.requestDraw(
-                    RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
-                        cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
-                    }
+                    RenderRequest.rebuildViewport(includePdf = true)
+                )
+                drawManager.requestDraw(
+                    RenderRequest.rebuildAllPages(includePdf = true)
                 )
             } catch (e: Exception) {
                 Log.e("DocumentMediaManager", "Error importing PDF", e)
@@ -116,9 +117,7 @@ class DocumentMediaManager(
                     )
 
                     drawManager.requestDraw(
-                        RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
-                            cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
-                        }
+                        RenderRequest.rebuildViewport()
                     )
                 }
             } catch (e: Exception) {
@@ -131,7 +130,7 @@ class DocumentMediaManager(
         coroutineScope.launch(Dispatchers.IO) {
             repository.updateImage(pageDbId, image)
 
-            drawManager.requestUpdatePageBitmap(pageDbId)
+            drawManager.requestDraw(RenderRequest.rebuildSinglePage(pageDbId))
         }
     }
 }

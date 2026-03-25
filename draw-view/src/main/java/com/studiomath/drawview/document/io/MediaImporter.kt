@@ -13,6 +13,7 @@ import com.studiomath.drawview.document.page.Image
 import com.studiomath.drawview.document.page.Page
 import com.studiomath.drawview.document.page.PageMaker
 import com.studiomath.drawview.document.page.mm
+import com.studiomath.drawview.document.render.RenderRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -92,7 +93,12 @@ class MediaImporter(
             repository.addPdfToPage(newPage.dbId, pdfObj)
 
             newPage.prepare()
-            drawManager.requestUpdatePageBitmap(newPage.dbId)
+            drawManager.requestDraw(
+                RenderRequest.rebuildSinglePage(
+                    newPage.dbId,
+                    includePdf = true
+                )
+            )
             newPages.add(newPage)
         }
         renderer.close()

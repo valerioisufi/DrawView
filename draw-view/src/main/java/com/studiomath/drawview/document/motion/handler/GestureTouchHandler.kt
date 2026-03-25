@@ -45,7 +45,7 @@ class GestureTouchHandler(private val drawViewModel: DrawViewModel) {
                                 pageIndex = pageInfo.index
                             )
                             drawViewModel.drawManager.requestDraw(
-                                RenderRequest(RenderRequest.DrawMode.UPDATE).apply { cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT }
+                                RenderRequest.rebuildViewport()
                             )
                         }
                         drawViewModel.contextMenuPosition = PointF(e.x, e.y)
@@ -123,7 +123,7 @@ class GestureTouchHandler(private val drawViewModel: DrawViewModel) {
                                 drawViewModel.activeTextEditPosition = PointF(pts[0], pts[1])
                                 tappedText.isDragging = true
                                 drawViewModel.drawManager.requestDraw(
-                                    RenderRequest(RenderRequest.DrawMode.UPDATE).apply { cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT }
+                                    RenderRequest.rebuildViewport()
                                 )
                             } else {
                                 drawViewModel.activeTextEditPosition = PointF(e.x, e.y)

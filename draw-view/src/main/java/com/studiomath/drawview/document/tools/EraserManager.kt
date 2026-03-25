@@ -113,19 +113,14 @@ class EraserManager(
                 }
 
                 drawManager.requestDraw(
-                    RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
-                        cacheStrategy = RenderRequest.CacheStrategy.REBUILD_SINGLE_PAGE
-                        targetPageId = page.dbId
-                    }
+                    RenderRequest.rebuildSinglePage(page.dbId)
                 )
             }
         }
 
         // Chiediamo al nuovo Render Loop di rigenerare e mostrare le bitmap
         drawManager.requestDraw(
-            RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
-                cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
-            }
+            RenderRequest.rebuildViewport()
         )
     }
 }

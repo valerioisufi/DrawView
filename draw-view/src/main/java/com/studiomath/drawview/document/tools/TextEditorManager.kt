@@ -82,16 +82,11 @@ class TextEditorManager(
 
                 // Aggiorniamo la cache visiva
                 drawManager.requestDraw(
-                    RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
-                        cacheStrategy = RenderRequest.CacheStrategy.REBUILD_SINGLE_PAGE
-                        targetPageId = page.dbId
-                    }
+                    RenderRequest.rebuildSinglePage(page.dbId)
                 )
 
                 drawManager.requestDraw(
-                    RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
-                        cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
-                    }
+                    RenderRequest.rebuildViewport()
                 )
             }
         } else {

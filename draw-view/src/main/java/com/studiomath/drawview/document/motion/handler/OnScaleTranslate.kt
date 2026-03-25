@@ -164,9 +164,9 @@ class OnScaleTranslate(
                 if (drawViewModel.drawManager.cameraPhysics.isAnimating()) {
                     drawViewModel.drawManager.requestDraw(RenderRequest(drawMode = DrawMode.ANIMATE))
                 } else {
-                    drawViewModel.drawManager.requestDraw(RenderRequest(drawMode = DrawMode.UPDATE).apply {
-                        cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
-                    })
+                    drawViewModel.drawManager.requestDraw(
+                        RenderRequest.rebuildViewport(includePdf = true)
+                    )
                 }
             }
         }

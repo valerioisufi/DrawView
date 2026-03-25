@@ -100,9 +100,7 @@ fun DrawComponent(
         // chiediamo al motore grafico di ridisegnare la schermata per applicare i nuovi colori.
         if (drawViewModel.isDocumentLoaded) {
             drawViewModel.drawManager.requestDraw(
-                RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
-                    cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
-                }
+                RenderRequest.rebuildViewport()
             )
         }
     }

@@ -126,9 +126,11 @@ class SelectionManager(
 
         coroutineScope.launch(Dispatchers.Default) {
             getDrawManager().apply {
-                requestUpdatePageBitmap(page.dbId)
+                requestDraw(RenderRequest.rebuildSinglePage(page.dbId))
             }
-            requestRedraw()
+            getDrawManager().requestDraw(
+                RenderRequest.rebuildViewport()
+            )
         }
     }
 
@@ -147,10 +149,12 @@ class SelectionManager(
             selection.texts.forEach { repository.deleteText(it.dbId) }
 
             getDrawManager().apply {
-                requestUpdatePageBitmap(page.dbId)
+                requestDraw(RenderRequest.rebuildSinglePage(page.dbId))
             }
 
-            requestRedraw()
+            getDrawManager().requestDraw(
+                RenderRequest.rebuildViewport()
+            )
             currentSelection = null
         }
     }
@@ -250,10 +254,12 @@ class SelectionManager(
                 targetPage.textData.addAll(pastedTexts)
 
                 getDrawManager().apply {
-                    requestUpdatePageBitmap(targetPage.dbId)
+                    requestDraw(RenderRequest.rebuildSinglePage(targetPage.dbId))
                 }
 
-                requestRedraw()
+                getDrawManager().requestDraw(
+                    RenderRequest.rebuildViewport()
+                )
 
                 val newBoundingBox = RectF(copiedGroup.boundingBox).apply { offset(offsetXMm, offsetYMm) }
                 currentSelection = SelectionGroup(pastedImages, pastedStrokes, pastedTexts, newBoundingBox, targetPageIndex).apply {
@@ -552,8 +558,8 @@ class SelectionManager(
         coroutineScope.launch(Dispatchers.Default) {
             if (isPageChanged) {
                 getDrawManager().apply {
-                    requestUpdatePageBitmap(oldPage.dbId)
-                    requestUpdatePageBitmap(targetPage.dbId)
+                    requestDraw(RenderRequest.rebuildSinglePage(oldPage.dbId))
+                    requestDraw(RenderRequest.rebuildSinglePage(targetPage.dbId))
                 }
             }
 
@@ -575,13 +581,10 @@ class SelectionManager(
                 selection.texts.forEach { repository.updateText(targetPage.dbId, it) }
             }
 
-            requestRedraw()
+            getDrawManager().requestDraw(
+                RenderRequest.rebuildViewport()
+            )
         }
     }
 
-    private fun requestRedraw() {
-        getDrawManager().requestDraw(
-            RenderRequest(RenderRequest.DrawMode.UPDATE).apply { cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT }
-        )
-    }
 }

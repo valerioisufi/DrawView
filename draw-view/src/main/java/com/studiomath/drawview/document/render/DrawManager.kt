@@ -288,13 +288,6 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         }
     }
 
-    fun requestUpdatePageBitmap(pageId: Int){
-        requestDraw(RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
-            cacheStrategy = RenderRequest.CacheStrategy.REBUILD_SINGLE_PAGE
-            this.targetPageId = pageId
-        })
-    }
-
     var isDrawing = false
     var isUserTouching = false
 
@@ -601,9 +594,9 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
         if (!cameraPhysics.isAnimating()) {
             lastFrameTime = 0L
-            requestDraw(RenderRequest(drawMode = RenderRequest.DrawMode.UPDATE).apply {
-                cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
-            })
+            requestDraw(
+                RenderRequest.rebuildViewport()
+            )
         }
     }
 
@@ -853,9 +846,9 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             // Frame immediato per evitare il nero
             updateDrawView(RenderRequest(RenderRequest.DrawMode.TRANSFORM))
             // Ricalcolo sfondo pesante
-            requestDraw(RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
-                cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
-            })
+            requestDraw(
+                RenderRequest.rebuildViewport(includePdf = true)
+            )
         }
     }
 

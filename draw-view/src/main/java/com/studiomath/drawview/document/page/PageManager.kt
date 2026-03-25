@@ -313,9 +313,7 @@ class PageManager(
             val drawManager = getDrawManager()
             drawManager.calcPage.needToBeUpdated = true
             drawManager.requestDraw(
-                RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
-                    cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
-                }
+                RenderRequest.rebuildViewport()
             )
 
             drawManager.jobOnDrawBitmap?.join()
@@ -346,9 +344,7 @@ class PageManager(
         val drawManager = getDrawManager()
         drawManager.calcPage.needToBeUpdated = true
         drawManager.requestDraw(
-            RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
-                cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
-            }
+            RenderRequest.rebuildViewport()
         )
     }
 }

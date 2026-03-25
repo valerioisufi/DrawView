@@ -269,9 +269,7 @@ class DrawViewModel(
 
         // 7. Aggiorniamo istantaneamente la telecamera a schermo
         drawManager.requestDraw(
-            RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
-                cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
-            }
+            RenderRequest.rebuildViewport()
         )
     }
 
@@ -381,11 +379,15 @@ class DrawViewModel(
             drawManager.calcPage.needToBeUpdated = true
 
             drawManager.requestDraw(
-                RenderRequest(
-                RenderRequest.DrawMode.UPDATE
-            ).apply { cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT })
+                RenderRequest.rebuildViewport(includePdf = true)
+            )
 
-            drawManager.requestUpdatePageBitmap(page.dbId)
+            drawManager.requestDraw(
+                RenderRequest.rebuildSinglePage(
+                    pageId = page.dbId,
+                    includePdf = true
+                )
+            )
         }
     }
 
@@ -442,8 +444,12 @@ class DrawViewModel(
             pendingDocBackground = null
 
             drawManager.calcPage.needToBeUpdated = true
-            drawManager.requestDraw(RenderRequest(RenderRequest.DrawMode.UPDATE).apply { cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT })
-            drawManager.requestDraw(RenderRequest(RenderRequest.DrawMode.UPDATE).apply { cacheStrategy = RenderRequest.CacheStrategy.REBUILD_ALL_PAGES })
+            drawManager.requestDraw(
+                RenderRequest.rebuildViewport(includePdf = true)
+            )
+            drawManager.requestDraw(
+                RenderRequest.rebuildAllPages(includePdf = true)
+            )
         }
     }
 
@@ -476,14 +482,10 @@ class DrawViewModel(
             if (isDocumentLoaded) {
                 // Initialize the rendering of the first loaded page
                 drawManager.requestDraw(
-                    RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
-                        cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
-                    }
+                    RenderRequest.rebuildViewport()
                 )
                 drawManager.requestDraw(
-                    RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
-                        cacheStrategy = RenderRequest.CacheStrategy.REBUILD_ALL_PAGES
-                    }
+                    RenderRequest.rebuildAllPages()
                 )
             } else {
                 // Failsafe in caso di errori critici nel DB

@@ -229,8 +229,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                             page?.contentBitmapCache?.let {
                                 val bitmaps = drawViewModel.pageMaker.makePage(
                                     Rect(0, 0, it.width, it.height),
-                                    page.pdfBitmapCache,
-                                    it,
+                                    null,
+                                    null,
                                     page,
                                     document,
                                     renderPdf = renderRequest.includePdfLayer
@@ -248,7 +248,12 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
                                 page.contentBitmapCache?.let {
                                     val bitmaps = drawViewModel.pageMaker.makePage(
-                                        Rect(0, 0, it.width, it.height), page.pdfBitmapCache, it, page, document
+                                        Rect(0, 0, it.width, it.height),
+                                        null,
+                                        null,
+                                        page,
+                                        document,
+                                        renderPdf = renderRequest.includePdfLayer
                                     )
                                     page.pdfBitmapCache = bitmaps.pdf
                                     page.contentBitmapCache = bitmaps.content

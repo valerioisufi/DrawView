@@ -56,14 +56,35 @@ import com.studiomath.drawview.document.page.PageBackground
 import com.studiomath.drawview.document.page.mm
 import kotlin.math.roundToInt
 
-// Limiti di sicurezza per le dimensioni della pagina (in mm)
-private const val MIN_PAGE_SIZE = 50f   // 5 cm (Post-it piccolo)
-private const val MAX_PAGE_AREA = 250000f // 500mm x 500mm. Limita l'area totale per evitare OutOfMemory
+/**
+ * Defines the minimum allowed size for a page dimension in millimeters to ensure render stability.
+ */
+private const val MIN_PAGE_SIZE = 50f
 
+/**
+ * Defines the maximum allowed total area for a page in square millimeters to prevent OutOfMemory exceptions.
+ */
+private const val MAX_PAGE_AREA = 250000f
+
+/**
+ * Represents the available background patterns that can be applied to a page document.
+ *
+ * @property label The localized string representation of the pattern type for UI display.
+ */
 private enum class BgType(val label: String) {
     SOLID("Vuoto"), RULED("Righe"), GRID("Quadretti"), DOTTED("Puntini")
 }
 
+/**
+ * A Jetpack Compose UI component that provides an interface for configuring the physical and visual attributes of a document page.
+ * It allows the user to define page dimensions (standard or custom formats), background patterns, and colors, providing real-time visual feedback via a preview canvas.
+ *
+ * @param modifier The modifier to be applied to the top-level layout of the configurator.
+ * @param initialDimension The starting physical dimensions of the page. Defaults to standard A4 size.
+ * @param initialBackground The starting background pattern and styling configuration of the page. Defaults to a solid background.
+ * @param onApply Callback invoked when the user confirms their configuration. Passes the validated [Dimension] and [PageBackground].
+ * @param onCancel Callback invoked when the user aborts the configuration process.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PageTemplateConfigurator(
@@ -78,7 +99,6 @@ fun PageTemplateConfigurator(
     var customWidth by remember { mutableStateOf(initialDimension.width.mm.toString()) }
     var customHeight by remember { mutableStateOf(initialDimension.height.mm.toString()) }
 
-    // Riconoscimento formato
     val initialFormat = remember {
         val w = initialDimension.width.mm.roundToInt()
         val h = initialDimension.height.mm.roundToInt()
@@ -143,18 +163,14 @@ fun PageTemplateConfigurator(
 
     var showColorPickerFor by remember { mutableStateOf<String?>(null) }
 
-    // --- VALIDAZIONE SICURA ---
     val wValue = customWidth.toFloatOrNull() ?: 0f
     val hValue = customHeight.toFloatOrNull() ?: 0f
     val currentArea = wValue * hValue
 
-    // Errori singoli per evidenziare di rosso i campi
     val isWidthError = wValue < MIN_PAGE_SIZE
     val isHeightError = hValue < MIN_PAGE_SIZE
-    // Errore combinato per l'area troppo grande
     val isAreaError = currentArea > MAX_PAGE_AREA
 
-    // Se c'è un errore qualsiasi, consideriamo le dimensioni non valide
     val isDimensionInvalid = isWidthError || isHeightError || isAreaError
 
     Column(
@@ -166,13 +182,11 @@ fun PageTemplateConfigurator(
     ) {
         Text("Configura Pagina", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
 
-        // --- SEZIONE 1: FORMATO E ANTEPRIMA (Affiancati) ---
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalAlignment = Alignment.Top
         ) {
-            // Sinistra: Controlli Formato
             Column(
                 modifier = Modifier.weight(1.5f),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -260,16 +274,13 @@ fun PageTemplateConfigurator(
                 }
             }
 
-            // Destra: L'Anteprima dal vivo
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .heightIn(min = 120.dp, max = 160.dp), // Altezza massima fissa per non rompere il layout
+                    .heightIn(min = 120.dp, max = 160.dp),
                 contentAlignment = Alignment.Center
             ) {
                 if (isDimensionInvalid) {
-                    // Se le dimensioni sono assurde, non proviamo nemmeno a calcolare la Canvas.
-                    // Mostriamo un placeholder grigio per non far saltare il layout.
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -279,9 +290,8 @@ fun PageTemplateConfigurator(
                         Text("Dimensione\nNon Valida", color = Color.Gray)
                     }
                 } else {
-                    // Solo se i dati sono sicuri, disegniamo l'anteprima!
                     PagePreview(
-                        widthMm = wValue, // Usiamo wValue e hValue già parsati e sicuri
+                        widthMm = wValue,
                         heightMm = hValue,
                         bgType = selectedType,
                         paperColor = paperColor,
@@ -295,7 +305,6 @@ fun PageTemplateConfigurator(
 
         HorizontalDivider()
 
-        // --- SEZIONE 2: TIPO DI SFONDO ---
         Text("Pattern di Sfondo:", style = MaterialTheme.typography.bodyLarge)
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -311,7 +320,6 @@ fun PageTemplateConfigurator(
             }
         }
 
-        // --- SEZIONE 3: COLORE FOGLIO ---
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Colore Foglio:", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -322,7 +330,6 @@ fun PageTemplateConfigurator(
             }
         }
 
-        // --- SEZIONE 4: CONTROLLI CONTESTUALI ---
         if (selectedType != BgType.SOLID) {
             HorizontalDivider()
 
@@ -353,7 +360,6 @@ fun PageTemplateConfigurator(
             }
         }
 
-        // --- PULSANTI FINALI ---
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.End,
@@ -362,10 +368,8 @@ fun PageTemplateConfigurator(
             TextButton(onClick = onCancel) { Text("Annulla") }
             Spacer(modifier = Modifier.width(8.dp))
             Button(
-                // Il bottone è abilitato solo se NON ci sono errori
                 enabled = !isDimensionInvalid,
                 onClick = {
-                    // A questo punto siamo certi che i valori siano sicuri
                     val finalDimension = Dimension(wValue.mm, hValue.mm)
 
                     val bgInt = paperColor.toArgb()
@@ -386,7 +390,6 @@ fun PageTemplateConfigurator(
         }
     }
 
-    // --- DIALOG DELLA RUOTA DEI COLORI ---
     if (showColorPickerFor != null) {
         val initialColor = if (showColorPickerFor == "PAPER") paperColor else lineColor
         CustomColorPickerDialog(
@@ -401,8 +404,15 @@ fun PageTemplateConfigurator(
 }
 
 /**
- * COMPONENTE DI ANTEPRIMA IN TEMPO REALE.
- * Replica fedelmente la logica del PageMaker usando il Canvas di Compose.
+ * A Jetpack Compose Canvas implementation that renders a dynamically scaled visual preview of the document page.
+ *
+ * @param widthMm The target width of the page in millimeters.
+ * @param heightMm The target height of the page in millimeters.
+ * @param bgType The background pattern type to be rendered onto the canvas.
+ * @param paperColor The solid fill color of the page.
+ * @param lineColor The color utilized for rendering background pattern elements (lines, grids, or dots).
+ * @param spacingMm The distance between pattern elements in millimeters.
+ * @param thicknessMm The stroke width or radius size of the pattern elements in millimeters.
  */
 @Composable
 private fun PagePreview(
@@ -414,8 +424,6 @@ private fun PagePreview(
     spacingMm: Float,
     thicknessMm: Float
 ) {
-    // Sicurezza di base: evitiamo divisioni per zero.
-    // I numeri arrivano qui già validati dal contenitore genitore (minimo 50mm).
     val safeWidth = widthMm.coerceAtLeast(1f)
     val safeHeight = heightMm.coerceAtLeast(1f)
 
@@ -423,8 +431,6 @@ private fun PagePreview(
 
     Canvas(
         modifier = Modifier
-            // Limitiamo l'aspectRatio estremo per evitare crash di layout in Compose
-            // (es. previene formati assurdi come 1000:1)
             .aspectRatio(ratio.coerceIn(0.1f, 10f))
             .fillMaxSize()
             .background(Color.Transparent)
@@ -432,18 +438,14 @@ private fun PagePreview(
         val w = size.width
         val h = size.height
 
-        // Sfondo del foglio con ombra e bordo leggero per staccare dal background del dialog
         drawRect(color = Color.Black.copy(alpha = 0.1f), topLeft = Offset(4f, 4f), size = size)
         drawRect(color = paperColor, size = size)
         drawRect(color = Color.LightGray, size = size, style = androidx.compose.ui.graphics.drawscope.Stroke(1f))
 
         if (bgType == BgType.SOLID) return@Canvas
 
-        // Fattore di conversione da mm a pixel *all'interno dell'anteprima*
         val pixelsPerMm = w / safeWidth
 
-        // Sicurezza visuale: se la griglia è troppo fitta nella preview, si impasta.
-        // Forziamo una distanza visiva minima di 8 pixel per far capire il pattern all'utente.
         val spacingPx = (spacingMm * pixelsPerMm).coerceAtLeast(8f)
         val thicknessPx = (thicknessMm * pixelsPerMm).coerceAtLeast(1f)
 
@@ -483,7 +485,13 @@ private fun PagePreview(
     }
 }
 
-/** Componente helper per disegnare i cerchietti di selezione colore base */
+/**
+ * A standard Compose UI component functioning as a selectable circular color swatch.
+ *
+ * @param color The graphical color applied to the swatch fill.
+ * @param isSelected A boolean state indicating whether the swatch should render an emphasized selection border.
+ * @param onClick The callback triggered upon user interaction with the component.
+ */
 @Composable
 private fun ColorDot(color: Color, isSelected: Boolean, onClick: () -> Unit) {
     Box(
@@ -500,7 +508,11 @@ private fun ColorDot(color: Color, isSelected: Boolean, onClick: () -> Unit) {
     )
 }
 
-/** Componente helper per il bottone "Scegli Colore Custom" con gradiente a spirale */
+/**
+ * A stylized Compose UI button indicating the entry point for custom color selection, utilizing a spectral gradient.
+ *
+ * @param onClick The callback triggered when the component is pressed, typically opening a dedicated color picker.
+ */
 @Composable
 private fun CustomColorDot(onClick: () -> Unit) {
     val rainbowColors = listOf(Color.Red, Color.Magenta, Color.Blue, Color.Cyan, Color.Green, Color.Yellow, Color.Red)
@@ -513,13 +525,17 @@ private fun CustomColorDot(onClick: () -> Unit) {
             .clickable { onClick() },
         contentAlignment = Alignment.Center
     ) {
-        // Un piccolo centro bianco per indicare che è la ruota colori
         Box(modifier = Modifier.size(14.dp).clip(CircleShape).background(Color.White))
     }
 }
 
 /**
- * Dialog che contiene la tua ColorWheel personalizzata.
+ * A Jetpack Compose dialog encapsulating an advanced color selection interface.
+ * It provides a graphical color wheel and reflects color modifications internally before confirming an application state.
+ *
+ * @param initialColor The default or existing color injected into the dialog state on load.
+ * @param onColorSelected The callback returning the finalized [Color] selection back to the invoker.
+ * @param onDismiss The callback invoked to dismiss the dialog instance without applying any changes.
  */
 @Composable
 fun CustomColorPickerDialog(
@@ -527,7 +543,6 @@ fun CustomColorPickerDialog(
     onColorSelected: (Color) -> Unit,
     onDismiss: () -> Unit
 ) {
-    // Stato locale per aggiornare l'anteprima in tempo reale
     var currentColor by remember { mutableStateOf(initialColor) }
 
     AlertDialog(
@@ -535,7 +550,6 @@ fun CustomColorPickerDialog(
         title = { Text("Seleziona Colore") },
         text = {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                // 1. ANTEPRIMA DEL COLORE
                 Box(
                     modifier = Modifier
                         .size(60.dp)
@@ -546,14 +560,13 @@ fun CustomColorPickerDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // 2. LA TUA COLOR WHEEL
                 ColorWheel(
                     modifier = Modifier.width(300.dp),
                     color = currentColor,
                     onColorChanged = { newColor ->
                         currentColor = newColor
                     },
-                    showAlphaSlider = false // <-- Nascondiamo la barra della trasparenza!
+                    showAlphaSlider = false
                 )
             }
         },

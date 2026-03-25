@@ -118,6 +118,12 @@ class PageMaker(
 
         // 2. Setup Content Bitmap (Always created for strokes, text, images)
         val contentBitmap: Bitmap = contentSource ?: createBitmap(bitmapRect.width(), bitmapRect.height())
+
+        // Clear the recycled bitmap before drawing the new frame.
+        if (contentSource != null) {
+            contentBitmap.eraseColor(android.graphics.Color.TRANSPARENT)
+        }
+
         val contentCanvas = Canvas(contentBitmap)
 
         val actualClipRect = clipRect ?: RectF().apply {

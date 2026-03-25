@@ -140,9 +140,9 @@ class InkStrokeProcessor(
             strokes.keys.forEach { drawViewModel.inkInputManager.activeStrokePageMap.remove(it) }
 
             drawViewModel.inkInputManager.removeFinishedStrokes?.invoke(strokes.keys)
-            drawManager.requestDraw(
-                RenderRequest.rebuildViewport()
-            )
+//            drawManager.requestDraw(
+//                RenderRequest.rebuildViewport()
+//            )
             return
         }
 

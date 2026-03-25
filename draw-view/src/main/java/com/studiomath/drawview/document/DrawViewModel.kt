@@ -482,10 +482,14 @@ class DrawViewModel(
             if (isDocumentLoaded) {
                 // Initialize the rendering of the first loaded page
                 drawManager.requestDraw(
-                    RenderRequest.rebuildViewport()
+                    RenderRequest.rebuildViewport(
+                        includePdf = true
+                    )
                 )
                 drawManager.requestDraw(
-                    RenderRequest.rebuildAllPages()
+                    RenderRequest.rebuildAllPages(
+                        includePdf = true
+                    )
                 )
             } else {
                 // Failsafe in caso di errori critici nel DB

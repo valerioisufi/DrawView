@@ -595,7 +595,9 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         if (!cameraPhysics.isAnimating()) {
             lastFrameTime = 0L
             requestDraw(
-                RenderRequest.rebuildViewport()
+                RenderRequest.rebuildViewport(
+                    includePdf = true
+                )
             )
         }
     }

@@ -6,9 +6,8 @@ import android.graphics.RectF
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
-import com.studiomath.drawview.document.render.DrawManager
 import com.studiomath.drawview.document.DrawViewModel
-import com.studiomath.drawview.document.render.DrawAttachments
+import com.studiomath.drawview.document.render.RenderRequest
 import com.studiomath.drawview.document.selection.SelectionGroup
 import com.studiomath.drawview.document.tools.Tool
 import kotlin.math.hypot
@@ -46,7 +45,7 @@ class GestureTouchHandler(private val drawViewModel: DrawViewModel) {
                                 pageIndex = pageInfo.index
                             )
                             drawViewModel.drawManager.requestDraw(
-                                DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply { update = DrawAttachments.Update.DRAW_BITMAP }
+                                RenderRequest(RenderRequest.DrawMode.UPDATE).apply { cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT }
                             )
                         }
                         drawViewModel.contextMenuPosition = PointF(e.x, e.y)
@@ -85,7 +84,7 @@ class GestureTouchHandler(private val drawViewModel: DrawViewModel) {
                             if (!mappedBox.contains(e.x, e.y)) {
                                 drawViewModel.clearSelection()
                                 drawViewModel.drawManager.requestDraw(
-                                    DrawAttachments(DrawAttachments.DrawMode.UPDATE)
+                                    RenderRequest(RenderRequest.DrawMode.UPDATE)
                                 )
                                 isTapConsumed = true
                             } else {
@@ -124,7 +123,7 @@ class GestureTouchHandler(private val drawViewModel: DrawViewModel) {
                                 drawViewModel.activeTextEditPosition = PointF(pts[0], pts[1])
                                 tappedText.isDragging = true
                                 drawViewModel.drawManager.requestDraw(
-                                    DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply { update = DrawAttachments.Update.DRAW_BITMAP }
+                                    RenderRequest(RenderRequest.DrawMode.UPDATE).apply { cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT }
                                 )
                             } else {
                                 drawViewModel.activeTextEditPosition = PointF(e.x, e.y)

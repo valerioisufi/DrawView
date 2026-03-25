@@ -4,8 +4,8 @@ import android.content.Context
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
-import com.studiomath.drawview.document.render.DrawAttachments
-import com.studiomath.drawview.document.render.DrawAttachments.DrawMode
+import com.studiomath.drawview.document.render.RenderRequest
+import com.studiomath.drawview.document.render.RenderRequest.DrawMode
 import com.studiomath.drawview.document.DrawViewModel
 
 /**
@@ -88,7 +88,7 @@ class OnScaleTranslate(
                 lastFocusX = focusX
                 lastFocusY = focusY
 
-                drawViewModel.drawManager.requestDraw(DrawAttachments(drawMode = DrawMode.SCALE_TRANSLATE))
+                drawViewModel.drawManager.requestDraw(RenderRequest(drawMode = DrawMode.TRANSFORM))
                 return true
             }
 
@@ -108,7 +108,7 @@ class OnScaleTranslate(
                 if (isScaling) return true
 
                 drawViewModel.drawManager.cameraPhysics.onDrag(-distanceX, -distanceY, 1f, e2.x, e2.y)
-                drawViewModel.drawManager.requestDraw(DrawAttachments(drawMode = DrawMode.SCALE_TRANSLATE))
+                drawViewModel.drawManager.requestDraw(RenderRequest(drawMode = DrawMode.TRANSFORM))
                 return true
             }
 
@@ -118,7 +118,7 @@ class OnScaleTranslate(
                 drawViewModel.drawManager.cameraPhysics.onRelease(velocityX, velocityY)
 
                 if (drawViewModel.drawManager.cameraPhysics.isAnimating()) {
-                    drawViewModel.drawManager.requestDraw(DrawAttachments(drawMode = DrawMode.ANIMATE))
+                    drawViewModel.drawManager.requestDraw(RenderRequest(drawMode = DrawMode.ANIMATE))
                 }
                 return true
             }
@@ -162,10 +162,10 @@ class OnScaleTranslate(
                 drawViewModel.drawManager.cameraPhysics.onRelease(0f, 0f)
 
                 if (drawViewModel.drawManager.cameraPhysics.isAnimating()) {
-                    drawViewModel.drawManager.requestDraw(DrawAttachments(drawMode = DrawMode.ANIMATE))
+                    drawViewModel.drawManager.requestDraw(RenderRequest(drawMode = DrawMode.ANIMATE))
                 } else {
-                    drawViewModel.drawManager.requestDraw(DrawAttachments(drawMode = DrawMode.UPDATE).apply {
-                        update = DrawAttachments.Update.DRAW_BITMAP
+                    drawViewModel.drawManager.requestDraw(RenderRequest(drawMode = DrawMode.UPDATE).apply {
+                        cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
                     })
                 }
             }

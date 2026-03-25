@@ -13,7 +13,7 @@ import com.studiomath.drawview.document.history.AddPageAction
 import com.studiomath.drawview.document.history.DeletePageAction
 import com.studiomath.drawview.document.history.HistoryManager
 import com.studiomath.drawview.document.history.ReorderPagesAction
-import com.studiomath.drawview.document.render.DrawAttachments
+import com.studiomath.drawview.document.render.RenderRequest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -63,7 +63,7 @@ class PageManager(
             }
 
             drawManager.requestDraw(
-                DrawAttachments(DrawAttachments.DrawMode.SCALE_TRANSLATE)
+                RenderRequest(RenderRequest.DrawMode.TRANSFORM)
             )
             view.postOnAnimation(this)
         }
@@ -87,7 +87,7 @@ class PageManager(
         getDrawManager().cameraPhysics.stopAllAnimations()
 
         getDrawManager().requestDraw(
-            DrawAttachments(DrawAttachments.DrawMode.REFRESH)
+            RenderRequest(RenderRequest.DrawMode.REFRESH)
         )
     }
 
@@ -108,7 +108,7 @@ class PageManager(
             }
             performSwapLogic()
             getDrawManager().requestDraw(
-                DrawAttachments(DrawAttachments.DrawMode.REFRESH)
+                RenderRequest(RenderRequest.DrawMode.REFRESH)
             )
         }
     }
@@ -141,7 +141,7 @@ class PageManager(
                     floatingPageRect?.offsetTo(newLeft, newTop)
 
                     drawManager.requestDraw(
-                        DrawAttachments(DrawAttachments.DrawMode.REFRESH)
+                        RenderRequest(RenderRequest.DrawMode.REFRESH)
                     )
                 }
 
@@ -313,8 +313,8 @@ class PageManager(
             val drawManager = getDrawManager()
             drawManager.calcPage.needToBeUpdated = true
             drawManager.requestDraw(
-                DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
-                    update = DrawAttachments.Update.DRAW_BITMAP
+                RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
+                    cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
                 }
             )
 
@@ -346,8 +346,8 @@ class PageManager(
         val drawManager = getDrawManager()
         drawManager.calcPage.needToBeUpdated = true
         drawManager.requestDraw(
-            DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
-                update = DrawAttachments.Update.DRAW_BITMAP
+            RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
+                cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
             }
         )
     }

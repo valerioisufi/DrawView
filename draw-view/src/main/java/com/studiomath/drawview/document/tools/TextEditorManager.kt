@@ -1,7 +1,6 @@
 package com.studiomath.drawview.document.tools
 
 import android.graphics.PointF
-import android.graphics.Rect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -14,7 +13,7 @@ import com.studiomath.drawview.document.history.HistoryManager
 import com.studiomath.drawview.document.page.Document
 import com.studiomath.drawview.document.page.PageMaker
 import com.studiomath.drawview.document.page.Text
-import com.studiomath.drawview.document.render.DrawAttachments
+import com.studiomath.drawview.document.render.RenderRequest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -83,15 +82,15 @@ class TextEditorManager(
 
                 // Aggiorniamo la cache visiva
                 drawManager.requestDraw(
-                    DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
-                        update = DrawAttachments.Update.CACHE_PAGE_ONLY
-                        pageId = page.dbId
+                    RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
+                        cacheStrategy = RenderRequest.CacheStrategy.REBUILD_SINGLE_PAGE
+                        targetPageId = page.dbId
                     }
                 )
 
                 drawManager.requestDraw(
-                    DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
-                        update = DrawAttachments.Update.DRAW_BITMAP
+                    RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
+                        cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
                     }
                 )
             }

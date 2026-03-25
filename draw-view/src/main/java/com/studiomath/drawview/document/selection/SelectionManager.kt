@@ -19,10 +19,9 @@ import com.studiomath.drawview.document.history.TransformSelectionAction
 import com.studiomath.drawview.document.page.CalcPage
 import com.studiomath.drawview.document.page.Document
 import com.studiomath.drawview.document.page.Image
-import com.studiomath.drawview.document.page.PageMaker
 import com.studiomath.drawview.document.page.Stroke
 import com.studiomath.drawview.document.page.Text
-import com.studiomath.drawview.document.render.DrawAttachments
+import com.studiomath.drawview.document.render.RenderRequest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -108,7 +107,7 @@ class SelectionManager(
             )
 
             drawManager.requestDraw(
-                DrawAttachments(DrawAttachments.DrawMode.SCALE_TRANSLATE)
+                RenderRequest(RenderRequest.DrawMode.TRANSFORM)
             )
             view.postOnAnimation(this)
         }
@@ -350,7 +349,7 @@ class SelectionManager(
         applySelectionTransformation(drawViewModel.documentData)
 
         drawManager.requestDraw(
-            DrawAttachments(DrawAttachments.DrawMode.SCALE_TRANSLATE)
+            RenderRequest(RenderRequest.DrawMode.TRANSFORM)
         )
     }
 
@@ -582,7 +581,7 @@ class SelectionManager(
 
     private fun requestRedraw() {
         getDrawManager().requestDraw(
-            DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply { update = DrawAttachments.Update.DRAW_BITMAP }
+            RenderRequest(RenderRequest.DrawMode.UPDATE).apply { cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT }
         )
     }
 }

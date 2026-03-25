@@ -1,13 +1,11 @@
 package com.studiomath.drawview.document.history
 
-import android.graphics.Rect
-import com.studiomath.drawview.document.render.DrawManager
 import com.studiomath.drawview.document.DrawViewModel
 import com.studiomath.drawview.document.page.Image
 import com.studiomath.drawview.document.page.Page
 import com.studiomath.drawview.document.page.Stroke
 import com.studiomath.drawview.document.page.Text
-import com.studiomath.drawview.document.render.DrawAttachments
+import com.studiomath.drawview.document.render.RenderRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -20,8 +18,8 @@ private suspend fun refreshPageCache(viewModel: DrawViewModel, page: Page) {
         viewModel.drawManager.requestUpdatePageBitmap(page.dbId)
 
         viewModel.drawManager.requestDraw(
-            DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
-                update = DrawAttachments.Update.DRAW_BITMAP
+            RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
+                cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
             }
         )
     }
@@ -276,8 +274,8 @@ class AddPageAction(
         withContext(Dispatchers.Main) {
             viewModel.drawManager.calcPage.needToBeUpdated = true
             viewModel.drawManager.requestDraw(
-                DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
-                    update = DrawAttachments.Update.DRAW_BITMAP
+                RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
+                    cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
                 }
             )
         }
@@ -334,8 +332,8 @@ class DeletePageAction(
         withContext(Dispatchers.Main) {
             viewModel.drawManager.calcPage.needToBeUpdated = true
             viewModel.drawManager.requestDraw(
-                DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
-                    update = DrawAttachments.Update.DRAW_BITMAP
+                RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
+                    cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
                 }
             )
         }
@@ -358,8 +356,8 @@ class ReorderPagesAction(
         withContext(Dispatchers.Main) {
             viewModel.drawManager.calcPage.needToBeUpdated = true
             viewModel.drawManager.requestDraw(
-                DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
-                    update = DrawAttachments.Update.DRAW_BITMAP
+                RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
+                    cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
                 }
             )
         }
@@ -376,8 +374,8 @@ class ReorderPagesAction(
         withContext(Dispatchers.Main) {
             viewModel.drawManager.calcPage.needToBeUpdated = true
             viewModel.drawManager.requestDraw(
-                DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
-                    update = DrawAttachments.Update.DRAW_BITMAP
+                RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
+                    cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
                 }
             )
         }

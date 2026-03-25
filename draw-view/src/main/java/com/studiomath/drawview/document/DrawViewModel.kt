@@ -3,23 +3,15 @@ package com.studiomath.drawview.document
 import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.Color
-import android.graphics.Matrix
-import android.graphics.Path
 import android.graphics.PointF
-import android.graphics.Rect
 import android.graphics.RectF
 import android.net.Uri
 import android.util.DisplayMetrics
-import android.util.Log
-import android.view.MotionEvent
 import android.view.ViewConfiguration
 import androidx.annotation.ColorInt
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.ink.authoring.InProgressStrokeId
-import androidx.ink.brush.Brush
-import androidx.ink.geometry.AffineTransform
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.application
 import androidx.lifecycle.viewModelScope
@@ -27,17 +19,14 @@ import com.studiomath.drawview.R
 import com.studiomath.drawview.data.repository.DrawDocumentRepository
 import com.studiomath.drawview.document.history.DrawAction
 import com.studiomath.drawview.document.history.HistoryManager
-import com.studiomath.drawview.document.io.MediaImporter
 import com.studiomath.drawview.document.page.Dimension
 import com.studiomath.drawview.document.page.Document
 import com.studiomath.drawview.document.page.Image
-import com.studiomath.drawview.document.page.Measure
 import com.studiomath.drawview.document.page.PageBackground
 import com.studiomath.drawview.document.page.PageMaker
 import com.studiomath.drawview.document.page.PageManager
-import com.studiomath.drawview.document.page.Stroke
 import com.studiomath.drawview.document.page.Text
-import com.studiomath.drawview.document.render.DrawAttachments
+import com.studiomath.drawview.document.render.RenderRequest
 import com.studiomath.drawview.document.render.DrawManager
 import com.studiomath.drawview.document.selection.LassoMode
 import com.studiomath.drawview.document.selection.SelectionGroup
@@ -51,7 +40,6 @@ import com.studiomath.drawview.document.tools.Tool
 import com.studiomath.drawview.document.tools.ToolManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlin.math.hypot
 
 /**
  * Main ViewModel for the drawing environment.
@@ -276,13 +264,13 @@ class DrawViewModel(
 
         // 6. Richiediamo al Canvas di ridisegnarsi con le nuove coordinate
         drawManager.requestDraw(
-            DrawAttachments(DrawAttachments.DrawMode.SCALE_TRANSLATE)
+            RenderRequest(RenderRequest.DrawMode.TRANSFORM)
         )
 
         // 7. Aggiorniamo istantaneamente la telecamera a schermo
         drawManager.requestDraw(
-            DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
-                update = DrawAttachments.Update.DRAW_BITMAP
+            RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
+                cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
             }
         )
     }
@@ -393,9 +381,9 @@ class DrawViewModel(
             drawManager.calcPage.needToBeUpdated = true
 
             drawManager.requestDraw(
-                DrawAttachments(
-                DrawAttachments.DrawMode.UPDATE
-            ).apply { update = DrawAttachments.Update.DRAW_BITMAP })
+                RenderRequest(
+                RenderRequest.DrawMode.UPDATE
+            ).apply { cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT })
 
             drawManager.requestUpdatePageBitmap(page.dbId)
         }
@@ -454,8 +442,8 @@ class DrawViewModel(
             pendingDocBackground = null
 
             drawManager.calcPage.needToBeUpdated = true
-            drawManager.requestDraw(DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply { update = DrawAttachments.Update.DRAW_BITMAP })
-            drawManager.requestDraw(DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply { update = DrawAttachments.Update.CACHE_ALL })
+            drawManager.requestDraw(RenderRequest(RenderRequest.DrawMode.UPDATE).apply { cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT })
+            drawManager.requestDraw(RenderRequest(RenderRequest.DrawMode.UPDATE).apply { cacheStrategy = RenderRequest.CacheStrategy.REBUILD_ALL_PAGES })
         }
     }
 
@@ -488,13 +476,13 @@ class DrawViewModel(
             if (isDocumentLoaded) {
                 // Initialize the rendering of the first loaded page
                 drawManager.requestDraw(
-                    DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
-                        update = DrawAttachments.Update.DRAW_BITMAP
+                    RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
+                        cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
                     }
                 )
                 drawManager.requestDraw(
-                    DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
-                        update = DrawAttachments.Update.CACHE_ALL
+                    RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
+                        cacheStrategy = RenderRequest.CacheStrategy.REBUILD_ALL_PAGES
                     }
                 )
             } else {

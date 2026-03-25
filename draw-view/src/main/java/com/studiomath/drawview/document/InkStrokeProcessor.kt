@@ -1,10 +1,8 @@
 package com.studiomath.drawview.document
 
-import android.graphics.Canvas
 import android.graphics.Matrix
 import android.graphics.RectF
 import androidx.annotation.UiThread
-import androidx.core.graphics.withSave
 import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.authoring.InProgressStrokesFinishedListener
 import androidx.ink.geometry.AffineTransform
@@ -14,7 +12,7 @@ import androidx.ink.strokes.StrokeInput
 import androidx.ink.strokes.createClosedShape
 import com.studiomath.drawview.document.history.AddStrokesAction
 import com.studiomath.drawview.document.history.PageStrokeGroup
-import com.studiomath.drawview.document.render.DrawAttachments
+import com.studiomath.drawview.document.render.RenderRequest
 import com.studiomath.drawview.document.render.DrawManager
 import com.studiomath.drawview.document.selection.LassoMode
 import com.studiomath.drawview.document.selection.SelectionGroup
@@ -58,8 +56,8 @@ class InkStrokeProcessor(
             } catch (e: Exception) {
                 e.printStackTrace()
                 drawViewModel.inkInputManager.removeFinishedStrokes?.invoke(strokes.keys)
-                drawManager.requestDraw(DrawAttachments(drawMode = DrawAttachments.DrawMode.UPDATE).apply {
-                    update = DrawAttachments.Update.DRAW_BITMAP
+                drawManager.requestDraw(RenderRequest(drawMode = RenderRequest.DrawMode.UPDATE).apply {
+                    cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
                 })
                 return
             }
@@ -130,8 +128,8 @@ class InkStrokeProcessor(
             }
 
             drawViewModel.inkInputManager.removeFinishedStrokes?.invoke(strokes.keys)
-            drawManager.requestDraw(DrawAttachments(drawMode = DrawAttachments.DrawMode.UPDATE).apply {
-                update = DrawAttachments.Update.DRAW_BITMAP
+            drawManager.requestDraw(RenderRequest(drawMode = RenderRequest.DrawMode.UPDATE).apply {
+                cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
             })
             return
         }
@@ -142,8 +140,8 @@ class InkStrokeProcessor(
             strokes.keys.forEach { drawViewModel.inkInputManager.activeStrokePageMap.remove(it) }
 
             drawViewModel.inkInputManager.removeFinishedStrokes?.invoke(strokes.keys)
-            drawManager.requestDraw(DrawAttachments(drawMode = DrawAttachments.DrawMode.UPDATE).apply {
-                update = DrawAttachments.Update.DRAW_BITMAP
+            drawManager.requestDraw(RenderRequest(drawMode = RenderRequest.DrawMode.UPDATE).apply {
+                cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
             })
             return
         }
@@ -221,8 +219,8 @@ class InkStrokeProcessor(
 
             // 6. Cottura Multi-Pagina
             drawManager.requestDraw(
-                DrawAttachments(drawMode = DrawAttachments.DrawMode.UPDATE).apply {
-                    update = DrawAttachments.Update.BAKE_NEW_STROKES
+                RenderRequest(drawMode = RenderRequest.DrawMode.UPDATE).apply {
+                    cacheStrategy = RenderRequest.CacheStrategy.BAKE_NEW_STROKES
                     newStrokesToBake = strokesByPage
                     strokesIdToRemove = strokes.keys
                 }

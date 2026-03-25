@@ -115,7 +115,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     private val renderDispatcher = Dispatchers.IO.limitedParallelism(1)
     private val renderScope = CoroutineScope(renderDispatcher + SupervisorJob())
 
-    private val renderChannel = Channel<DrawAttachments>(Channel.Factory.UNLIMITED)
+    private val renderChannel = Channel<RenderRequest>(Channel.Factory.UNLIMITED)
     private var renderJob: Job? = null
     private var currentSurfaceHolder: SurfaceHolder? = null
 
@@ -157,13 +157,13 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
      * Submits a request to the rendering pipeline to update the view.
      * This method handles both background bitmap regeneration and direct transformation updates.
      *
-     * @param drawAttachments Instructions and metadata for the requested frame update.
+     * @param renderRequest Instructions and metadata for the requested frame update.
      */
-    fun requestDraw(drawAttachments: DrawAttachments){
-        when (drawAttachments.drawMode) {
-            DrawAttachments.DrawMode.UPDATE -> {
-                when (drawAttachments.update) {
-                    DrawAttachments.Update.DRAW_BITMAP -> {
+    fun requestDraw(renderRequest: RenderRequest){
+        when (renderRequest.drawMode) {
+            RenderRequest.DrawMode.UPDATE -> {
+                when (renderRequest.cacheStrategy) {
+                    RenderRequest.CacheStrategy.REBUILD_VIEWPORT -> {
                         val document = drawViewModel.documentData ?: return
                         // Use contentBitmap as the source of truth for initialization
                         if (onDrawContentBitmap == null) return
@@ -191,7 +191,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                     newPagesRect,
                                     document,
                                     existingPdfBitmap = frontState.pdfBitmap,
-                                    renderPdf = drawAttachments.updatePdfBitmap
+                                    renderPdf = renderRequest.includePdfLayer
                                 )
                             }
 
@@ -210,8 +210,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                 pagesRectOnWindow = frontState.pagesRect.toMutableSet()
                             }
 
-                            updateDrawView(DrawAttachments(drawAttachments.drawMode).apply {
-                                update = drawAttachments.update
+                            updateDrawView(RenderRequest(renderRequest.drawMode).apply {
+                                cacheStrategy = renderRequest.cacheStrategy
                             })
 
                             withContext(Dispatchers.Main) {
@@ -219,11 +219,11 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                             }
                         }
                     }
-                    DrawAttachments.Update.CACHE_PAGE_ONLY -> {
+                    RenderRequest.CacheStrategy.REBUILD_SINGLE_PAGE -> {
                         scope.launch {
                             val document = drawViewModel.documentData ?: return@launch
 
-                            val page = document.pages.find { it.dbId == drawAttachments.pageId }
+                            val page = document.pages.find { it.dbId == renderRequest.targetPageId }
                             page?.isPrepared?.let { if (!it) page.prepare() }
 
                             page?.contentBitmapCache?.let {
@@ -233,14 +233,14 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                     it,
                                     page,
                                     document,
-                                    renderPdf = drawAttachments.updatePdfBitmap
+                                    renderPdf = renderRequest.includePdfLayer
                                 )
                                 page.pdfBitmapCache = bitmaps.pdf
                                 page.contentBitmapCache = bitmaps.content
                             }
                         }
                     }
-                    DrawAttachments.Update.CACHE_ALL -> {
+                    RenderRequest.CacheStrategy.REBUILD_ALL_PAGES -> {
                         scope.launch {
                             val document = drawViewModel.documentData ?: return@launch
                             for (page in document.pages) {
@@ -256,12 +256,12 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                             }
                         }
                     }
-                    DrawAttachments.Update.BAKE_NEW_STROKES -> {
-                        drawAttachments.newStrokesToBake?.let { strokesMap ->
+                    RenderRequest.CacheStrategy.BAKE_NEW_STROKES -> {
+                        renderRequest.newStrokesToBake?.let { strokesMap ->
                             scope.launch(renderDispatcher) {
                                 bakeStrokesIntoCache(strokesMap)
-                                updateDrawView(DrawAttachments(DrawAttachments.DrawMode.REFRESH).apply {
-                                    strokesIdToRemove = drawAttachments.strokesIdToRemove
+                                updateDrawView(RenderRequest(RenderRequest.DrawMode.REFRESH).apply {
+                                    strokesIdToRemove = renderRequest.strokesIdToRemove
                                 })
                             }
                         }
@@ -269,29 +269,29 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     else -> {}
                 }
             }
-            DrawAttachments.DrawMode.REFRESH -> {
+            RenderRequest.DrawMode.REFRESH -> {
                 if (onDrawContentBitmap == null) return
-                updateDrawView(drawAttachments)
+                updateDrawView(renderRequest)
             }
-            DrawAttachments.DrawMode.SCALE_TRANSLATE, DrawAttachments.DrawMode.ANIMATE -> {
+            RenderRequest.DrawMode.TRANSFORM, RenderRequest.DrawMode.ANIMATE -> {
                 if (onDrawContentBitmap == null) return
                 jobOnDrawBitmap?.cancel()
 
                 val renderMatrix = cameraPhysics.getRenderMatrix()
                 pagesRectOnWindow = calcPage.getPagesRectOnWindowTransformation(windowRect, renderMatrix)
 
-                updateDrawView(drawAttachments)
+                updateDrawView(renderRequest)
             }
-            DrawAttachments.DrawMode.PREVIEW -> {
+            RenderRequest.DrawMode.PREVIEW -> {
                 if (onDrawContentBitmap == null) return
             }
         }
     }
 
     fun requestUpdatePageBitmap(pageId: Int){
-        requestDraw(DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
-            update = DrawAttachments.Update.CACHE_PAGE_ONLY
-            this.pageId = pageId
+        requestDraw(RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
+            cacheStrategy = RenderRequest.CacheStrategy.REBUILD_SINGLE_PAGE
+            this.targetPageId = pageId
         })
     }
 
@@ -301,11 +301,11 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     /**
      * Queues a frame update to the reactive rendering channel.
      *
-     * @param drawAttachments The metadata for the frame to be drawn.
+     * @param renderRequest The metadata for the frame to be drawn.
      */
-    private fun updateDrawView(drawAttachments: DrawAttachments) {
+    private fun updateDrawView(renderRequest: RenderRequest) {
         isDrawing = true
-        renderChannel.trySend(drawAttachments)
+        renderChannel.trySend(renderRequest)
     }
 
     /**
@@ -326,26 +326,26 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     attachmentsToProcess.add(next)
                 }
 
-                var finalDrawMode = DrawAttachments.DrawMode.REFRESH
+                var finalDrawMode = RenderRequest.DrawMode.REFRESH
                 val accumulatedStrokesToRemove = mutableSetOf<InProgressStrokeId>()
-                var targetUpdate: DrawAttachments.Update? = null
-                var targetAnimation = DrawAttachments.AnimationType.NONE
+                var targetCacheStrategy: RenderRequest.CacheStrategy? = null
+                var targetAnimation = RenderRequest.AnimationType.NONE
 
                 for (att in attachmentsToProcess) {
-                    if (att.drawMode == DrawAttachments.DrawMode.UPDATE) {
-                        finalDrawMode = DrawAttachments.DrawMode.UPDATE
-                    } else if (finalDrawMode != DrawAttachments.DrawMode.UPDATE) {
+                    if (att.drawMode == RenderRequest.DrawMode.UPDATE) {
+                        finalDrawMode = RenderRequest.DrawMode.UPDATE
+                    } else if (finalDrawMode != RenderRequest.DrawMode.UPDATE) {
                         finalDrawMode = att.drawMode
                     }
                     att.strokesIdToRemove?.let { accumulatedStrokesToRemove.addAll(it) }
-                    att.update?.let { targetUpdate = it }
-                    if (att.animationType != DrawAttachments.AnimationType.NONE) {
+                    att.cacheStrategy?.let { targetCacheStrategy = it }
+                    if (att.animationType != RenderRequest.AnimationType.NONE) {
                         targetAnimation = att.animationType
                     }
                 }
 
-                val finalAttachment = DrawAttachments(finalDrawMode).apply {
-                    update = targetUpdate
+                val finalAttachment = RenderRequest(finalDrawMode).apply {
+                    cacheStrategy = targetCacheStrategy
                     animationType = targetAnimation
                 }
 
@@ -357,7 +357,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                         canvas.clipRect(windowRect)
                         canvas.drawColor(drawViewModel.themeColors.backgroundColor)
 
-                        lastDrawAttachments = finalAttachment
+                        lastRenderRequest = finalAttachment
                         executeRender(canvas, finalAttachment)
                         isDrawing = false
                     }
@@ -385,7 +385,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         currentSurfaceHolder = null
     }
 
-    var lastDrawAttachments: DrawAttachments? = null
+    var lastRenderRequest: RenderRequest? = null
 
     val shadowPaint = Paint().apply {
         color = Color.argb(80, 0, 0, 0)
@@ -410,19 +410,19 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     )
 
     /**
-     * Internal rendering entry point that dispatches specific drawing logic based on [DrawAttachments].
+     * Internal rendering entry point that dispatches specific drawing logic based on [RenderRequest].
      *
      * @param canvas The target hardware-accelerated canvas.
-     * @param drawAttachments Metadata describing the type of drawing pass required.
+     * @param renderRequest Metadata describing the type of drawing pass required.
      */
-    private fun executeRender(canvas: Canvas, drawAttachments: DrawAttachments) {
+    private fun executeRender(canvas: Canvas, renderRequest: RenderRequest) {
         val snapshot: RenderSnapshot
         synchronized(renderLock) {
 
             val currentRenderMatrix = cameraPhysics.getRenderMatrix()
 
-            val useLiveRects = drawAttachments.drawMode == DrawAttachments.DrawMode.SCALE_TRANSLATE ||
-                    drawAttachments.drawMode == DrawAttachments.DrawMode.ANIMATE ||
+            val useLiveRects = renderRequest.drawMode == RenderRequest.DrawMode.TRANSFORM ||
+                    renderRequest.drawMode == RenderRequest.DrawMode.ANIMATE ||
                     drawViewModel.isReorderingPages
 
             val currentPagesRect = if (useLiveRects) {
@@ -444,11 +444,11 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             )
         }
 
-        when (drawAttachments.drawMode) {
-            DrawAttachments.DrawMode.UPDATE -> renderUpdateMode(canvas, snapshot, drawAttachments)
-            DrawAttachments.DrawMode.REFRESH -> renderRefreshMode(canvas, snapshot, drawAttachments)
-            DrawAttachments.DrawMode.SCALE_TRANSLATE -> renderScaleTranslateMode(canvas, snapshot)
-            DrawAttachments.DrawMode.ANIMATE -> renderAnimateMode(canvas, snapshot)
+        when (renderRequest.drawMode) {
+            RenderRequest.DrawMode.UPDATE -> renderUpdateMode(canvas, snapshot, renderRequest)
+            RenderRequest.DrawMode.REFRESH -> renderRefreshMode(canvas, snapshot, renderRequest)
+            RenderRequest.DrawMode.TRANSFORM -> renderScaleTranslateMode(canvas, snapshot)
+            RenderRequest.DrawMode.ANIMATE -> renderAnimateMode(canvas, snapshot)
             else -> {}
         }
 
@@ -457,14 +457,14 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         }
 
         if (cameraPhysics.isAnimating()) {
-            requestDraw(DrawAttachments(drawMode = DrawAttachments.DrawMode.ANIMATE).apply {
-                animationType = DrawAttachments.AnimationType.FLING
+            requestDraw(RenderRequest(drawMode = RenderRequest.DrawMode.ANIMATE).apply {
+                animationType = RenderRequest.AnimationType.FLING
             })
         }
     }
 
     /** Draws the high-resolution bitmap and page backgrounds during a full document update. */
-    private fun renderUpdateMode(canvas: Canvas, snapshot: RenderSnapshot, attachments: DrawAttachments) {
+    private fun renderUpdateMode(canvas: Canvas, snapshot: RenderSnapshot, attachments: RenderRequest) {
         drawViewModel.pageMaker.makeWindowBackground(canvas, snapshot.pagesRect, snapshot.currentRenderMatrix, drawViewModel.themeColors)
 
         // Recuperiamo il documento
@@ -483,7 +483,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     }
 
     /** Refreshes the view, handling special states like page reordering and placeholders. */
-    private fun renderRefreshMode(canvas: Canvas, snapshot: RenderSnapshot, attachments: DrawAttachments) {
+    private fun renderRefreshMode(canvas: Canvas, snapshot: RenderSnapshot, attachments: RenderRequest) {
         drawViewModel.pageMaker.makeWindowBackground(canvas, snapshot.pagesRect, snapshot.currentRenderMatrix, drawViewModel.themeColors)
         val document = drawViewModel.documentData
 
@@ -601,8 +601,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
         if (!cameraPhysics.isAnimating()) {
             lastFrameTime = 0L
-            requestDraw(DrawAttachments(drawMode = DrawAttachments.DrawMode.UPDATE).apply {
-                update = DrawAttachments.Update.DRAW_BITMAP
+            requestDraw(RenderRequest(drawMode = RenderRequest.DrawMode.UPDATE).apply {
+                cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
             })
         }
     }
@@ -851,10 +851,10 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
         if (drawViewModel.isDocumentLoaded) {
             // Frame immediato per evitare il nero
-            updateDrawView(DrawAttachments(DrawAttachments.DrawMode.SCALE_TRANSLATE))
+            updateDrawView(RenderRequest(RenderRequest.DrawMode.TRANSFORM))
             // Ricalcolo sfondo pesante
-            requestDraw(DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
-                update = DrawAttachments.Update.DRAW_BITMAP
+            requestDraw(RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
+                cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
             })
         }
     }
@@ -885,7 +885,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
                 onUpdate(stepDy)
 
-                requestDraw(DrawAttachments(drawMode = DrawAttachments.DrawMode.SCALE_TRANSLATE))
+                requestDraw(RenderRequest(drawMode = RenderRequest.DrawMode.TRANSFORM))
             }
             start()
         }

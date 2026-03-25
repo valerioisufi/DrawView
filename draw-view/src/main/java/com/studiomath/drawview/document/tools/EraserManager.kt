@@ -15,7 +15,7 @@ import com.studiomath.drawview.document.page.Document
 import com.studiomath.drawview.document.page.Measure
 import com.studiomath.drawview.document.page.PageMaker
 import com.studiomath.drawview.document.page.Stroke
-import com.studiomath.drawview.document.render.DrawAttachments
+import com.studiomath.drawview.document.render.RenderRequest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -113,9 +113,9 @@ class EraserManager(
                 }
 
                 drawManager.requestDraw(
-                    DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
-                        update = DrawAttachments.Update.CACHE_PAGE_ONLY
-                        pageId = page.dbId
+                    RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
+                        cacheStrategy = RenderRequest.CacheStrategy.REBUILD_SINGLE_PAGE
+                        targetPageId = page.dbId
                     }
                 )
             }
@@ -123,8 +123,8 @@ class EraserManager(
 
         // Chiediamo al nuovo Render Loop di rigenerare e mostrare le bitmap
         drawManager.requestDraw(
-            DrawAttachments(DrawAttachments.DrawMode.UPDATE).apply {
-                update = DrawAttachments.Update.DRAW_BITMAP
+            RenderRequest(RenderRequest.DrawMode.UPDATE).apply {
+                cacheStrategy = RenderRequest.CacheStrategy.REBUILD_VIEWPORT
             }
         )
     }

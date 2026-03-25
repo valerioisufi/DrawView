@@ -8,12 +8,12 @@ import kotlin.math.sign
 
 /**
  * A unified physics engine for managing the document camera's viewport and transformations.
- * * This engine replaces standard scrolling mechanisms like OverScroller and ValueAnimator
+ * This engine replaces standard scrolling mechanisms like OverScroller and ValueAnimator
  * by utilizing a framerate-independent spring physics model. Calculations are processed
  * separately for the X-axis, Y-axis, and scaling (zoom) operations.
  *
- * @property displayMetrics The display metrics used for potential pixel-to-dp conversions.
- * @property getContentRect A lambda function that returns the total mathematical bounding box of the document's pages without zoom applied.
+ * @param displayMetrics The display metrics used for potential pixel-to-dp conversions.
+ * @param getContentRect A lambda function that returns the total mathematical bounding box of the document's pages without zoom applied.
  */
 class CameraPhysicsEngine(
     private val displayMetrics: DisplayMetrics,
@@ -40,25 +40,25 @@ class CameraPhysicsEngine(
     var rubberBandTension: Float = 0.55f
 
     /**
-     * Il rapporto minimo consentito: quanti dp dello schermo servono per rappresentare 1 mm del documento.
-     * Es: 0.2f significa Zoom Out estremo (un foglio A4 largo 210mm occuperà solo 42 dp, permettendoti di vedere decine di pagine).
+     * The minimum allowed ratio determining how many screen dp represent 1mm of the document.
+     * Defines the maximum zoom-out limit.
      */
     var minDpPerMm: Float = 0.2f
 
     /**
-     * Il rapporto massimo consentito: quanti dp dello schermo servono per rappresentare 1 mm del documento.
-     * Es: 80f significa Zoom In estremo (1 singolo millimetro riempirà 80 dp sullo schermo, utile per scrivere pedici o formule minuscole).
+     * The maximum allowed ratio determining how many screen dp represent 1mm of the document.
+     * Defines the maximum zoom-in limit.
      */
     var maxDpPerMm: Float = 50f
 
     /**
-     * La scala minima calcolata dinamicamente in base alla densità dello schermo del dispositivo corrente.
+     * The dynamic minimum scale factor calculated based on the device's screen density.
      */
     val minScale: Float
         get() = minDpPerMm * displayMetrics.density
 
     /**
-     * La scala massima calcolata dinamicamente in base alla densità dello schermo del dispositivo corrente.
+     * The dynamic maximum scale factor calculated based on the device's screen density.
      */
     val maxScale: Float
         get() = maxDpPerMm * displayMetrics.density
@@ -79,13 +79,9 @@ class CameraPhysicsEngine(
     var bottomPaddingPx: Float = 40f
 
     /**
-     * The dedicated physics controller for horizontal (X-axis) translation.
+     * The dedicated physics controllers for horizontal and vertical translation.
      */
     private val axisX = AxisPhysics1D()
-
-    /**
-     * The dedicated physics controller for vertical (Y-axis) translation.
-     */
     private val axisY = AxisPhysics1D()
 
     /**
@@ -104,25 +100,18 @@ class CameraPhysicsEngine(
     private var viewportRect = RectF()
 
     /**
-     * The last recorded X coordinate of the focal point during a gesture.
+     * The last recorded coordinates of the focal point during a gesture.
      */
     private var lastFocusX = 0f
-
-    /**
-     * The last recorded Y coordinate of the focal point during a gesture.
-     */
     private var lastFocusY = 0f
 
     init {
-        // Partiamo con uno zoom iniziale ragionevole in cui 1mm = 1dp (moltiplicato per la densità),
-        // assicurandoci che rientri sempre e comunque nei limiti matematici consentiti.
         val defaultStartScale = 0.5f * displayMetrics.density
         scaleAxis.position = defaultStartScale.coerceIn(minScale, maxScale)
     }
 
     /**
-     * Updates the dimensions of the visible viewport.
-     * This should typically be called during the view's size change callback.
+     * Updates the dimensions of the visible viewport and recalculates boundaries.
      *
      * @param width The new width of the viewport.
      * @param height The new height of the viewport.
@@ -133,15 +122,19 @@ class CameraPhysicsEngine(
     }
 
     /**
-     * FASE 4: Riposiziona la telecamera forzando un punto specifico del documento
-     * al centro esatto dello schermo, mantenendo la scala desiderata.
+     * Repositions the camera to center exactly on a specific point in the document coordinate space,
+     * maintaining the desired scale.
+     *
+     * @param worldX The X coordinate in the document's world space.
+     * @param worldY The Y coordinate in the document's world space.
+     * @param scale The desired scale factor.
+     * @param screenWidth The width of the screen or viewport.
+     * @param screenHeight The height of the screen or viewport.
      */
     fun centerOnWorldPoint(worldX: Float, worldY: Float, scale: Float, screenWidth: Float, screenHeight: Float) {
         stopAllAnimations()
         scaleAxis.position = scale
 
-        // Calcolo inverso della matrice di rendering:
-        // ScreenX = (WorldX * Scale) + TranslateX ---> TranslateX = ScreenX - (WorldX * Scale)
         axisX.position = (screenWidth / 2f) - (worldX * scale)
         axisY.position = (screenHeight / 2f) - (worldY * scale)
 
@@ -149,17 +142,18 @@ class CameraPhysicsEngine(
     }
 
     /**
-     * Restituisce il livello di zoom (scala) attualmente applicato.
+     * Retrieves the currently applied zoom level (scale).
+     *
+     * @return The current scale factor.
      */
     fun getCurrentScale(): Float {
         return scaleAxis.position
     }
 
     /**
-     * Determines whether an inertial animation or elastic bounce is currently active.
-     * This is generally used to evaluate if the render loop needs to request further draw frames.
+     * Determines whether a physics-driven animation (fling or bounce) is currently active.
      *
-     * @return True if a physics-driven animation is actively running, false otherwise.
+     * @return `true` if an animation is running, `false` otherwise.
      */
     fun isAnimating(): Boolean {
         return !isUserDragging && (
@@ -170,8 +164,7 @@ class CameraPhysicsEngine(
     }
 
     /**
-     * Interrupts and stops all active animations immediately.
-     * Triggered when the user initiates a new touch interaction.
+     * Halts all animations and sets the dragging state to active.
      */
     fun onDragStart() {
         isUserDragging = true
@@ -179,14 +172,13 @@ class CameraPhysicsEngine(
     }
 
     /**
-     * Translates or scales the viewport based on user input gestures.
-     * Visual resistance for out-of-bounds drags is deferred to the matrix generation phase.
+     * Processes drag and zoom gestures to translate and scale the viewport.
      *
      * @param dx The translation delta along the X-axis.
      * @param dy The translation delta along the Y-axis.
      * @param scaleFactor The multiplier applied to the current scale.
-     * @param focusX The X coordinate of the gesture's focal point.
-     * @param focusY The Y coordinate of the gesture's focal point.
+     * @param focusX The X coordinate of the gesture's focal point on the screen.
+     * @param focusY The Y coordinate of the gesture's focal point on the screen.
      */
     fun onDrag(dx: Float, dy: Float, scaleFactor: Float, focusX: Float, focusY: Float) {
         lastFocusX = focusX
@@ -211,10 +203,10 @@ class CameraPhysicsEngine(
     }
 
     /**
-     * Applies velocity from a released touch event to initiate a fling or bounce animation.
+     * Initiates a fling or bounce animation based on the release velocity of a drag gesture.
      *
-     * @param velocityX The velocity along the X-axis in pixels per second.
-     * @param velocityY The velocity along the Y-axis in pixels per second.
+     * @param velocityX The release velocity along the X-axis in pixels per second.
+     * @param velocityY The release velocity along the Y-axis in pixels per second.
      */
     fun onRelease(velocityX: Float, velocityY: Float) {
         isUserDragging = false
@@ -234,8 +226,7 @@ class CameraPhysicsEngine(
     }
 
     /**
-     * Instantly halts all active physical movements across all axes.
-     * The viewport position remains at the exact location where it was stopped.
+     * Immediately stops all active physics animations across translation and scaling axes.
      */
     fun stopAllAnimations() {
         axisX.stop()
@@ -244,10 +235,9 @@ class CameraPhysicsEngine(
     }
 
     /**
-     * Forces the viewport back within its defined mathematical boundaries.
-     * This is useful for restoring the view after structural layout changes or external events.
+     * Forces the viewport to return within its defined boundaries.
      *
-     * @param animated If true, applies a spring physics animation to return to bounds. If false, snaps instantly.
+     * @param animated If `true`, uses a spring animation. If `false`, snaps instantly. Defaults to `true`.
      */
     fun restoreToBounds(animated: Boolean = true) {
         updateDynamicBoundaries()
@@ -265,10 +255,9 @@ class CameraPhysicsEngine(
     }
 
     /**
-     * Advances the physics simulation by the specified time delta.
-     * This method must be called within the active render loop (e.g., during frame drawing).
+     * Advances the physics simulation. Should be called during the render loop.
      *
-     * @param deltaTimeMillis The elapsed time in milliseconds since the last frame update.
+     * @param deltaTimeMillis The time elapsed since the last update in milliseconds.
      */
     fun update(deltaTimeMillis: Long) {
         if (isUserDragging || deltaTimeMillis <= 0) return
@@ -283,10 +272,10 @@ class CameraPhysicsEngine(
     }
 
     /**
-     * Computes and returns the final transformation matrix for rendering the document canvas.
-     * The matrix incorporates instantaneous rubber-band tension effects if the viewport is out of bounds.
+     * Generates the transformation matrix for rendering, applying scale, translation,
+     * and instantaneous rubber-band tension if out of bounds.
      *
-     * @return A standard Android [Matrix] containing the evaluated scale and translation parameters.
+     * @return A [Matrix] containing the final render transformations.
      */
     fun getRenderMatrix(): Matrix {
         val matrix = Matrix()
@@ -334,12 +323,12 @@ class CameraPhysicsEngine(
     }
 
     /**
-     * Represents the distinct kinetic states available for an individual physics axis.
+     * Represents the possible kinetic states for a physics axis.
      */
     enum class PhysicsState { IDLE, FLINGING, BOUNCING }
 
     /**
-     * Manages the isolated one-dimensional physics calculations for a translation axis (X or Y).
+     * Handles 1D physics calculations for a translation axis.
      */
     private inner class AxisPhysics1D {
         /**
@@ -461,7 +450,7 @@ class CameraPhysicsEngine(
     }
 
     /**
-     * Manages the isolated one-dimensional physics calculations specifically tailored for scaling and zoom behaviors.
+     * Handles 1D physics calculations for scaling/zoom operations.
      */
     private inner class ScalePhysics1D {
         /**

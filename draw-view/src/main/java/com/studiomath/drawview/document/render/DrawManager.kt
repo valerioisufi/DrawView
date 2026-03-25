@@ -361,11 +361,13 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     }
                 } finally {
                     if (canvas != null) {
+                        // Publish the new frame to the screen
                         holder.unlockCanvasAndPost(canvas)
 
+                        // Clear the temporary UI layer ONLY AFTER the SurfaceView has posted its frame
                         if (accumulatedStrokesToRemove.isNotEmpty()) {
                             withContext(Dispatchers.Main) {
-                                drawViewModel.inkInputManager.removeFinishedStrokes?.invoke(
+                                drawViewModel.clearTemporaryStrokes?.invoke(
                                     accumulatedStrokesToRemove
                                 )
                             }

@@ -70,6 +70,7 @@ import androidx.input.motionprediction.MotionEventPredictor
 import com.studiomath.drawview.R
 import com.studiomath.drawview.document.motion.CanvasTouchDispatcher
 import com.studiomath.drawview.document.render.RenderRequest
+import com.studiomath.drawview.document.render.TemporaryWetLayerView
 import com.studiomath.drawview.document.tools.RichTextUtil
 import kotlin.math.min
 
@@ -129,6 +130,26 @@ fun DrawComponent(
             modifier = Modifier.fillMaxSize(),
             factory = { context ->
                 val rootView = FrameLayout(context)
+
+                // 1. Create and setup the temporary wet layer
+                val temporaryWetLayerView = TemporaryWetLayerView(context).apply {
+                    layoutParams = FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                    )
+                    this.canvasStrokeRenderer = drawViewModel.pageMaker.canvasStrokeRenderer
+                    this.drawManager = drawViewModel.drawManager
+                }
+
+                // 2. Wire the ViewModel callbacks to the view
+                drawViewModel.addTemporaryStrokes = { strokes ->
+                    temporaryWetLayerView.addStrokes(strokes)
+                }
+                drawViewModel.clearTemporaryStrokes = { strokeIds ->
+                    temporaryWetLayerView.removeStrokes(strokeIds)
+                }
+
+
                 inProgressStrokesView.apply {
                     layoutParams = FrameLayout.LayoutParams(
                         FrameLayout.LayoutParams.MATCH_PARENT,
@@ -170,6 +191,8 @@ fun DrawComponent(
                     MotionEventPredictor.newInstance(rootView)
                 rootView.setOnTouchListener(canvasTouchDispatcher.onTouchListener)
 
+                // 3. Add views in the correct Z-order (bottom to top)
+                rootView.addView(temporaryWetLayerView)
                 rootView.addView(inProgressStrokesView)
                 rootView
             }

@@ -12,6 +12,7 @@ import androidx.annotation.ColorInt
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.ink.authoring.InProgressStrokeId
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.application
 import androidx.lifecycle.viewModelScope
@@ -592,6 +593,10 @@ class DrawViewModel(
             repository.updateStylusMode(isStylusOnly)
         }
     }
+
+    // --- DELEGATI PER TEMPORARY WET LAYER ---
+    var addTemporaryStrokes: ((Map<InProgressStrokeId, androidx.ink.strokes.Stroke>) -> Unit)? = null
+    var clearTemporaryStrokes: ((Set<InProgressStrokeId>) -> Unit)? = null
 
 }
 

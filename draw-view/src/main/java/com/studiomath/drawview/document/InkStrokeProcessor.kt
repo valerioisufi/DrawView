@@ -147,6 +147,13 @@ class InkStrokeProcessor(
         }
 
         // --- GESTIONE INCHIOSTRO (FAST PATH) ---
+
+        // 1. Move strokes to the temporary UI layer immediately
+        drawViewModel.addTemporaryStrokes?.invoke(strokes)
+
+        // 2. Remove them from the InProgress layer to avoid double drawing on the main thread
+        drawViewModel.inkInputManager.removeFinishedStrokes?.invoke(strokes.keys)
+
         coroutineScope.launch {
             val strokesByPage = mutableMapOf<Int, MutableList<InkStroke>>()
             val historyGroups = mutableListOf<PageStrokeGroup>()
@@ -217,12 +224,12 @@ class InkStrokeProcessor(
                 drawViewModel.historyManager.addHistoryAction(AddStrokesAction(historyGroups))
             }
 
-            // 6. Cottura Multi-Pagina
+            // 6. Bake the strokes in the background
             drawManager.requestDraw(
                 RenderRequest(drawMode = RenderRequest.DrawMode.UPDATE).apply {
                     cacheStrategy = RenderRequest.CacheStrategy.BAKE_NEW_STROKES
                     newStrokesToBake = strokesByPage
-                    strokesIdToRemove = strokes.keys
+                    strokesIdToRemove = strokes.keys // We use this to clear the temporary layer later
                 }
             )
         }

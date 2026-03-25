@@ -1,8 +1,9 @@
-package com.studiomath.drawview.document
+package com.studiomath.drawview.document.render
 
 import android.animation.ValueAnimator
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
@@ -15,12 +16,15 @@ import androidx.core.graphics.withClip
 import androidx.core.graphics.withSave
 import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.strokes.Stroke
+import com.studiomath.drawview.document.DrawViewModel
+import com.studiomath.drawview.document.InkStrokeProcessor
 import com.studiomath.drawview.document.motion.CameraPhysicsEngine
 import com.studiomath.drawview.document.page.CalcPage
 import com.studiomath.drawview.document.page.Measure
 import com.studiomath.drawview.document.selection.SelectionOverlayRenderer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
@@ -107,18 +111,18 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
     private var lastFrameTime = 0L
 
-    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @OptIn(ExperimentalCoroutinesApi::class)
     private val renderDispatcher = Dispatchers.IO.limitedParallelism(1)
     private val renderScope = CoroutineScope(renderDispatcher + SupervisorJob())
 
-    private val renderChannel = Channel<DrawAttachments>(Channel.UNLIMITED)
+    private val renderChannel = Channel<DrawAttachments>(Channel.Factory.UNLIMITED)
     private var renderJob: Job? = null
     private var currentSurfaceHolder: SurfaceHolder? = null
 
     /**
      * Converts a physical measurement into pixel values based on the current viewport scale.
      *
-     * @param dimension The [Measure] object containing physical units (pt).
+     * @param dimension The [com.studiomath.drawview.document.page.Measure] object containing physical units (pt).
      * @return The equivalent value in screen pixels.
      */
     fun dimToPx(dimension: Measure): Float {
@@ -130,7 +134,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     }
 
     /**
-     * Generates a [Path] representing the non-page areas (gutters and background) for clipping.
+     * Generates a [android.graphics.Path] representing the non-page areas (gutters and background) for clipping.
      *
      * @param currentRects The current set of visible page rectangles.
      * @return A path that can be used to mask out drawing operations outside of page boundaries.
@@ -396,7 +400,9 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
                         if (accumulatedStrokesToRemove.isNotEmpty()) {
                             withContext(Dispatchers.Main) {
-                                drawViewModel.inkInputManager.removeFinishedStrokes?.invoke(accumulatedStrokesToRemove)
+                                drawViewModel.inkInputManager.removeFinishedStrokes?.invoke(
+                                    accumulatedStrokesToRemove
+                                )
                             }
                         }
                     }
@@ -415,16 +421,16 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     var lastDrawAttachments: DrawAttachments? = null
 
     val shadowPaint = Paint().apply {
-        color = android.graphics.Color.argb(80, 0, 0, 0)
-        setShadowLayer(20f, 0f, 15f, android.graphics.Color.argb(120, 0, 0, 0))
+        color = Color.argb(80, 0, 0, 0)
+        setShadowLayer(20f, 0f, 15f, Color.argb(120, 0, 0, 0))
     }
     val borderPaint = Paint().apply {
-        color = android.graphics.Color.argb(255, 0, 150, 255)
+        color = Color.argb(255, 0, 150, 255)
         style = Paint.Style.STROKE
         strokeWidth = 6f
     }
     val placeholderPaint = Paint().apply {
-        color = android.graphics.Color.argb(30, 0, 0, 0)
+        color = Color.argb(30, 0, 0, 0)
         style = Paint.Style.FILL
     }
 
@@ -674,7 +680,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             // Bake into the content cache ONLY
             page.contentBitmapCache?.let { bitmapCache ->
                 val canvasCache = Canvas(bitmapCache)
-                val bitmapRect = RectF(0f, 0f, bitmapCache.width.toFloat(), bitmapCache.height.toFloat())
+                val bitmapRect =
+                    RectF(0f, 0f, bitmapCache.width.toFloat(), bitmapCache.height.toFloat())
 
                 val mmToBitmapMatrix = Matrix().apply {
                     setRectToRect(page.rect(), bitmapRect, Matrix.ScaleToFit.CENTER)

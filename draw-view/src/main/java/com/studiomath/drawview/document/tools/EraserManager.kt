@@ -9,7 +9,7 @@ import androidx.ink.geometry.AffineTransform
 import androidx.ink.geometry.Intersection.intersects
 import androidx.ink.strokes.MutableStrokeInputBatch
 import com.studiomath.drawview.data.repository.DrawDocumentRepository
-import com.studiomath.drawview.document.DrawManager
+import com.studiomath.drawview.document.render.DrawManager
 import com.studiomath.drawview.document.history.HistoryManager
 import com.studiomath.drawview.document.page.Document
 import com.studiomath.drawview.document.page.Measure

@@ -69,6 +69,7 @@ import androidx.ink.authoring.InProgressStrokesView
 import androidx.input.motionprediction.MotionEventPredictor
 import com.studiomath.drawview.R
 import com.studiomath.drawview.document.motion.CanvasTouchDispatcher
+import com.studiomath.drawview.document.render.DrawManager
 import com.studiomath.drawview.document.tools.RichTextUtil
 import kotlin.math.min
 

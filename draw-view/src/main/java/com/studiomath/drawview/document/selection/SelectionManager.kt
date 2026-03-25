@@ -13,7 +13,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.studiomath.drawview.data.repository.DrawDocumentRepository
-import com.studiomath.drawview.document.DrawManager
+import com.studiomath.drawview.document.render.DrawManager
 import com.studiomath.drawview.document.history.HistoryManager
 import com.studiomath.drawview.document.history.TransformSelectionAction
 import com.studiomath.drawview.document.page.CalcPage

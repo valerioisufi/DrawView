@@ -6,7 +6,7 @@ import android.graphics.RectF
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
-import com.studiomath.drawview.document.DrawManager
+import com.studiomath.drawview.document.render.DrawManager
 import com.studiomath.drawview.document.DrawViewModel
 import com.studiomath.drawview.document.selection.SelectionGroup
 import com.studiomath.drawview.document.tools.Tool

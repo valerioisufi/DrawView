@@ -5,7 +5,7 @@ import android.graphics.Matrix
 import android.net.Uri
 import android.util.Log
 import com.studiomath.drawview.data.repository.DrawDocumentRepository
-import com.studiomath.drawview.document.DrawManager
+import com.studiomath.drawview.document.render.DrawManager
 import com.studiomath.drawview.document.history.HistoryManager
 import com.studiomath.drawview.document.io.MediaImporter
 import com.studiomath.drawview.document.page.Document

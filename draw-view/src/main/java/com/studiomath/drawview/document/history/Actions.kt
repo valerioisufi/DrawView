@@ -1,7 +1,7 @@
 package com.studiomath.drawview.document.history
 
 import android.graphics.Rect
-import com.studiomath.drawview.document.DrawManager
+import com.studiomath.drawview.document.render.DrawManager
 import com.studiomath.drawview.document.DrawViewModel
 import com.studiomath.drawview.document.page.Image
 import com.studiomath.drawview.document.page.Page

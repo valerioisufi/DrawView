@@ -7,6 +7,7 @@ import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.brush.Brush
 import com.studiomath.drawview.data.repository.DrawDocumentRepository
 import com.studiomath.drawview.document.page.Stroke
+import com.studiomath.drawview.document.render.DrawManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
@@ -44,7 +45,7 @@ class InkInputManager(
         event: MotionEvent,
         pointerId: Int,
         activeSettings: com.studiomath.drawview.document.tools.BrushSettings,
-        drawManager: com.studiomath.drawview.document.DrawManager
+        drawManager: DrawManager
     ): InProgressStrokeId? {
 
         val target = drawManager.getTouchTarget(event.x, event.y) ?: return null

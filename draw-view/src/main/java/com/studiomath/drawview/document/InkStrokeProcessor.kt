@@ -14,6 +14,7 @@ import androidx.ink.strokes.StrokeInput
 import androidx.ink.strokes.createClosedShape
 import com.studiomath.drawview.document.history.AddStrokesAction
 import com.studiomath.drawview.document.history.PageStrokeGroup
+import com.studiomath.drawview.document.render.DrawManager
 import com.studiomath.drawview.document.selection.LassoMode
 import com.studiomath.drawview.document.selection.SelectionGroup
 import com.studiomath.drawview.document.tools.Tool

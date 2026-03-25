@@ -37,6 +37,7 @@ import com.studiomath.drawview.document.page.PageMaker
 import com.studiomath.drawview.document.page.PageManager
 import com.studiomath.drawview.document.page.Stroke
 import com.studiomath.drawview.document.page.Text
+import com.studiomath.drawview.document.render.DrawManager
 import com.studiomath.drawview.document.selection.LassoMode
 import com.studiomath.drawview.document.selection.SelectionGroup
 import com.studiomath.drawview.document.selection.SelectionManager
@@ -390,11 +391,13 @@ class DrawViewModel(
             repository.updatePageFormatAndBackground(doc.dbId, page)
             drawManager.calcPage.needToBeUpdated = true
 
-            drawManager.requestDraw(DrawManager.DrawAttachments(
+            drawManager.requestDraw(
+                DrawManager.DrawAttachments(
                 DrawManager.DrawAttachments.DrawMode.UPDATE
             ).apply { update = DrawManager.DrawAttachments.Update.DRAW_BITMAP })
 
-            drawManager.requestDraw(DrawManager.DrawAttachments(
+            drawManager.requestDraw(
+                DrawManager.DrawAttachments(
                 DrawManager.DrawAttachments.DrawMode.UPDATE
             ).apply {
                 update = DrawManager.DrawAttachments.Update.CACHE_PAGE_ONLY

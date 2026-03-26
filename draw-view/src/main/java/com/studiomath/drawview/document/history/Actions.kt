@@ -13,12 +13,13 @@ import kotlinx.coroutines.withContext
  * Funzione di utilità usata da tutte le azioni per ricalcolare la cache
  * della pagina e chiedere al motore grafico di aggiornare lo schermo.
  */
-private suspend fun refreshPageCache(viewModel: DrawViewModel, page: Page) {
+private suspend fun refreshPageCache(viewModel: DrawViewModel, page: Page, includePdf: Boolean = false) {
     withContext(Dispatchers.Main) {
         viewModel.drawManager.requestDraw(RenderRequest.rebuildSinglePage(page.dbId))
 
+        // FIX: Propagate the includePdf flag so structural changes can update the PDF layer
         viewModel.drawManager.requestDraw(
-            RenderRequest.rebuildViewport()
+            RenderRequest.rebuildViewport(includePdf = includePdf)
         )
     }
 }
@@ -268,11 +269,11 @@ class AddPageAction(
         doc.pages.remove(page)
         doc.pages.forEachIndexed { i, p -> p.index = i }
 
-        // CORREZIONE: Aggiorniamo la UI
+        // CORREZIONE: Aggiorniamo la UI forzando il ridisegno del PDF
         withContext(Dispatchers.Main) {
             viewModel.drawManager.calcPage.needToBeUpdated = true
             viewModel.drawManager.requestDraw(
-                RenderRequest.rebuildViewport()
+                RenderRequest.rebuildViewport(includePdf = true)
             )
         }
     }
@@ -285,12 +286,12 @@ class AddPageAction(
         doc.pages.add(insertedIndex, page)
         doc.pages.forEachIndexed { i, p -> p.index = i }
 
-        // CORREZIONE: Aggiorniamo la UI
+        // CORREZIONE: Aggiorniamo la UI forzando il ridisegno del PDF
         withContext(Dispatchers.Main) {
             viewModel.drawManager.calcPage.needToBeUpdated = true
         }
 
-        refreshPageCache(viewModel, page)
+        refreshPageCache(viewModel, page, includePdf = true)
     }
 }
 
@@ -308,12 +309,12 @@ class DeletePageAction(
         doc.pages.add(deletedIndex, page)
         doc.pages.forEachIndexed { i, p -> p.index = i }
 
-        // CORREZIONE: Aggiorniamo la UI
+        // CORREZIONE: Aggiorniamo la UI forzando il ridisegno del PDF
         withContext(Dispatchers.Main) {
             viewModel.drawManager.calcPage.needToBeUpdated = true
         }
 
-        refreshPageCache(viewModel, page)
+        refreshPageCache(viewModel, page, includePdf = true)
     }
 
     override suspend fun redo(viewModel: DrawViewModel) {
@@ -324,11 +325,11 @@ class DeletePageAction(
         doc.pages.remove(page)
         doc.pages.forEachIndexed { i, p -> p.index = i }
 
-        // CORREZIONE: Aggiorniamo la UI
+        // CORREZIONE: Aggiorniamo la UI forzando il ridisegno del PDF
         withContext(Dispatchers.Main) {
             viewModel.drawManager.calcPage.needToBeUpdated = true
             viewModel.drawManager.requestDraw(
-                RenderRequest.rebuildViewport()
+                RenderRequest.rebuildViewport(includePdf = true)
             )
         }
     }
@@ -346,11 +347,11 @@ class ReorderPagesAction(
         doc.pages.forEachIndexed { i, p -> p.index = i }
         withContext(Dispatchers.IO) { viewModel.repository.updatePagesOrder(doc.pages) }
 
-        // CORREZIONE: Aggiorniamo la UI
+        // CORREZIONE: Aggiorniamo la UI forzando il ridisegno del PDF
         withContext(Dispatchers.Main) {
             viewModel.drawManager.calcPage.needToBeUpdated = true
             viewModel.drawManager.requestDraw(
-                RenderRequest.rebuildViewport()
+                RenderRequest.rebuildViewport(includePdf = true)
             )
         }
     }
@@ -362,11 +363,11 @@ class ReorderPagesAction(
         doc.pages.forEachIndexed { i, p -> p.index = i }
         withContext(Dispatchers.IO) { viewModel.repository.updatePagesOrder(doc.pages) }
 
-        // CORREZIONE: Aggiorniamo la UI
+        // CORREZIONE: Aggiorniamo la UI forzando il ridisegno del PDF
         withContext(Dispatchers.Main) {
             viewModel.drawManager.calcPage.needToBeUpdated = true
             viewModel.drawManager.requestDraw(
-                RenderRequest.rebuildViewport()
+                RenderRequest.rebuildViewport(includePdf = true)
             )
         }
     }

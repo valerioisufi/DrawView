@@ -202,7 +202,7 @@ fun DrawScreen(
                                         modifier = Modifier.padding(16.dp)
                                     ) {
                                         Text(
-                                            text = "Impostazioni",
+                                            text = stringResource(R.string.draw_menu_settings),
                                             fontSize = 16.sp,
                                             fontWeight = FontWeight.Bold,
                                             modifier = Modifier.padding(bottom = 12.dp)
@@ -213,7 +213,7 @@ fun DrawScreen(
                                             horizontalArrangement = Arrangement.SpaceBetween,
                                             modifier = Modifier.fillMaxWidth()
                                         ) {
-                                            Text(text = "Modalità solo Stylus")
+                                            Text(text = stringResource(R.string.draw_menu_stylus_only))
 
                                             androidx.compose.material3.Switch(
                                                 checked = drawViewModel.isStylusOnlyMode,
@@ -243,7 +243,7 @@ fun DrawScreen(
                                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                             Text(
-                                                text = "Sfondo del documento",
+                                                text = stringResource(R.string.draw_menu_document_background),
                                                 color = MaterialTheme.colorScheme.onSurface
                                             )
                                         }
@@ -662,7 +662,9 @@ fun DrawScreen(
             visible = drawViewModel.isPageGridVisible,
             enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically(initialOffsetY = { it / 2 }),
             exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutVertically(targetOffsetY = { it / 2 }),
-            modifier = Modifier.fillMaxSize().zIndex(10f)
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(10f)
         ) {
             PageGridOverlay(drawViewModel = drawViewModel)
         }
@@ -711,14 +713,14 @@ fun DrawScreen(
     if (drawViewModel.showOverrideConfirmationDialog) {
         AlertDialog(
             onDismissRequest = { drawViewModel.showOverrideConfirmationDialog = false },
-            title = { Text("Applica a tutte le pagine?") },
-            text = { Text("Vuoi che questo sfondo diventi il predefinito per le nuove pagine o vuoi sovrascrivere anche le pagine a cui avevi dato uno sfondo personalizzato in precedenza?") },
+            title = { Text(stringResource(R.string.dialog_override_bg_title)) },
+            text = { Text(stringResource(R.string.dialog_override_bg_message)) },
             confirmButton = {
                 TextButton(onClick = {
                     drawViewModel.applyDocumentTemplateChange(overrideAll = true)
                     drawViewModel.showOverrideConfirmationDialog = false
                 }) {
-                    Text("Sovrascrivi Tutte")
+                    Text(stringResource(R.string.dialog_override_bg_confirm))
                 }
             },
             dismissButton = {
@@ -726,7 +728,7 @@ fun DrawScreen(
                     drawViewModel.applyDocumentTemplateChange(overrideAll = false)
                     drawViewModel.showOverrideConfirmationDialog = false
                 }) {
-                    Text("Solo Default")
+                    Text(stringResource(R.string.dialog_override_bg_dismiss))
                 }
             }
         )

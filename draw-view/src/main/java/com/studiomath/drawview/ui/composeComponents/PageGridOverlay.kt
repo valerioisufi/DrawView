@@ -52,10 +52,12 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import com.studiomath.drawview.R
 import com.studiomath.drawview.document.DrawViewModel
 import com.studiomath.drawview.document.page.PageBackground
 
@@ -90,7 +92,7 @@ fun PageGridOverlay(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
-                text = "Pagine del Documento",
+                text = stringResource(R.string.page_grid_title),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
@@ -98,7 +100,7 @@ fun PageGridOverlay(
             IconButton(onClick = { drawViewModel.togglePageGrid() }) {
                 Icon(
                     imageVector = Icons.Default.Close,
-                    contentDescription = "Chiudi Griglia",
+                    contentDescription = stringResource(R.string.page_grid_action_close),
                     tint = MaterialTheme.colorScheme.onSurface
                 )
             }
@@ -153,16 +155,20 @@ fun PageGridOverlay(
                             dragOffset += dragAmount
 
                             val draggedIdx = draggedIndex ?: return@detectDragGesturesAfterLongPress
-                            val draggedItem = gridState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == draggedIdx }
+                            val draggedItem =
+                                gridState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == draggedIdx }
 
                             if (draggedItem != null) {
-                                val currentCenterX = draggedItem.offset.x + (draggedItem.size.width / 2f) + dragOffset.x
-                                val currentCenterY = draggedItem.offset.y + (draggedItem.size.height / 2f) + dragOffset.y
+                                val currentCenterX =
+                                    draggedItem.offset.x + (draggedItem.size.width / 2f) + dragOffset.x
+                                val currentCenterY =
+                                    draggedItem.offset.y + (draggedItem.size.height / 2f) + dragOffset.y
 
-                                val targetItem = gridState.layoutInfo.visibleItemsInfo.firstOrNull { item ->
-                                    currentCenterX.toInt() in item.offset.x..(item.offset.x + item.size.width) &&
-                                            currentCenterY.toInt() in item.offset.y..(item.offset.y + item.size.height)
-                                }
+                                val targetItem =
+                                    gridState.layoutInfo.visibleItemsInfo.firstOrNull { item ->
+                                        currentCenterX.toInt() in item.offset.x..(item.offset.x + item.size.width) &&
+                                                currentCenterY.toInt() in item.offset.y..(item.offset.y + item.size.height)
+                                    }
 
                                 if (targetItem != null && targetItem.index != draggedIdx) {
                                     val offsetXFix = draggedItem.offset.x - targetItem.offset.x
@@ -237,7 +243,10 @@ fun PageGridOverlay(
                         page.contentBitmapCache?.let { bmp ->
                             Image(
                                 bitmap = bmp.asImageBitmap(),
-                                contentDescription = "Pagina ${index + 1}",
+                                contentDescription = stringResource(
+                                    R.string.page_grid_content_desc_page,
+                                    index + 1
+                                ),
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.Fit
                             )
@@ -245,7 +254,7 @@ fun PageGridOverlay(
 
                         // Show loading text if content is null and page is not ready
                         if (page.contentBitmapCache == null && !page.isPrepared) {
-                            Text("Caricamento...", color = Color.Gray)
+                            Text(stringResource(R.string.common_state_loading), color = Color.Gray)
                         }
 
                         // BADGE NUMERO PAGINA
@@ -253,7 +262,10 @@ fun PageGridOverlay(
                             modifier = Modifier
                                 .align(Alignment.BottomStart)
                                 .padding(8.dp)
-                                .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
+                                .background(
+                                    Color.Black.copy(alpha = 0.6f),
+                                    RoundedCornerShape(4.dp)
+                                )
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
                             Text(
@@ -276,7 +288,7 @@ fun PageGridOverlay(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.MoreVert,
-                                    contentDescription = "Opzioni Pagina",
+                                    contentDescription = stringResource(R.string.page_grid_content_desc_options),
                                     tint = Color.White
                                 )
                             }
@@ -287,7 +299,7 @@ fun PageGridOverlay(
                                 onDismissRequest = { menuExpanded = false }
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text("Aggiungi pagina dopo") },
+                                    text = { Text(stringResource(R.string.context_menu_action_add_page_after)) },
                                     leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) },
                                     onClick = {
                                         drawViewModel.contextMenuTargetPageIndex = index
@@ -298,7 +310,7 @@ fun PageGridOverlay(
 
                                 if (document.pages.size > 1) {
                                     DropdownMenuItem(
-                                        text = { Text("Elimina pagina", color = MaterialTheme.colorScheme.error) },
+                                        text = { Text(stringResource(R.string.context_menu_action_delete_page), color = MaterialTheme.colorScheme.error) },
                                         leadingIcon = {
                                             Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
                                         },
@@ -312,7 +324,7 @@ fun PageGridOverlay(
 
                                 // BONUS: Aggiungiamo anche qui il tasto rapido per lo Sfondo!
                                 DropdownMenuItem(
-                                    text = { Text("Modifica Sfondo") },
+                                    text = { Text(stringResource(R.string.context_menu_action_edit_background)) },
                                     leadingIcon = { Icon(Icons.Default.Palette, contentDescription = null) },
                                     onClick = {
                                         drawViewModel.contextMenuTargetPageIndex = index

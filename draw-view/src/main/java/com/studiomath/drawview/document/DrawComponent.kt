@@ -274,7 +274,7 @@ fun DrawComponent(
                         }) {
                             Icon(
                                 Icons.Default.Palette,
-                                contentDescription = "Modifica sfondo pagina",
+                                contentDescription = stringResource(R.string.context_menu_action_edit_background),
                                 tint = MaterialTheme.colorScheme.primary
                             )
                         }

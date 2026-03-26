@@ -1,5 +1,6 @@
 package com.studiomath.drawview.ui.composeComponents
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -48,12 +49,15 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.studiomath.drawview.R
 import com.studiomath.drawview.document.page.Dimension
 import com.studiomath.drawview.document.page.PageBackground
 import com.studiomath.drawview.document.page.mm
+import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
@@ -71,8 +75,18 @@ private const val MAX_PAGE_AREA = 250000f
  *
  * @property label The localized string representation of the pattern type for UI display.
  */
-private enum class BgType(val label: String) {
-    SOLID("Vuoto"), RULED("Righe"), GRID("Quadretti"), DOTTED("Puntini")
+private enum class BgType(@param:StringRes val labelRes: Int) {
+    SOLID(R.string.page_config_bg_solid),
+    RULED(R.string.page_config_bg_ruled),
+    GRID(R.string.page_config_bg_grid),
+    DOTTED(R.string.page_config_bg_dotted)
+}
+
+private enum class PageFormat(val id: String, @param:StringRes val labelRes: Int?) {
+    A4("A4", null),
+    A3("A3", null),
+    A5("A5", null),
+    CUSTOM("CUSTOM", R.string.page_config_format_custom)
 }
 
 /**
@@ -94,24 +108,31 @@ fun PageTemplateConfigurator(
     onApply: (Dimension, PageBackground) -> Unit,
     onCancel: () -> Unit
 ) {
-    val formats = listOf("A4", "A3", "A5", "Personalizzato")
+    val formats = listOf("A4", "A3", "A5", stringResource(R.string.page_config_format_custom))
 
     var customWidth by remember { mutableStateOf(initialDimension.width.mm.toString()) }
     var customHeight by remember { mutableStateOf(initialDimension.height.mm.toString()) }
 
+    // Capiamo il formato iniziale basandoci sulle dimensioni reali
     val initialFormat = remember {
         val w = initialDimension.width.mm.roundToInt()
         val h = initialDimension.height.mm.roundToInt()
         when {
-            (w == 210 && h == 297) || (w == 297 && h == 210) -> "A4"
-            (w == 297 && h == 420) || (w == 420 && h == 297) -> "A3"
-            (w == 148 && h == 210) || (w == 210 && h == 148) -> "A5"
-            else -> "Personalizzato"
+            (w == 210 && h == 297) || (w == 297 && h == 210) -> PageFormat.A4
+            (w == 297 && h == 420) || (w == 420 && h == 297) -> PageFormat.A3
+            (w == 148 && h == 210) || (w == 210 && h == 148) -> PageFormat.A5
+            else -> PageFormat.CUSTOM
         }
     }
 
+    // Ora lo stato contiene l'Enum, non una stringa
     var selectedFormat by remember { mutableStateOf(initialFormat) }
     var formatExpanded by remember { mutableStateOf(false) }
+
+    // Funzione helper per ottenere la stringa da mostrare nell'UI
+    val getFormatLabel: @Composable (PageFormat) -> String = { format ->
+        if (format.labelRes != null) stringResource(id = format.labelRes) else format.id
+    }
 
     var selectedType by remember {
         mutableStateOf(
@@ -180,7 +201,7 @@ fun PageTemplateConfigurator(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(24.dp)
     ) {
-        Text("Configura Pagina", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Text(stringResource(R.string.page_config_title), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -196,10 +217,10 @@ fun PageTemplateConfigurator(
                     onExpandedChange = { formatExpanded = !formatExpanded }
                 ) {
                     OutlinedTextField(
-                        value = selectedFormat,
+                        value = getFormatLabel(selectedFormat), // <--- Usa l'helper
                         onValueChange = {},
                         readOnly = true,
-                        label = { Text("Formato") },
+                        label = { Text(stringResource(R.string.page_config_label_format)) },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = formatExpanded) },
                         modifier = Modifier
                             .menuAnchor(
@@ -212,16 +233,18 @@ fun PageTemplateConfigurator(
                         expanded = formatExpanded,
                         onDismissRequest = { formatExpanded = false }
                     ) {
-                        formats.forEach { selectionOption ->
+                        PageFormat.entries.forEach { formatOption -> // <--- Itera sull'Enum
                             DropdownMenuItem(
-                                text = { Text(selectionOption) },
+                                text = { Text(getFormatLabel(formatOption)) },
                                 onClick = {
-                                    selectedFormat = selectionOption
+                                    selectedFormat = formatOption
                                     formatExpanded = false
-                                    when (selectionOption) {
-                                        "A4" -> { customWidth = "210"; customHeight = "297" }
-                                        "A3" -> { customWidth = "297"; customHeight = "420" }
-                                        "A5" -> { customWidth = "148"; customHeight = "210" }
+                                    // Aggiorna le dimensioni solo se scegliamo un preset
+                                    when (formatOption) {
+                                        PageFormat.A4 -> { customWidth = "210"; customHeight = "297" }
+                                        PageFormat.A3 -> { customWidth = "297"; customHeight = "420" }
+                                        PageFormat.A5 -> { customWidth = "148"; customHeight = "210" }
+                                        PageFormat.CUSTOM -> { /* Non sovrascrivere se clicca Custom */ }
                                     }
                                 }
                             )
@@ -235,10 +258,10 @@ fun PageTemplateConfigurator(
                         onValueChange = {
                             if (it.length <= 5) {
                                 customWidth = it
-                                selectedFormat = "Personalizzato"
+                                selectedFormat = PageFormat.CUSTOM // <--- Setta l'Enum, non la stringa
                             }
                         },
-                        label = { Text("Largh. (mm)") },
+                        label = { Text(stringResource(R.string.page_config_label_width)) },
                         isError = isWidthError,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.weight(1f),
@@ -249,10 +272,10 @@ fun PageTemplateConfigurator(
                         onValueChange = {
                             if (it.length <= 5) {
                                 customHeight = it
-                                selectedFormat = "Personalizzato"
+                                selectedFormat = PageFormat.CUSTOM // <--- Setta l'Enum, non la stringa
                             }
                         },
-                        label = { Text("Alt. (mm)") },
+                        label = { Text(stringResource(R.string.page_config_label_height)) },
                         isError = isHeightError,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.weight(1f),
@@ -261,13 +284,13 @@ fun PageTemplateConfigurator(
                 }
                 if (isWidthError || isHeightError) {
                     Text(
-                        text = "Il lato minimo è $MIN_PAGE_SIZE mm.",
+                        text = stringResource(R.string.page_config_error_min_size, MIN_PAGE_SIZE),
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall
                     )
                 } else if (isAreaError) {
                     Text(
-                        text = "Area troppo grande! Max 500x500mm.",
+                        text = stringResource(R.string.page_config_error_max_area),
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall
                     )
@@ -287,7 +310,7 @@ fun PageTemplateConfigurator(
                             .background(Color.LightGray.copy(alpha = 0.3f)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("Dimensione\nNon Valida", color = Color.Gray)
+                        Text(stringResource(R.string.page_config_preview_invalid_size), color = Color.Gray)
                     }
                 } else {
                     PagePreview(
@@ -305,7 +328,7 @@ fun PageTemplateConfigurator(
 
         HorizontalDivider()
 
-        Text("Pattern di Sfondo:", style = MaterialTheme.typography.bodyLarge)
+        Text(stringResource(R.string.page_config_label_bg_pattern), style = MaterialTheme.typography.bodyLarge)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -314,14 +337,14 @@ fun PageTemplateConfigurator(
                 FilterChip(
                     selected = selectedType == type,
                     onClick = { selectedType = type },
-                    label = { Text(type.label) },
+                    label = { Text(stringResource(id = type.labelRes)) },
                     modifier = Modifier.weight(1f)
                 )
             }
         }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Colore Foglio:", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+            Text(stringResource(R.string.page_config_label_paper_color), modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 paperColors.forEach { color ->
                     ColorDot(color = color, isSelected = paperColor == color) { paperColor = color }
@@ -334,7 +357,7 @@ fun PageTemplateConfigurator(
             HorizontalDivider()
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Colore Tratto:", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+                Text(stringResource(R.string.page_config_label_line_color), modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     lineColors.forEach { color ->
                         ColorDot(color = color, isSelected = lineColor == color) { lineColor = color }
@@ -345,16 +368,16 @@ fun PageTemplateConfigurator(
 
             Column {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Spaziatura:", style = MaterialTheme.typography.bodyLarge)
-                    Text("${spacingMm.roundToInt()} mm", fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.page_config_label_spacing), style = MaterialTheme.typography.bodyLarge)
+                    Text(stringResource(R.string.page_config_value_spacing, spacingMm.roundToInt()), fontWeight = FontWeight.Bold)
                 }
                 Slider(value = spacingMm, onValueChange = { spacingMm = it }, valueRange = 4f..20f, steps = 15)
             }
 
             Column {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Spessore Tratto:", style = MaterialTheme.typography.bodyLarge)
-                    Text("${String.format(java.util.Locale.US, "%.1f", thicknessMm)} mm", fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.page_config_label_thickness), style = MaterialTheme.typography.bodyLarge)
+                    Text(stringResource(R.string.page_config_value_thickness, thicknessMm), fontWeight = FontWeight.Bold)
                 }
                 Slider(value = thicknessMm, onValueChange = { thicknessMm = it }, valueRange = 0.1f..1.5f, steps = 14)
             }
@@ -365,7 +388,7 @@ fun PageTemplateConfigurator(
             horizontalArrangement = Arrangement.End,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            TextButton(onClick = onCancel) { Text("Annulla") }
+            TextButton(onClick = onCancel) { Text(stringResource(R.string.common_button_cancel)) }
             Spacer(modifier = Modifier.width(8.dp))
             Button(
                 enabled = !isDimensionInvalid,
@@ -385,7 +408,7 @@ fun PageTemplateConfigurator(
                     onApply(finalDimension, finalBackground)
                 }
             ) {
-                Text("Applica")
+                Text(stringResource(R.string.common_button_apply))
             }
         }
     }
@@ -525,7 +548,10 @@ private fun CustomColorDot(onClick: () -> Unit) {
             .clickable { onClick() },
         contentAlignment = Alignment.Center
     ) {
-        Box(modifier = Modifier.size(14.dp).clip(CircleShape).background(Color.White))
+        Box(modifier = Modifier
+            .size(14.dp)
+            .clip(CircleShape)
+            .background(Color.White))
     }
 }
 
@@ -547,7 +573,7 @@ fun CustomColorPickerDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Seleziona Colore") },
+        title = { Text(stringResource(R.string.color_picker_title)) },
         text = {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Box(
@@ -572,12 +598,12 @@ fun CustomColorPickerDialog(
         },
         confirmButton = {
             TextButton(onClick = { onColorSelected(currentColor) }) {
-                Text("Applica")
+                Text(stringResource(R.string.common_button_apply))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Annulla")
+                Text(stringResource(R.string.common_button_cancel))
             }
         }
     )

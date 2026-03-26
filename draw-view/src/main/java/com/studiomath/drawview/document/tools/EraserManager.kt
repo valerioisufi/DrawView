@@ -113,14 +113,10 @@ class EraserManager(
                 }
 
                 drawManager.requestDraw(
-                    RenderRequest.rebuildSinglePage(page.dbId)
+                    RenderRequest.rebuildSinglePage(page.dbId, includePdf = false)
                 )
             }
         }
 
-        // Chiediamo al nuovo Render Loop di rigenerare e mostrare le bitmap
-        drawManager.requestDraw(
-            RenderRequest.rebuildViewport()
-        )
     }
 }

@@ -98,6 +98,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     // Thread-safe map to track ongoing rendering jobs for each specific page by its database ID
     private val pageRenderJobs = ConcurrentHashMap<Int, Job>()
 
+    private val pageDirtyFlags = ConcurrentHashMap<Int, Boolean>()
+
     /** Processor responsible for handling the lifecycle and rendering of ink strokes. */
     val inkStrokeProcessor = InkStrokeProcessor(
         drawViewModel = drawViewModel,
@@ -287,33 +289,45 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                         val document = drawViewModel.documentData ?: return
                         val targetId = renderRequest.targetPageId ?: return
 
-                        // 1. Cancel any currently running rendering job for this specific page
-                        pageRenderJobs[targetId]?.cancel()
+                        // 1. Se la pagina sta già calcolando, non cancellarla!
+                        // Marcala come "sporca" così si ricalcolerà subito dopo aver finito.
+                        if (pageRenderJobs[targetId]?.isActive == true) {
+                            pageDirtyFlags[targetId] = true
+                            return
+                        }
 
-                        // 2. Launch a new dedicated coroutine for this single page using Default dispatcher for CPU-intensive work
+                        // 2. Avvia il ricalcolo e continua a ciclare finché la pagina rimane sporca
                         val job = scope.launch(Dispatchers.Default) {
                             val page = document.pages.find { it.dbId == targetId } ?: return@launch
 
-                            if (!page.isPrepared) page.prepare()
+                            do {
+                                pageDirtyFlags[targetId] = false // Puliamo il flag prima di iniziare
+                                if (!page.isPrepared) page.prepare()
 
-                            page.contentBitmapCache?.let {
-                                val bitmaps = drawViewModel.pageMaker.makePage(
-                                    Rect(0, 0, it.width, it.height),
-                                    null,
-                                    null,
-                                    page,
-                                    document,
-                                    renderPdf = renderRequest.includePdfLayer
-                                )
-                                page.pdfBitmapCache = bitmaps.pdf
-                                page.contentBitmapCache = bitmaps.content
-                            }
+                                page.contentBitmapCache?.let {
+                                    val bitmaps = drawViewModel.pageMaker.makePage(
+                                        Rect(0, 0, it.width, it.height),
+                                        null,
+                                        null,
+                                        page,
+                                        document,
+                                        renderPdf = renderRequest.includePdfLayer
+                                    )
+                                    // Salviamo solo se era stato richiesto (per la gomma includePdf è false)
+                                    if (renderRequest.includePdfLayer) page.pdfBitmapCache = bitmaps.pdf
+                                    page.contentBitmapCache = bitmaps.content
+                                }
+
+                                // 3. Appena la pagina è pronta, diciamo allo schermo di aggiornarsi immediatamente!
+                                updateDrawView(RenderRequest(RenderRequest.DrawMode.REFRESH))
+
+                            } while (pageDirtyFlags[targetId] == true)
                         }
 
-                        // 3. Track the active job in the map, and clean it up automatically upon completion
                         pageRenderJobs[targetId] = job
                         job.invokeOnCompletion {
-                            pageRenderJobs.remove(targetId, job)
+                            pageRenderJobs.remove(targetId)
+                            pageDirtyFlags.remove(targetId)
                         }
                     }
                     RenderRequest.CacheStrategy.REBUILD_ALL_PAGES -> {
@@ -623,13 +637,12 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
             drawViewModel.pageMaker.makePageBackground(canvas, livePageRect, windowRect, docPage, document, drawViewModel.themeColors)
 
-            if (drawViewModel.isReorderingPages) {
-                if (pageInfo.index == drawViewModel.draggedPageIndex) {
+            if (drawViewModel.isReorderingPages || drawViewModel.isErasing) {
+                if (drawViewModel.isReorderingPages && pageInfo.index == drawViewModel.draggedPageIndex) {
                     placeholderPaint.color = drawViewModel.themeColors.primaryColor
                     placeholderPaint.alpha = 30
                     canvas.drawRect(livePageRect, placeholderPaint)
                 } else {
-                    // In reordering mode, draw single page caches applying the live offset
                     docPage.pdfBitmapCache?.let { bmp ->
                         canvas.drawBitmap(bmp, null, livePageRect, null)
                     }
@@ -640,8 +653,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             }
         }
 
-        if (!drawViewModel.isReorderingPages) {
-            // 3. Draw the main buffers respecting the physics engine
+        if (!drawViewModel.isReorderingPages && !drawViewModel.isErasing) {
             snapshot.pdfBitmap?.let { canvas.drawBitmap(it, relativeTransform, bitmapFilterPaint) }
             snapshot.contentBitmap?.let { canvas.drawBitmap(it, relativeTransform, bitmapFilterPaint) }
         }
@@ -670,20 +682,18 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         val document = drawViewModel.documentData
 
         // FIX 1: DISEGNAMO GLI SFONDI DELLE PAGINE PRIMA DEL CLIP!
-        // In questo modo i quadretti saranno sempre disegnati su tutto il foglio
-        // e faranno da sfondo alla bitmap in cache.
         for (pageInfo in snapshot.pagesRect) {
             val docPage = document?.pages?.getOrNull(pageInfo.index) ?: continue
             drawViewModel.pageMaker.makePageBackground(canvas, pageInfo.rect, windowRect, docPage, document, drawViewModel.themeColors)
         }
 
         canvas.withSave {
-            // Ritagliamo l'area DOVE disegneremo la cache (evita sovrapposizioni strane)
-            if (!drawViewModel.isReorderingPages && relativeTransform != null && !onDrawBitmapBounds.isEmpty) {
+            // 1. Disable the clip hole if we are erasing, because we need to draw the full individual caches!
+            if (!drawViewModel.isReorderingPages && !drawViewModel.isErasing && relativeTransform != null && !onDrawBitmapBounds.isEmpty) {
                 clipOutRect(onDrawBitmapBounds)
             }
 
-            // Qui disegniamo SOLO il contenuto della pagina (tratti, immagini) nelle aree "scoperte" dal pan
+            // Draw the content of the page (strokes, images)
             for (pageInfo in snapshot.pagesRect) {
                 val docPage = document?.pages?.getOrNull(pageInfo.index) ?: continue
 
@@ -694,15 +704,15 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 } else {
                     if (!docPage.isPrepared) docPage.prepare()
 
-                    // Draw individual page caches during panning for uncovered areas
+                    // Draw individual page caches. If isErasing is true, the clip is disabled, so it draws the whole page.
                     docPage.pdfBitmapCache?.let { drawBitmap(it, null, pageInfo.rect, null) }
                     docPage.contentBitmapCache?.let { drawBitmap(it, null, pageInfo.rect, null) }
                 }
             }
         }
 
-        // Draw the front cache layers
-        if (!drawViewModel.isReorderingPages && relativeTransform != null && snapshot.contentBitmap != null) {
+        // 2. Do not draw the static front cache layers if we are in Live Eraser mode
+        if (!drawViewModel.isReorderingPages && !drawViewModel.isErasing && relativeTransform != null && snapshot.contentBitmap != null) {
             canvas.withClip(windowRect) {
                 snapshot.pdfBitmap?.let { drawBitmap(it, relativeTransform, bitmapFilterPaint) }
                 drawBitmap(snapshot.contentBitmap, relativeTransform, bitmapFilterPaint)

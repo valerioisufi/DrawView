@@ -6,6 +6,7 @@ import android.view.View
 import androidx.ink.authoring.InProgressStrokeId
 import androidx.input.motionprediction.MotionEventPredictor
 import com.studiomath.drawview.document.DrawViewModel
+import com.studiomath.drawview.document.render.RenderRequest
 import com.studiomath.drawview.document.tools.Tool
 
 /**
@@ -61,6 +62,10 @@ class InkTouchHandler(private val drawViewModel: DrawViewModel) {
                 drawViewModel.drawManager.cameraPhysics.stopAllAnimations()
                 view.requestUnbufferedDispatch(event)
 
+                if (drawViewModel.selectedTool == Tool.ERASER) {
+                    drawViewModel.isErasing = true
+                }
+
                 lastEraserX = event.x
                 lastEraserY = event.y
 
@@ -105,6 +110,11 @@ class InkTouchHandler(private val drawViewModel: DrawViewModel) {
                     }
                     if (drawViewModel.selectedTool == Tool.ERASER) {
                         drawViewModel.commitEraserHistory()
+
+                        drawViewModel.isErasing = false
+                        drawViewModel.drawManager.requestDraw(
+                            RenderRequest.rebuildViewport(includePdf = true)
+                        )
                     }
                 }
                 resetStrokeState()

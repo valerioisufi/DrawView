@@ -117,6 +117,8 @@ class DrawViewModel(
         getDrawManager = { drawManager }
     )
 
+    var isErasing: Boolean = false
+
     /**
      * Delega l'operazione di cancellazione all'EraserManager, passandogli
      * le coordinate e lo spessore assoluto in millimetri dello strumento corrente.

@@ -78,6 +78,9 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     @Volatile
     private var viewportRenderTicket: Long = 0L
 
+    // Thread-safe queue to store strokes drawn while REBUILD_VIEWPORT is running in the background
+    private val pendingViewportStrokes = java.util.concurrent.ConcurrentLinkedQueue<Map<Int, List<Stroke>>>()
+
     /** The state currently being rendered to the hardware canvas. */
     var frontState = RenderState()
 
@@ -220,8 +223,43 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                 return@launch
                             }
 
-                            // 3. Only swap if the ticket matches (the viewport is stable)
+                            // 3. Replay queue and swap buffers
+                            // We do this inside the lock to avoid micro-race conditions where a stroke
+                            // arrives exactly between the queue drain and the buffer swap.
                             synchronized(renderLock) {
+
+                                // Drain the queue and apply strokes to the newly generated bitmap
+                                tempBitmaps?.content?.let { newContentBmp ->
+                                    val canvas = Canvas(newContentBmp)
+                                    var pendingMap = pendingViewportStrokes.poll()
+
+                                    while (pendingMap != null) {
+                                        for (pageRectWithIndex in newPagesRect) {
+                                            val pageStrokes = pendingMap[pageRectWithIndex.index] ?: continue
+                                            val page = document.pages.getOrNull(pageRectWithIndex.index) ?: continue
+
+                                            val mmToFrontBufferMatrix = Matrix().apply {
+                                                setRectToRect(page.rect(), pageRectWithIndex.rect, Matrix.ScaleToFit.CENTER)
+                                            }
+
+                                            canvas.withSave {
+                                                canvas.clipRect(pageRectWithIndex.rect)
+                                                canvas.concat(mmToFrontBufferMatrix)
+                                                pageStrokes.forEach { stroke ->
+                                                    drawViewModel.pageMaker.canvasStrokeRenderer.draw(
+                                                        stroke = stroke,
+                                                        canvas = canvas,
+                                                        strokeToScreenTransform = mmToFrontBufferMatrix
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        // Fetch the next item until the queue is empty
+                                        pendingMap = pendingViewportStrokes.poll()
+                                    }
+                                }
+
+                                // Now it is 100% safe to swap
                                 backState.pdfBitmap = frontState.pdfBitmap
                                 backState.contentBitmap = frontState.contentBitmap
 
@@ -319,18 +357,21 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     RenderRequest.CacheStrategy.BAKE_NEW_STROKES -> {
                         renderRequest.newStrokesToBake?.let { strokesMap ->
                             scope.launch(renderDispatcher) {
-                                // 1. Filter out pages that are currently being completely rebuilt.
-                                // If a page is rebuilding, the new stroke will automatically be
-                                // included in the new bitmap, so we skip the manual bake to avoid race conditions.
+
+                                // 1. If a viewport rebuild is active, queue these strokes for replay
+                                // so they are not lost when the buffers are swapped.
+                                if (jobOnDrawBitmap?.isActive == true) {
+                                    pendingViewportStrokes.add(strokesMap)
+                                }
+
+                                // 2. Filter out pages that are currently being completely rebuilt.
                                 val safeStrokesToBake = strokesMap.filterKeys { pageIndex ->
                                     val document = drawViewModel.documentData
                                     val pageDbId = document?.pages?.getOrNull(pageIndex)?.dbId
-
-                                    // Keep only if there is NO active render job for this page
                                     pageDbId == null || !pageRenderJobs.containsKey(pageDbId)
                                 }
 
-                                // 2. Proceed with baking only for stable pages
+                                // 3. Bake on the current front buffer and stable page caches
                                 if (safeStrokesToBake.isNotEmpty()) {
                                     bakeStrokesIntoCache(safeStrokesToBake)
                                 }

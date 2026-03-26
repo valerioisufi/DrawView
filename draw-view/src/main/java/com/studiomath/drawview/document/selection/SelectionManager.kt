@@ -129,7 +129,7 @@ class SelectionManager(
                 requestDraw(RenderRequest.rebuildSinglePage(page.dbId))
             }
             getDrawManager().requestDraw(
-                RenderRequest.rebuildViewport()
+                RenderRequest.rebuildViewport(includePdf = true)
             )
         }
     }
@@ -153,7 +153,7 @@ class SelectionManager(
             }
 
             getDrawManager().requestDraw(
-                RenderRequest.rebuildViewport()
+                RenderRequest.rebuildViewport(includePdf = true)
             )
             currentSelection = null
         }
@@ -258,7 +258,7 @@ class SelectionManager(
                 }
 
                 getDrawManager().requestDraw(
-                    RenderRequest.rebuildViewport()
+                    RenderRequest.rebuildViewport(includePdf = true)
                 )
 
                 val newBoundingBox = RectF(copiedGroup.boundingBox).apply { offset(offsetXMm, offsetYMm) }
@@ -582,7 +582,7 @@ class SelectionManager(
             }
 
             getDrawManager().requestDraw(
-                RenderRequest.rebuildViewport()
+                RenderRequest.rebuildViewport(includePdf = true)
             )
         }
     }

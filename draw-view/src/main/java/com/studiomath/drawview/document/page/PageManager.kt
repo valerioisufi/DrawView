@@ -313,7 +313,7 @@ class PageManager(
             val drawManager = getDrawManager()
             drawManager.calcPage.needToBeUpdated = true
             drawManager.requestDraw(
-                RenderRequest.rebuildViewport()
+                RenderRequest.rebuildViewport(includePdf = true)
             )
 
             drawManager.jobOnDrawBitmap?.join()
@@ -344,7 +344,7 @@ class PageManager(
         val drawManager = getDrawManager()
         drawManager.calcPage.needToBeUpdated = true
         drawManager.requestDraw(
-            RenderRequest.rebuildViewport()
+            RenderRequest.rebuildViewport(includePdf = true)
         )
     }
 }

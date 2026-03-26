@@ -209,7 +209,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                             val newPagesRect = calcPage.getPagesRectOnWindowTransformation(windowRect, renderMatrix)
 
                             drawViewModel.inkInputManager.maskPath?.invoke(getMaskPath(newPagesRect))
-                            
+
                             // Heavy generation happens here...
                             val tempBitmaps = frontState.contentBitmap?.let { currentBmp ->
                                 drawViewModel.pageMaker.makePagesOnBitmap(

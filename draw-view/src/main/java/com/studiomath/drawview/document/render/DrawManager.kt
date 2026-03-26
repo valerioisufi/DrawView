@@ -190,24 +190,26 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
                         jobOnDrawBitmap?.cancel()
 
-                        // 1. Capture the exact ticket for this specific render request
                         viewportRenderTicket++
                         val currentTicket = viewportRenderTicket
 
-                        jobOnDrawBitmap = scope.launch {
-                            if (calcPage.needToBeUpdated){
-                                calcPage.calcPagesRectOnWindow(
-                                    document.pages, windowRect, CalcPage.PagePositionOnWindowOption()
-                                )
-                                contentConstraintsOnWindow = calcPage.getContentConstraintsOnWindow(windowRect)
-                                calcPage.needToBeUpdated = false
-                            }
+                        // 1. FIX: Calcoliamo la geometria in modo SINCRONO prima di andare in background.
+                        // Questo previene la Race Condition degli indici se l'utente fa un pan immediato post-eliminazione.
+                        if (calcPage.needToBeUpdated) {
+                            calcPage.calcPagesRectOnWindow(
+                                document.pages, windowRect, CalcPage.PagePositionOnWindowOption()
+                            )
+                            contentConstraintsOnWindow = calcPage.getContentConstraintsOnWindow(windowRect)
+                            calcPage.needToBeUpdated = false
+                        }
 
+                        // 2. Lanciamo la coroutine pesante in background SOLO per il rendering dei pixel
+                        jobOnDrawBitmap = scope.launch {
                             val renderMatrix = cameraPhysics.getRenderMatrix()
                             val newPagesRect = calcPage.getPagesRectOnWindowTransformation(windowRect, renderMatrix)
 
                             drawViewModel.inkInputManager.maskPath?.invoke(getMaskPath(newPagesRect))
-
+                            
                             // Heavy generation happens here...
                             val tempBitmaps = frontState.contentBitmap?.let { currentBmp ->
                                 drawViewModel.pageMaker.makePagesOnBitmap(

@@ -67,10 +67,14 @@ class PageMaker(
 
         // If we are NOT rendering the PDF, just pass through the existing one.
         // Otherwise, allocate a new one (only if needed).
-        val pdfBitmap = if (renderPdf && needsPdfLayer) {
-            createBitmap(bitmapRect.width(), bitmapRect.height())
+        val pdfBitmap: Bitmap? = if (renderPdf) {
+            if (needsPdfLayer) {
+                createBitmap(bitmapRect.width(), bitmapRect.height())
+            } else {
+                null // FIX: Svuotiamo il livello PDF se non ci sono elementi visibili
+            }
         } else {
-            existingPdfBitmap
+            existingPdfBitmap // Manteniamo la cache SOLO se stiamo esplicitamente saltando il rendering PDF per risparmiare performance
         }
 
         val contentBitmap = createBitmap(bitmapRect.width(), bitmapRect.height())

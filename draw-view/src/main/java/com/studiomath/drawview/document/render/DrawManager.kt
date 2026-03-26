@@ -576,19 +576,29 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     private fun renderUpdateMode(canvas: Canvas, snapshot: RenderSnapshot, attachments: RenderRequest) {
         drawViewModel.pageMaker.makeWindowBackground(canvas, snapshot.pagesRect, snapshot.currentRenderMatrix, drawViewModel.themeColors)
 
-        // Recuperiamo il documento
         val document = drawViewModel.documentData
 
-        for (pageInfo in snapshot.pagesRect) {
-            // Estraiamo la pagina reale
-            val docPage = document?.pages?.getOrNull(pageInfo.index) ?: continue
-            // Passiamo docPage alla funzione
-            drawViewModel.pageMaker.makePageBackground(canvas, pageInfo.rect, windowRect, docPage, document, drawViewModel.themeColors)
+        // 1. Calculate the relative transform between the snapshot's anchor and the live physics camera
+        val inverseDrawMatrix = Matrix()
+        val relativeTransform = Matrix()
+        if (snapshot.matrix.invert(inverseDrawMatrix)) {
+            relativeTransform.set(inverseDrawMatrix)
+            relativeTransform.postConcat(snapshot.currentRenderMatrix)
         }
 
-        // Draw the PDF layer first, then the content layer (strokes, text, etc.)
-        snapshot.pdfBitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
-        snapshot.contentBitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
+        for (pageInfo in snapshot.pagesRect) {
+            val docPage = document?.pages?.getOrNull(pageInfo.index) ?: continue
+
+            // 2. Map the old static rect to the live camera coordinates
+            val livePageRect = RectF(pageInfo.rect)
+            relativeTransform.mapRect(livePageRect)
+
+            drawViewModel.pageMaker.makePageBackground(canvas, livePageRect, windowRect, docPage, document, drawViewModel.themeColors)
+        }
+
+        // 3. Draw the viewport layers strictly applying the physics-aligned matrix instead of hardcoded 0,0
+        snapshot.pdfBitmap?.let { canvas.drawBitmap(it, relativeTransform, bitmapFilterPaint) }
+        snapshot.contentBitmap?.let { canvas.drawBitmap(it, relativeTransform, bitmapFilterPaint) }
     }
 
     /** Refreshes the view, handling special states like page reordering and placeholders. */
@@ -596,32 +606,44 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         drawViewModel.pageMaker.makeWindowBackground(canvas, snapshot.pagesRect, snapshot.currentRenderMatrix, drawViewModel.themeColors)
         val document = drawViewModel.documentData
 
+        // 1. Calculate the relative transform to ensure a single source of truth for the camera
+        val inverseDrawMatrix = Matrix()
+        val relativeTransform = Matrix()
+        if (snapshot.matrix.invert(inverseDrawMatrix)) {
+            relativeTransform.set(inverseDrawMatrix)
+            relativeTransform.postConcat(snapshot.currentRenderMatrix)
+        }
+
         for (pageInfo in snapshot.pagesRect) {
-            // Estraiamo la pagina reale
             val docPage = document?.pages?.getOrNull(pageInfo.index) ?: continue
 
-            // Passiamo docPage alla funzione
-            drawViewModel.pageMaker.makePageBackground(canvas, pageInfo.rect, windowRect, docPage, document, drawViewModel.themeColors)
+            // 2. Shift the static rect into live physics space
+            val livePageRect = RectF(pageInfo.rect)
+            relativeTransform.mapRect(livePageRect)
+
+            drawViewModel.pageMaker.makePageBackground(canvas, livePageRect, windowRect, docPage, document, drawViewModel.themeColors)
 
             if (drawViewModel.isReorderingPages) {
                 if (pageInfo.index == drawViewModel.draggedPageIndex) {
                     placeholderPaint.color = drawViewModel.themeColors.primaryColor
                     placeholderPaint.alpha = 30
-                    canvas.drawRect(pageInfo.rect, placeholderPaint)
+                    canvas.drawRect(livePageRect, placeholderPaint)
                 } else {
+                    // In reordering mode, draw single page caches applying the live offset
                     docPage.pdfBitmapCache?.let { bmp ->
-                        canvas.drawBitmap(bmp, null, pageInfo.rect, null)
+                        canvas.drawBitmap(bmp, null, livePageRect, null)
                     }
                     docPage.contentBitmapCache?.let { bmp ->
-                        canvas.drawBitmap(bmp, null, pageInfo.rect, null)
+                        canvas.drawBitmap(bmp, null, livePageRect, null)
                     }
                 }
             }
         }
 
         if (!drawViewModel.isReorderingPages) {
-            snapshot.pdfBitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
-            snapshot.contentBitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
+            // 3. Draw the main buffers respecting the physics engine
+            snapshot.pdfBitmap?.let { canvas.drawBitmap(it, relativeTransform, bitmapFilterPaint) }
+            snapshot.contentBitmap?.let { canvas.drawBitmap(it, relativeTransform, bitmapFilterPaint) }
         }
 
         renderFloatingPage(canvas)

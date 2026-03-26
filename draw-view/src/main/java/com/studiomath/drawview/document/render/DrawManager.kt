@@ -31,6 +31,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * The core rendering engine and state manager for the drawing canvas.
@@ -84,6 +85,9 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
     var jobOnDrawBitmap: Job? = null
     var jobCache: Job? = null
+
+    // Thread-safe map to track ongoing rendering jobs for each specific page by its database ID
+    private val pageRenderJobs = ConcurrentHashMap<Int, Job>()
 
     /** Processor responsible for handling the lifecycle and rendering of ink strokes. */
     val inkStrokeProcessor = InkStrokeProcessor(
@@ -220,13 +224,19 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                         }
                     }
                     RenderRequest.CacheStrategy.REBUILD_SINGLE_PAGE -> {
-                        scope.launch {
-                            val document = drawViewModel.documentData ?: return@launch
+                        val document = drawViewModel.documentData ?: return
+                        val targetId = renderRequest.targetPageId ?: return
 
-                            val page = document.pages.find { it.dbId == renderRequest.targetPageId }
-                            page?.isPrepared?.let { if (!it) page.prepare() }
+                        // 1. Cancel any currently running rendering job for this specific page
+                        pageRenderJobs[targetId]?.cancel()
 
-                            page?.contentBitmapCache?.let {
+                        // 2. Launch a new dedicated coroutine for this single page using Default dispatcher for CPU-intensive work
+                        val job = scope.launch(Dispatchers.Default) {
+                            val page = document.pages.find { it.dbId == targetId } ?: return@launch
+
+                            if (!page.isPrepared) page.prepare()
+
+                            page.contentBitmapCache?.let {
                                 val bitmaps = drawViewModel.pageMaker.makePage(
                                     Rect(0, 0, it.width, it.height),
                                     null,
@@ -239,24 +249,47 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                 page.contentBitmapCache = bitmaps.content
                             }
                         }
+
+                        // 3. Track the active job in the map, and clean it up automatically upon completion
+                        pageRenderJobs[targetId] = job
+                        job.invokeOnCompletion {
+                            pageRenderJobs.remove(targetId, job)
+                        }
                     }
                     RenderRequest.CacheStrategy.REBUILD_ALL_PAGES -> {
                         scope.launch {
                             val document = drawViewModel.documentData ?: return@launch
-                            for (page in document.pages) {
-                                if (!page.isPrepared) page.prepare()
 
-                                page.contentBitmapCache?.let {
-                                    val bitmaps = drawViewModel.pageMaker.makePage(
-                                        Rect(0, 0, it.width, it.height),
-                                        null,
-                                        null,
-                                        page,
-                                        document,
-                                        renderPdf = renderRequest.includePdfLayer
-                                    )
-                                    page.pdfBitmapCache = bitmaps.pdf
-                                    page.contentBitmapCache = bitmaps.content
+                            // 1. Take an immutable snapshot of the list to prevent ConcurrentModificationException
+                            // if a page is added or removed from the main thread during iteration.
+                            val pagesSnapshot = document.pages.toList()
+
+                            for (page in pagesSnapshot) {
+                                // 2. Cancel any currently running rendering job for this specific page
+                                pageRenderJobs[page.dbId]?.cancel()
+
+                                // 3. Launch a new child coroutine to render this page in parallel
+                                val job = launch(Dispatchers.Default) {
+                                    if (!page.isPrepared) page.prepare()
+
+                                    page.contentBitmapCache?.let {
+                                        val bitmaps = drawViewModel.pageMaker.makePage(
+                                            Rect(0, 0, it.width, it.height),
+                                            null,
+                                            null,
+                                            page,
+                                            document,
+                                            renderPdf = renderRequest.includePdfLayer
+                                        )
+                                        page.pdfBitmapCache = bitmaps.pdf
+                                        page.contentBitmapCache = bitmaps.content
+                                    }
+                                }
+
+                                // 4. Track the active job in the map, and clean it up automatically upon completion
+                                pageRenderJobs[page.dbId] = job
+                                job.invokeOnCompletion {
+                                    pageRenderJobs.remove(page.dbId, job)
                                 }
                             }
                         }
@@ -264,7 +297,22 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     RenderRequest.CacheStrategy.BAKE_NEW_STROKES -> {
                         renderRequest.newStrokesToBake?.let { strokesMap ->
                             scope.launch(renderDispatcher) {
-                                bakeStrokesIntoCache(strokesMap)
+                                // 1. Filter out pages that are currently being completely rebuilt.
+                                // If a page is rebuilding, the new stroke will automatically be
+                                // included in the new bitmap, so we skip the manual bake to avoid race conditions.
+                                val safeStrokesToBake = strokesMap.filterKeys { pageIndex ->
+                                    val document = drawViewModel.documentData
+                                    val pageDbId = document?.pages?.getOrNull(pageIndex)?.dbId
+
+                                    // Keep only if there is NO active render job for this page
+                                    pageDbId == null || !pageRenderJobs.containsKey(pageDbId)
+                                }
+
+                                // 2. Proceed with baking only for stable pages
+                                if (safeStrokesToBake.isNotEmpty()) {
+                                    bakeStrokesIntoCache(safeStrokesToBake)
+                                }
+
                                 updateDrawView(RenderRequest(RenderRequest.DrawMode.REFRESH).apply {
                                     strokesIdToRemove = renderRequest.strokesIdToRemove
                                 })

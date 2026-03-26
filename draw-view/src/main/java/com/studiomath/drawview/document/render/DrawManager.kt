@@ -72,6 +72,12 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     /** Synchronization object to protect [frontState] and [backState] during buffer swaps. */
     val renderLock = Any()
 
+    /** * Incremental ID used to track viewport state.
+     * @Volatile ensures immediate visibility across background and main threads.
+     */
+    @Volatile
+    private var viewportRenderTicket: Long = 0L
+
     /** The state currently being rendered to the hardware canvas. */
     var frontState = RenderState()
 
@@ -164,15 +170,24 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
      * @param renderRequest Instructions and metadata for the requested frame update.
      */
     fun requestDraw(renderRequest: RenderRequest){
+        // Increment the ticket whenever the camera moves, invalidating any ongoing background renders
+        if (renderRequest.drawMode == RenderRequest.DrawMode.TRANSFORM ||
+            renderRequest.drawMode == RenderRequest.DrawMode.ANIMATE) {
+            viewportRenderTicket++
+        }
+
         when (renderRequest.drawMode) {
             RenderRequest.DrawMode.UPDATE -> {
                 when (renderRequest.cacheStrategy) {
                     RenderRequest.CacheStrategy.REBUILD_VIEWPORT -> {
                         val document = drawViewModel.documentData ?: return
-                        // Use contentBitmap as the source of truth for initialization
                         if (onDrawContentBitmap == null) return
 
                         jobOnDrawBitmap?.cancel()
+
+                        // 1. Capture the exact ticket for this specific render request
+                        viewportRenderTicket++
+                        val currentTicket = viewportRenderTicket
 
                         jobOnDrawBitmap = scope.launch {
                             if (calcPage.needToBeUpdated){
@@ -188,7 +203,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
                             drawViewModel.inkInputManager.maskPath?.invoke(getMaskPath(newPagesRect))
 
-                            // Generate the separated dual-layer bitmaps
+                            // Heavy generation happens here...
                             val tempBitmaps = frontState.contentBitmap?.let { currentBmp ->
                                 drawViewModel.pageMaker.makePagesOnBitmap(
                                     Rect(0, 0, currentBmp.width, currentBmp.height),
@@ -199,6 +214,13 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                 )
                             }
 
+                            // 2. Ticket Check: Did the user move the camera while we were rendering?
+                            if (currentTicket != viewportRenderTicket) {
+                                // The render is stale. Discard it completely to prevent rubber-banding.
+                                return@launch
+                            }
+
+                            // 3. Only swap if the ticket matches (the viewport is stable)
                             synchronized(renderLock) {
                                 backState.pdfBitmap = frontState.pdfBitmap
                                 backState.contentBitmap = frontState.contentBitmap

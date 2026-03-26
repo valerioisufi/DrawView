@@ -390,7 +390,16 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                     bakeStrokesIntoCache(safeStrokesToBake)
                                 }
 
-                                updateDrawView(RenderRequest(RenderRequest.DrawMode.REFRESH).apply {
+                                // 4. CRITICAL FIX: Determine the correct draw mode to maintain visual stability
+                                // If we are waiting for a viewport rebuild, we MUST stay in TRANSFORM mode
+                                // to continue seeing the edge-fill logic (single page caches) for newly discovered areas.
+                                val nextDrawMode = if (jobOnDrawBitmap?.isActive == true) {
+                                    RenderRequest.DrawMode.TRANSFORM
+                                } else {
+                                    RenderRequest.DrawMode.REFRESH
+                                }
+
+                                updateDrawView(RenderRequest(nextDrawMode).apply {
                                     strokesIdToRemove = renderRequest.strokesIdToRemove
                                 })
                             }
@@ -783,15 +792,15 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     private fun bakeStrokesIntoCache(strokesByPage: Map<Int, List<Stroke>>) {
         val document = drawViewModel.documentData ?: return
 
-        for (pageRectWithIndex in frontState.pagesRect) {
-            val pageStrokes = strokesByPage[pageRectWithIndex.index] ?: continue
-            val page = document.pages.getOrNull(pageRectWithIndex.index) ?: continue
+        // 1. Bake into the individual page content caches FIRST
+        // We iterate over the provided map because the user might have drawn on a newly discovered page
+        // that is not yet present in the old frontState.pagesRect!
+        for ((pageIndex, pageStrokes) in strokesByPage) {
+            val page = document.pages.getOrNull(pageIndex) ?: continue
 
-            // Bake into the content cache ONLY
             page.contentBitmapCache?.let { bitmapCache ->
                 val canvasCache = Canvas(bitmapCache)
-                val bitmapRect =
-                    RectF(0f, 0f, bitmapCache.width.toFloat(), bitmapCache.height.toFloat())
+                val bitmapRect = RectF(0f, 0f, bitmapCache.width.toFloat(), bitmapCache.height.toFloat())
 
                 val mmToBitmapMatrix = Matrix().apply {
                     setRectToRect(page.rect(), bitmapRect, Matrix.ScaleToFit.CENTER)
@@ -810,7 +819,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             }
         }
 
-        // Bake into the front state content bitmap ONLY
+        // 2. Bake into the front state content bitmap ONLY for pages currently visible in the old buffer
         frontState.contentBitmap?.let { bitmap ->
             val canvas = Canvas(bitmap)
 

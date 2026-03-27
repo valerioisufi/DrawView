@@ -7,6 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import com.studiomath.app.ui.theme.DrawViewTheme
 import com.studiomath.drawview.DocumentListRoute
+import com.studiomath.drawview.TileDrawRoute
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -17,15 +18,16 @@ class MainActivity : ComponentActivity() {
         setContent {
             DrawViewTheme {
 
-                // Chiamiamo la lista del modulo Note!
-                DocumentListRoute(
-                    onNavigateToDocument = { documentId ->
-                        // È il progetto base a decidere COME navigare
-                        val intent = Intent(this, DrawActivity::class.java)
-                        intent.putExtra("documentId", documentId)
-                        startActivity(intent)
-                    }
-                )
+//                DocumentListRoute(
+//                    onNavigateToDocument = { documentId ->
+//                        // È il progetto base a decidere COME navigare
+//                        val intent = Intent(this, DrawActivity::class.java)
+//                        intent.putExtra("documentId", documentId)
+//                        startActivity(intent)
+//                    }
+//                )
+
+                TileDrawRoute()
 
             }
         }

@@ -119,6 +119,9 @@ class OnScaleTranslate(
 
                 if (drawViewModel.drawManager.cameraPhysics.isAnimating()) {
                     drawViewModel.drawManager.requestDraw(RenderRequest(drawMode = DrawMode.ANIMATE))
+                } else {
+                    // FIX: Must rebuild viewport if no bounce/fling animation is needed
+                    drawViewModel.drawManager.requestDraw(RenderRequest.rebuildViewport(includePdf = true))
                 }
                 return true
             }

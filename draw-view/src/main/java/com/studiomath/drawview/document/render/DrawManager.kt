@@ -262,7 +262,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                     }
                                 }
 
-                                /// Swap ONLY the content buffer
+                                // Swap ONLY the content buffer
                                 backState.contentBitmap = frontState.contentBitmap
                                 frontState.contentBitmap = tempBitmaps?.content
                                 frontState.matrix = Matrix(renderMatrix)
@@ -574,6 +574,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         val isPdfAligned: Boolean
     )
 
+    val bitmapFilterPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
+
     /**
      * Internal rendering entry point that dispatches specific drawing logic based on [RenderRequest].
      *
@@ -606,7 +608,6 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 matrix = Matrix(frontState.matrix),
                 pagesRect = currentPagesRect,
                 currentRenderMatrix = currentRenderMatrix,
-                // Pass the new flag safely acquired inside the lock
                 isPdfAligned = frontState.isPdfAligned
             )
         }
@@ -652,10 +653,25 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             relativeTransform.mapRect(livePageRect)
 
             drawViewModel.pageMaker.makePageBackground(canvas, livePageRect, windowRect, docPage, document, drawViewModel.themeColors)
+
+            // --- FIX: Fallback visual logic per il PDF ---
+            // Se il Fast Path ha aggiornato la matrice ma il PDF sta ancora caricando in background,
+            // usiamo temporaneamente le cache individuali del PDF per evitare buchi visivi o glitch.
+            if (!snapshot.isPdfAligned) {
+                docPage.pdfBitmapCache?.let { bmp ->
+                    canvas.drawBitmap(bmp, null, livePageRect, null)
+                }
+            }
         }
 
-        // 3. Draw the viewport layers strictly applying the physics-aligned matrix instead of hardcoded 0,0
-        snapshot.pdfBitmap?.let { canvas.drawBitmap(it, relativeTransform, bitmapFilterPaint) }
+        // 3. Draw the viewport layers strictly applying the physics-aligned matrix
+
+        // Disegniamo il PDF unificato SOLO se è sincronizzato con la matrice attuale
+        if (snapshot.isPdfAligned) {
+            snapshot.pdfBitmap?.let { canvas.drawBitmap(it, relativeTransform, bitmapFilterPaint) }
+        }
+
+        // Il contenuto veloce è sempre allineato e pronto
         snapshot.contentBitmap?.let { canvas.drawBitmap(it, relativeTransform, bitmapFilterPaint) }
     }
 
@@ -719,8 +735,6 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         renderFloatingPage(canvas)
     }
 
-    val bitmapFilterPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
-
     /** Renders the canvas during scaling or translation by transforming the cached bitmap. */
     private fun renderScaleTranslateMode(canvas: Canvas, snapshot: RenderSnapshot) {
         val inverseDrawMatrix = Matrix()
@@ -739,7 +753,6 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
         val document = drawViewModel.documentData
 
-        // Disegniamo gli sfondi delle pagine prima del clip!
         for (pageInfo in snapshot.pagesRect) {
             val docPage = document?.pages?.getOrNull(pageInfo.index) ?: continue
             drawViewModel.pageMaker.makePageBackground(canvas, pageInfo.rect, windowRect, docPage, document, drawViewModel.themeColors)
@@ -747,8 +760,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
         // --- LAYER PDF (Cache Singole) ---
         canvas.withSave {
-            // Se il PDF è allineato, creiamo un buco al centro per non sovrascrivere il buffer unificato.
-            // Se NON è allineato (sta caricando), ignoriamo il clip e disegniamo le cache ovunque.
+            // FIX CHIRURGICO: Spegniamo il buco se il PDF unificato sta caricando!
             if (!drawViewModel.isReorderingPages && !drawViewModel.isErasing && snapshot.isPdfAligned && relativeTransform != null && !onDrawBitmapBounds.isEmpty) {
                 clipOutRect(onDrawBitmapBounds)
             }
@@ -762,7 +774,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
         // --- LAYER CONTENUTO (Cache Singole) ---
         canvas.withSave {
-            // Il contenuto veloce è sempre allineato, quindi il buco al centro è sempre attivo
+            // Il contenuto è sempre allineato, quindi il buco qui c'è sempre
             if (!drawViewModel.isReorderingPages && !drawViewModel.isErasing && relativeTransform != null && !onDrawBitmapBounds.isEmpty) {
                 clipOutRect(onDrawBitmapBounds)
             }
@@ -783,13 +795,10 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         // --- LAYER UNIFICATO (Buffers Frontali) ---
         if (!drawViewModel.isReorderingPages && !drawViewModel.isErasing && relativeTransform != null && snapshot.contentBitmap != null) {
             canvas.withClip(windowRect) {
-
-                // Disegniamo il PDF unificato SOLO se è sincronizzato con la matrice attuale
+                // FIX CHIRURGICO: Disegniamo il PDF unificato SOLO se è allineato
                 if (snapshot.isPdfAligned) {
                     snapshot.pdfBitmap?.let { drawBitmap(it, relativeTransform, bitmapFilterPaint) }
                 }
-
-                // Il buffer dei contenuti è sempre fresco e pronto da disegnare
                 drawBitmap(snapshot.contentBitmap, relativeTransform, bitmapFilterPaint)
             }
         }

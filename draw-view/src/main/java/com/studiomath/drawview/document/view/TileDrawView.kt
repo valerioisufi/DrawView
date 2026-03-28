@@ -9,22 +9,26 @@ import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
+import com.studiomath.drawview.document.math.DocumentLayoutCalculator
+import com.studiomath.drawview.document.math.PageLayout
 import com.studiomath.drawview.document.math.CoordinateTransformer
 import com.studiomath.drawview.document.state.DrawEngineState
 import com.studiomath.drawview.document.state.DrawEngineViewModel
 import com.studiomath.drawview.document.state.DrawEvent
-import com.studiomath.drawview.document.tile.DebugTileRenderer
+import com.studiomath.drawview.document.tile.DocumentTileRenderer
+import com.studiomath.drawview.document.tile.InkTileWorker
+import com.studiomath.drawview.document.tile.PdfTileWorker
 import com.studiomath.drawview.document.tile.TileCoordinate
 import com.studiomath.drawview.document.tile.TileGridCalculator
 import com.studiomath.drawview.document.tile.TileManager
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 
 /**
  * The Android View bridging the Unidirectional Data Flow engine with the hardware screen.
+ * Phase 4: Now integrated with the real PDF and Vector Ink renderers.
  */
 class TileDrawView @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
@@ -33,8 +37,9 @@ class TileDrawView @JvmOverloads constructor(
     // --- Core Engine Components ---
     lateinit var viewModel: DrawEngineViewModel
     lateinit var coordinateTransformer: CoordinateTransformer
-    lateinit var tileGridCalculator: TileGridCalculator
-    lateinit var tileManager: TileManager
+    private lateinit var tileGridCalculator: TileGridCalculator
+    private lateinit var layoutCalculator: DocumentLayoutCalculator
+    private lateinit var tileManager: TileManager
 
     private var viewScope: CoroutineScope? = null
     private var stateObservationJob: Job? = null
@@ -42,17 +47,19 @@ class TileDrawView @JvmOverloads constructor(
     // The latest immutable state received from the ViewModel
     private var currentState: DrawEngineState? = null
 
+    // Cached layout of the document (recalculated only when pages change)
+    private var cachedPageLayouts: List<PageLayout> = emptyList()
+
     // Helper matrix for rendering tiles
     private val renderMatrix = Matrix()
 
     // --- Android Gesture Detectors for panning and zooming ---
     private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(detector: ScaleGestureDetector): Boolean {
-            // Send the Zoom Event to the Brain
             viewModel.onEvent(
                 DrawEvent.OnCameraZoom(
                     scaleFactor = detector.scaleFactor,
-                    focusXMm = 0f, // For now, simple center zoom
+                    focusXMm = 0f, // Centered zoom for now
                     focusYMm = 0f
                 )
             )
@@ -64,23 +71,20 @@ class TileDrawView @JvmOverloads constructor(
         override fun onScroll(e1: MotionEvent?, e2: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
             if (scaleDetector.isInProgress) return true
 
-            // Convert pixel scrolling to millimeter scrolling
-            // (A quick approximation for debug purposes. The real conversion uses the current zoom level)
-            val pixelsPerMm = context.resources.displayMetrics.xdpi / 25.4f
+            val basePixelsPerMm = context.resources.displayMetrics.xdpi / 25.4f
             val scale = currentState?.viewport?.scale ?: 1f
-            val currentPixelsPerMm = pixelsPerMm * scale
+            val currentPixelsPerMm = basePixelsPerMm * scale
 
             val deltaXMm = distanceX / currentPixelsPerMm
             val deltaYMm = distanceY / currentPixelsPerMm
 
-            // Send the Pan Event to the Brain
             viewModel.onEvent(DrawEvent.OnCameraPan(deltaXMm, deltaYMm))
             return true
         }
     })
 
     /**
-     * Call this from your Activity/Fragment to wire up the View.
+     * Wires up the View with the UDF Brain and the rendering workers.
      */
     fun attachEngine(
         vm: DrawEngineViewModel,
@@ -89,33 +93,60 @@ class TileDrawView @JvmOverloads constructor(
     ) {
         viewModel = vm
         coordinateTransformer = transformer
-        tileGridCalculator = TileGridCalculator()
+        viewScope = scope
 
-        // Initialize the manager with the Debug Renderer
+        tileGridCalculator = TileGridCalculator()
+        layoutCalculator = DocumentLayoutCalculator()
+
+        val basePixelsPerMm = context.resources.displayMetrics.xdpi / 25.4f
+
+        // 1. Initialize the Real Workers (Phase 4)
+        val pdfWorker = PdfTileWorker()
+        val inkWorker = InkTileWorker()
+        val documentRenderer = DocumentTileRenderer(pdfWorker, inkWorker, basePixelsPerMm)
+
+        // 2. Initialize the manager with the REAL Renderer
         tileManager = TileManager(
             scope = scope,
-            debugRenderer = DebugTileRenderer(),
+            documentRenderer = documentRenderer,
             onTileReady = {
-                // When a background worker finishes a tile, force the view to redraw
+                // Force the view to redraw when a tile finishes loading in the background
                 postInvalidate()
             }
         )
 
-        viewScope = scope
         observeState()
     }
+
+    init {
+        // CRITICAL: Tells the Android View system that this Custom View
+        // does custom drawing, forcing it to call onDraw().
+        setWillNotDraw(false)
+    }
+
+    // Track the last known revision to avoid useless math
+    private var currentRevision: Int = -1
 
     private fun observeState() {
         stateObservationJob?.cancel()
         stateObservationJob = viewModel.state.onEach { newState ->
             currentState = newState
-            // The state changed (e.g., camera moved). Force a redraw.
+
+            // Ricalculate layout ONLY if the document structurally changed (revision bump)
+            // or if it's the very first time (cachedPageLayouts is empty)
+            if (currentRevision != newState.documentRevision || cachedPageLayouts.isEmpty()) {
+                cachedPageLayouts = layoutCalculator.calculateLayout(newState.document)
+                currentRevision = newState.documentRevision
+
+                android.util.Log.d("DrawDebug", "2. VIEW: Layout recalculated. Total pages: ${cachedPageLayouts.size}")
+            }
+
+            // Force Android to call onDraw()
             invalidate()
         }.launchIn(viewScope!!)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        // Let the Android detectors handle Pan and Zoom
         scaleDetector.onTouchEvent(event)
         gestureDetector.onTouchEvent(event)
         return true
@@ -132,21 +163,21 @@ class TileDrawView @JvmOverloads constructor(
             screenHeightPx = height
         )
 
-        // 2. What zoom level are we at?
-        val zoomLevel = TileCoordinate.calculateZoomLevel(state.viewport.scale)
         val basePixelsPerMm = context.resources.displayMetrics.xdpi / 25.4f
+        val zoomLevel = TileCoordinate.calculateZoomLevel(state.viewport.scale)
 
-        // 3. Which tiles do we need to cover the screen?
+        // 2. Which tiles do we need to cover the screen?
         val visibleTiles = tileGridCalculator.getVisibleTiles(
             visibleBoundsMm = visibleBoundsMm,
             zoomLevel = zoomLevel,
             basePixelsPerMm = basePixelsPerMm
         )
 
-        // 4. Tell the TileManager to manage memory and background rendering
-        tileManager.updateVisibleTiles(visibleTiles)
+        // 3. Ask the TileManager to fetch or generate the required tiles
+        // We now pass the real document and the cached layouts!
+        tileManager.updateVisibleTiles(visibleTiles, state.document, cachedPageLayouts)
 
-        // 5. Draw the tiles we already have in cache
+        // 4. Draw the tiles we already have in RAM
         for (tile in visibleTiles) {
             val bitmap = tileManager.tileCache[tile]
             if (bitmap != null) {
@@ -155,19 +186,14 @@ class TileDrawView @JvmOverloads constructor(
 
                 renderMatrix.reset()
 
-                // Map the 256x256 bitmap to its actual millimeter size
+                // Map the 256x256 bitmap to its physical millimeter size
                 renderMatrix.setRectToRect(
-                    RectF(
-                        0f,
-                        0f,
-                        TileCoordinate.TILE_SIZE_PX.toFloat(),
-                        TileCoordinate.TILE_SIZE_PX.toFloat()
-                    ),
+                    RectF(0f, 0f, TileCoordinate.TILE_SIZE_PX.toFloat(), TileCoordinate.TILE_SIZE_PX.toFloat()),
                     tileBoundsMm,
                     Matrix.ScaleToFit.FILL
                 )
 
-                // Now shift and scale the entire world based on the camera position
+                // Shift and scale the world based on the camera position
                 val currentPixelsPerMm = basePixelsPerMm * state.viewport.scale
                 renderMatrix.postTranslate(-state.viewport.focusXMm, -state.viewport.focusYMm)
                 renderMatrix.postScale(currentPixelsPerMm, currentPixelsPerMm)
@@ -176,5 +202,8 @@ class TileDrawView @JvmOverloads constructor(
                 canvas.drawBitmap(bitmap, renderMatrix, null)
             }
         }
+
+        val cachedCount = visibleTiles.count { tileManager.tileCache.containsKey(it) }
+        android.util.Log.d("DrawDebug", "4. ONDRAW: Screen needs ${visibleTiles.size} tiles. Found $cachedCount in cache ready to draw.")
     }
 }

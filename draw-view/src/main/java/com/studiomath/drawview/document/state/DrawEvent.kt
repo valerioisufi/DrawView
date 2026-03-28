@@ -1,7 +1,10 @@
 package com.studiomath.drawview.document.state
 
+import android.net.Uri
 import androidx.ink.brush.BrushFamily
+import com.studiomath.drawview.document.page.Document
 import com.studiomath.drawview.document.page.Measure
+import com.studiomath.drawview.document.page.Page
 import com.studiomath.drawview.document.tools.Tool
 
 /**
@@ -65,4 +68,17 @@ sealed interface DrawEvent {
 
     /** Fired when a system event cancels the touch (e.g., palm rejection kicks in). */
     data class OnTouchCancel(val pointerId: Int) : DrawEvent
+
+    // --- System & I/O Events ---
+    /** Requests to load the document from the database on startup. */
+    data class LoadDocument(val documentId: Int) : DrawEvent
+
+    /** Internal event fired when the database finishes loading. */
+    data class OnDocumentLoaded(val document: Document) : DrawEvent
+
+    /** Requests to import a PDF from a system URI. */
+    data class ImportPdf(val uri: Uri) : DrawEvent
+
+    /** Internal event fired when the importer finishes extracting pages. */
+    data class OnPagesAdded(val newPages: List<Page>) : DrawEvent
 }

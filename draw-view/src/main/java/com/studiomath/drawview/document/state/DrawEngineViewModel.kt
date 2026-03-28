@@ -1,28 +1,56 @@
 package com.studiomath.drawview.document.state
 
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.studiomath.drawview.data.repository.DrawDocumentRepository
+import com.studiomath.drawview.document.io.TileMediaImporter
+import com.studiomath.drawview.document.page.Document
+import com.studiomath.drawview.document.tools.Tool
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 /**
  * The Brain of the drawing engine.
  * It receives events from the UI, applies pure logic, and emits a new immutable state.
  */
-class DrawEngineViewModel(initialState: DrawEngineState) : ViewModel() {
+class DrawEngineViewModel(
+    application: Application,
+    val documentId: Int // Passed from the route
+) : AndroidViewModel(application) {
 
-    // The internal mutable state, completely hidden from the outside world.
-    private val _state = MutableStateFlow(initialState)
+    private val repository = DrawDocumentRepository(application)
+    private val mediaImporter = TileMediaImporter(application, repository)
 
-    // The public immutable state that the UI (View or Compose) observes.
+    // Initial dummy state. Will be replaced once the DB loads the real document.
+    private val _state = MutableStateFlow(
+        DrawEngineState(
+            document = Document("Loading..."),
+            toolState = ToolState(Tool.PAN, emptyMap())
+        )
+    )
     val state: StateFlow<DrawEngineState> = _state.asStateFlow()
+
+    init {
+        // Kick off the loading process immediately
+        onEvent(DrawEvent.LoadDocument(documentId))
+    }
 
     /**
      * The ONLY entry point for the UI. The View passes events here and forgets about them.
      */
     fun onEvent(event: DrawEvent) {
         when (event) {
+            is DrawEvent.LoadDocument -> handleLoadDocument(event)
+            is DrawEvent.OnDocumentLoaded -> handleDocumentLoaded(event)
+
+            is DrawEvent.ImportPdf -> handleImportPdf(event)
+            is DrawEvent.OnPagesAdded -> handlePagesAdded(event)
+
             // --- Tool & UI Events ---
             is DrawEvent.SelectTool -> handleSelectTool(event)
             is DrawEvent.ChangeBrushColor -> handleChangeBrushColor(event)
@@ -188,6 +216,49 @@ class DrawEngineViewModel(initialState: DrawEngineState) : ViewModel() {
         _state.update { currentState ->
             // Safety reset
             currentState.copy(interaction = InteractionState.Idle)
+        }
+    }
+
+    // --- SIDE EFFECTS (Async I/O) ---
+
+    private fun handleLoadDocument(event: DrawEvent.LoadDocument) {
+        viewModelScope.launch {
+            var doc = repository.loadDocument(event.documentId)
+            if (doc == null) {
+                doc = repository.createNewDefaultDocument("New Document")
+            }
+            // Once loaded, fire an event to update the immutable state
+            onEvent(DrawEvent.OnDocumentLoaded(doc))
+        }
+    }
+
+    private fun handleImportPdf(event: DrawEvent.ImportPdf) {
+        viewModelScope.launch {
+            val currentDoc = _state.value.document
+            // This runs in Dispatchers.IO safely
+            val newPages = mediaImporter.importPdf(event.uri, currentDoc)
+
+            // Fire event to update state with new pages
+            onEvent(DrawEvent.OnPagesAdded(newPages))
+        }
+    }
+
+    // --- STATE REDUCERS (Pure Math) ---
+
+    private fun handleDocumentLoaded(event: DrawEvent.OnDocumentLoaded) {
+        _state.update { it.copy(document = event.document) }
+    }
+
+    private fun handlePagesAdded(event: DrawEvent.OnPagesAdded) {
+        _state.update { currentState ->
+            // 1. Add the new pages to the existing document in memory
+            currentState.document.pages.addAll(event.newPages)
+
+            // 2. Return a new State with an incremented revision.
+            // This guarantees that StateFlow will detect a difference and notify the View.
+            currentState.copy(
+                documentRevision = currentState.documentRevision + 1
+            )
         }
     }
 }

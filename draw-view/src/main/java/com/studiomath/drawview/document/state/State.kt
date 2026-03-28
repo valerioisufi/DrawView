@@ -14,6 +14,7 @@ import com.studiomath.drawview.document.selection.SelectionGroup
  */
 data class DrawEngineState(
     val document: Document,
+    val documentRevision: Int = 0,
     val viewport: ViewportState = ViewportState(),
     val toolState: ToolState,
     val interaction: InteractionState = InteractionState.Idle

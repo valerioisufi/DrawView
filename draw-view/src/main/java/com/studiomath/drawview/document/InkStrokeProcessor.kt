@@ -18,6 +18,7 @@ import com.studiomath.drawview.document.selection.LassoMode
 import com.studiomath.drawview.document.selection.SelectionGroup
 import com.studiomath.drawview.document.tools.Tool
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlin.math.max
 import kotlin.math.min
@@ -147,7 +148,7 @@ class InkStrokeProcessor(
         }
 
         // --- GESTIONE INCHIOSTRO (FAST PATH) ---
-        coroutineScope.launch {
+        coroutineScope.launch(Dispatchers.Default) {
             val strokesByPage = mutableMapOf<Int, MutableList<InkStroke>>()
             val historyGroups = mutableListOf<PageStrokeGroup>()
 

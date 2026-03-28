@@ -99,6 +99,12 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     // Thread-safe map to track ongoing rendering jobs for each specific page by its database ID
     private val pageRenderJobs = ConcurrentHashMap<Int, Job>()
 
+    // Limit background page generation to 2 concurrent threads maximum.
+    // This prevents PDF rendering from monopolizing all CPU cores,
+    // leaving headroom for drawing and UI interactions.
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val pageRenderDispatcher = Dispatchers.Default.limitedParallelism(2)
+
     private val pageDirtyFlags = ConcurrentHashMap<Int, Boolean>()
 
     /** Processor responsible for handling the lifecycle and rendering of ink strokes. */
@@ -300,7 +306,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                         }
 
                         // 2. Avvia il ricalcolo e continua a ciclare finché la pagina rimane sporca
-                        val job = scope.launch(Dispatchers.Default) {
+                        val job = scope.launch(pageRenderDispatcher) {
                             val page = document.pages.find { it.dbId == targetId } ?: return@launch
 
                             do {
@@ -346,7 +352,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                 pageRenderJobs[page.dbId]?.cancel()
 
                                 // 3. Launch a new child coroutine to render this page in parallel
-                                val job = launch(Dispatchers.Default) {
+                                val job = launch(pageRenderDispatcher) {
                                     if (!page.isPrepared) page.prepare()
 
                                     page.contentBitmapCache?.let {
@@ -1077,5 +1083,17 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         pageRenderJobs.values.forEach { it.cancel() }
         pageRenderJobs.clear()
         pageDirtyFlags.clear()
+
+        // Recycle RenderState bitmaps to free up RAM immediately
+        frontState.pdfBitmap?.recycle()
+        frontState.contentBitmap?.recycle()
+        backState.pdfBitmap?.recycle()
+        backState.contentBitmap?.recycle()
+
+        // Clear references
+        frontState = RenderState()
+        backState = RenderState()
+        onDrawPdfBitmap = null
+        onDrawContentBitmap = null
     }
 }

@@ -602,11 +602,21 @@ class DrawViewModel(
     override fun onCleared() {
         super.onCleared()
 
-        // Stop all background renders of the current document
+        // Stop all background renders and clear engine bitmaps
         drawManager.cleanup()
 
-        // Optional: if your historyManager or mediaManager use custom CoroutineScopes
-        // that are NOT viewModelScope, you should clean them up here too.
+        // Recycle all individual page bitmaps to prevent OutOfMemory errors
+        documentData?.pages?.forEach { page ->
+            page.pdfBitmapCache?.recycle()
+            page.contentBitmapCache?.recycle()
+
+            // Remove references so the Garbage Collector can finish the job
+            page.pdfBitmapCache = null
+            page.contentBitmapCache = null
+        }
+
+        // Clear the document reference
+        documentData = null
     }
 
 }

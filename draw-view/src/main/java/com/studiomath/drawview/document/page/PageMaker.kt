@@ -105,7 +105,7 @@ class PageMaker(
         document: Document,
         clipRect: RectF? = null,
         renderPdf: Boolean = true
-    ): PageBitmaps = withContext(Dispatchers.Default) {
+    ): PageBitmaps  {
         if (!page.isPrepared) {
             page.prepare()
         }
@@ -334,7 +334,7 @@ class PageMaker(
             }
         }
 
-        return@withContext PageBitmaps(pdfBitmap, contentBitmap)
+        return PageBitmaps(pdfBitmap, contentBitmap)
     }
 
     // --- PAINT OTTIMIZZATI E RIUTILIZZABILI ---

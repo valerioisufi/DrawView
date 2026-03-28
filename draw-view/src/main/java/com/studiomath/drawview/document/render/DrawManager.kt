@@ -202,6 +202,9 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             RenderRequest.DrawMode.UPDATE -> {
                 when (renderRequest.cacheStrategy) {
                     RenderRequest.CacheStrategy.REBUILD_VIEWPORT -> {
+                        val requestTime = System.currentTimeMillis()
+                        android.util.Log.d("ViewportPerf", "1. REBUILD_VIEWPORT triggered. Thread: ${Thread.currentThread().name}")
+
                         val document = drawViewModel.documentData ?: return
                         if (onDrawContentBitmap == null) return
 
@@ -213,11 +216,15 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
                         // 1. Synchronous geometry calculation
                         if (calcPage.needToBeUpdated) {
+                            val calcStart = System.currentTimeMillis() // <-- START TIMER
+
                             calcPage.calcPagesRectOnWindow(
                                 document.pages, windowRect, CalcPage.PagePositionOnWindowOption()
                             )
                             contentConstraintsOnWindow = calcPage.getContentConstraintsOnWindow(windowRect)
                             calcPage.needToBeUpdated = false
+
+                            android.util.Log.d("ViewportPerf", "2. Synchronous Geometry Calc took: ${System.currentTimeMillis() - calcStart}ms") // <-- END TIMER
                         }
 
                         val renderMatrix = cameraPhysics.getRenderMatrix()
@@ -225,7 +232,14 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                         drawViewModel.inkInputManager.maskPath?.invoke(getMaskPath(newPagesRect))
 
                         // 2. FAST PATH: Render only ink, text, and images
-                        jobViewportContent = scope.launch {
+                        // FIX: Use the dedicated OS thread to prevent the UI from choking on PDF parsing
+                        jobViewportContent = scope.launch(inkProcessingDispatcher) {
+                            val viewportStartTime = System.currentTimeMillis()
+                            android.util.Log.d("ViewportPerf", "=== VIEWPORT CONTENT JOB STARTED ===")
+                            android.util.Log.d("ViewportPerf", "Ticket: $currentTicket. Thread: ${Thread.currentThread().name}")
+
+                            val makeBitmapStart = System.currentTimeMillis()
+
                             val tempBitmaps = frontState.contentBitmap?.let { currentBmp ->
                                 drawViewModel.pageMaker.makePagesOnBitmap(
                                     Rect(0, 0, currentBmp.width, currentBmp.height),
@@ -236,22 +250,25 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                 )
                             }
 
-                            if (currentTicket != viewportRenderTicket) return@launch
+                            val makeBitmapTime = System.currentTimeMillis() - makeBitmapStart
+                            android.util.Log.d("ViewportPerf", "-> makePagesOnBitmap (Content Only) took: ${makeBitmapTime}ms")
 
+                            if (currentTicket != viewportRenderTicket) {
+                                android.util.Log.d("ViewportPerf", "Job Aborted: Ticket stale (Camera moved during render)")
+                                return@launch
+                            }
+
+                            val swapStart = System.currentTimeMillis()
                             synchronized(renderLock) {
                                 tempBitmaps?.content?.let { newContentBmp ->
                                     val canvas = Canvas(newContentBmp)
                                     var pendingMap = pendingViewportStrokes.poll()
 
                                     if (pendingMap != null) {
-                                        android.util.Log.d("DrawManagerBake", "A. jobViewportContent is draining pendingViewportStrokes!")
+                                        android.util.Log.d("ViewportPerf", "Draining pending strokes into new buffer...")
                                     }
 
-                                    var drainCount = 0
-                                    val drainStart = System.currentTimeMillis()
-
                                     while (pendingMap != null) {
-                                        drainCount++
                                         for (pageRectWithIndex in newPagesRect) {
                                             val pageStrokes = pendingMap[pageRectWithIndex.index] ?: continue
                                             val page = document.pages.getOrNull(pageRectWithIndex.index) ?: continue
@@ -274,10 +291,6 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                         }
                                         pendingMap = pendingViewportStrokes.poll()
                                     }
-
-                                    if (drainCount > 0) {
-                                        android.util.Log.d("DrawManagerBake", "B. Drained $drainCount batches in ${System.currentTimeMillis() - drainStart}ms")
-                                    }
                                 }
 
                                 // Swap ONLY the content buffer
@@ -286,13 +299,14 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                 frontState.matrix = Matrix(renderMatrix)
                                 frontState.pagesRect = newPagesRect
 
-                                // The matrix just changed! The old PDF bitmap is no longer aligned.
                                 frontState.isPdfAligned = false
 
                                 onDrawContentBitmap = frontState.contentBitmap
                                 onDrawBitmapMatrix = frontState.matrix
                                 pagesRectOnWindow = frontState.pagesRect.toMutableSet()
                             }
+
+                            android.util.Log.d("ViewportPerf", "-> Buffer Swap & Lock took: ${System.currentTimeMillis() - swapStart}ms")
 
                             // Force immediate UI update with the new content
                             updateDrawView(RenderRequest(renderRequest.drawMode).apply {
@@ -302,6 +316,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                             withContext(Dispatchers.Main) {
                                 drawViewModel.isDocumentShowed = true
                             }
+
+                            android.util.Log.d("ViewportPerf", "=== VIEWPORT CONTENT JOB FINISHED in ${System.currentTimeMillis() - viewportStartTime}ms ===")
                         }
 
                         // 3. SLOW PATH: Render the PDF layer on the constrained dispatcher
@@ -621,6 +637,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
      * @param renderRequest Metadata describing the type of drawing pass required.
      */
     private fun executeRender(canvas: Canvas, renderRequest: RenderRequest) {
+        val renderStart = System.currentTimeMillis()
+
         val snapshot: RenderSnapshot
         synchronized(renderLock) {
 
@@ -666,6 +684,14 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             requestDraw(RenderRequest(drawMode = RenderRequest.DrawMode.ANIMATE).apply {
                 animationType = RenderRequest.AnimationType.FLING
             })
+        }
+
+        val renderTime = System.currentTimeMillis() - renderStart // <-- END TIMER
+        if (renderTime > 16) {
+            // Logghiamo un warning visibile se stiamo scendendo sotto i 60fps (1000ms / 60 = 16.6ms)
+            android.util.Log.w("ViewportPerf", "!!! SLOW RENDER: executeRender took ${renderTime}ms. Mode: ${renderRequest.drawMode} !!!")
+        } else {
+            android.util.Log.d("ViewportPerf", "-> executeRender took ${renderTime}ms. Mode: ${renderRequest.drawMode}")
         }
     }
 

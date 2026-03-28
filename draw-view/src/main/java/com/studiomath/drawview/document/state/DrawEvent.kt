@@ -35,19 +35,12 @@ sealed interface DrawEvent {
     // ==========================================
 
     /**
-     * Fired when the user drags two fingers (or uses the pan tool) to move the canvas.
-     * @param deltaXMm The physical distance moved horizontally in millimeters.
-     * @param deltaYMm The physical distance moved vertically in millimeters.
+     * Fired continuously by the CameraPhysicsEngine during drags, flings, and bounces.
+     * @param focusXMm Absolute X center in millimeters.
+     * @param focusYMm Absolute Y center in millimeters.
+     * @param scale The UDF scale multiplier (1.0f = 100%).
      */
-    data class OnCameraPan(val deltaXMm: Float, val deltaYMm: Float) : DrawEvent
-
-    /**
-     * Fired during a pinch-to-zoom gesture.
-     * @param scaleFactor The multiplier for the current zoom (e.g., 1.1 for zoom in).
-     * @param focusXMm The X coordinate of the pinch center in world millimeters.
-     * @param focusYMm The Y coordinate of the pinch center in world millimeters.
-     */
-    data class OnCameraZoom(val scaleFactor: Float, val focusXMm: Float, val focusYMm: Float) : DrawEvent
+    data class SyncCamera(val focusXMm: Float, val focusYMm: Float, val scale: Float) : DrawEvent
 
 
     // ==========================================

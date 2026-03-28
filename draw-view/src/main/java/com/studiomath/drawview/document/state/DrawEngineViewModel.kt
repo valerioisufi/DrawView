@@ -58,8 +58,7 @@ class DrawEngineViewModel(
             is DrawEvent.ChangeBrushFamily -> handleChangeBrushFamily(event)
 
             // --- Viewport Events ---
-            is DrawEvent.OnCameraPan -> handleCameraPan(event)
-            is DrawEvent.OnCameraZoom -> handleCameraZoom(event)
+            is DrawEvent.SyncCamera -> handleSyncCamera(event)
 
             // --- Touch Interaction Events ---
             is DrawEvent.OnTouchDown -> handleTouchDown(event)
@@ -131,30 +130,14 @@ class DrawEngineViewModel(
         }
     }
 
-    private fun handleCameraPan(event: DrawEvent.OnCameraPan) {
+    private fun handleSyncCamera(event: DrawEvent.SyncCamera) {
         _state.update { currentState ->
-            val oldViewport = currentState.viewport
-            val newViewport = oldViewport.copy(
-                focusXMm = oldViewport.focusXMm + event.deltaXMm,
-                focusYMm = oldViewport.focusYMm + event.deltaYMm
-            )
             currentState.copy(
-                viewport = newViewport,
-                // If we are panning, we explicitly tell the interaction state
-                interaction = InteractionState.PanningCamera
-            )
-        }
-    }
-
-    private fun handleCameraZoom(event: DrawEvent.OnCameraZoom) {
-        _state.update { currentState ->
-            val oldViewport = currentState.viewport
-            // Advanced math for focal point zoom goes here, but the principle is the same:
-            val newViewport = oldViewport.copy(
-                scale = oldViewport.scale * event.scaleFactor
-            )
-            currentState.copy(
-                viewport = newViewport,
+                viewport = currentState.viewport.copy(
+                    focusXMm = event.focusXMm,
+                    focusYMm = event.focusYMm,
+                    scale = event.scale
+                ),
                 interaction = InteractionState.PanningCamera
             )
         }

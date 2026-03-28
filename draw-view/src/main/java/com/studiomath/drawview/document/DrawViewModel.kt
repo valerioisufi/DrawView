@@ -595,6 +595,20 @@ class DrawViewModel(
         }
     }
 
+    /**
+     * Called when the ViewModel is destroyed.
+     * We must release all custom scopes and heavy resources here.
+     */
+    override fun onCleared() {
+        super.onCleared()
+
+        // Stop all background renders of the current document
+        drawManager.cleanup()
+
+        // Optional: if your historyManager or mediaManager use custom CoroutineScopes
+        // that are NOT viewModelScope, you should clean them up here too.
+    }
+
 }
 
 /**

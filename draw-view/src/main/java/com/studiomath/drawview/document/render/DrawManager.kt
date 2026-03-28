@@ -27,6 +27,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -1055,5 +1056,26 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         val cameraMatrix = cameraPhysics.getRenderMatrix()
         cameraMatrix.invert(inverse)
         return inverse
+    }
+
+    /**
+     * Cancels all ongoing background rendering tasks and clears memory.
+     * This is critical to prevent CPU starvation and memory leaks when
+     * the user closes the document.
+     */
+    fun cleanup() {
+        // Cancel the main processing scope to stop all background PDF generation
+        scope.cancel()
+
+        // Cancel the rendering loop scope
+        renderScope.cancel()
+
+        // Ensure the hardware canvas loop is stopped
+        stopRenderLoop()
+
+        // Explicitly cancel and clear any tracked page rendering jobs
+        pageRenderJobs.values.forEach { it.cancel() }
+        pageRenderJobs.clear()
+        pageDirtyFlags.clear()
     }
 }

@@ -7,13 +7,14 @@ import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.brush.Brush
 import com.studiomath.drawview.data.repository.DrawDocumentRepository
 import com.studiomath.drawview.document.page.Stroke
-import com.studiomath.drawview.document.render.DrawManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Gestisce i callback nativi della libreria Ink e il salvataggio dei tratti su database.
+ * PHASE 5 UDF REFACTOR: Completely decoupled from DrawManager.
+ * Relies on the provided transformation matrices.
  */
 class InkInputManager(
     private val repository: DrawDocumentRepository,
@@ -27,6 +28,9 @@ class InkInputManager(
     var removeFinishedStrokes: ((strokeKeys: Set<InProgressStrokeId>) -> Unit)? = null
     var maskPath: ((path: Path) -> Unit)? = null
 
+    // Buffer to hold strokes that have finished rendering natively, waiting to be pulled into Domain Models
+    private val finishedStrokesBuffer = ConcurrentHashMap<InProgressStrokeId, androidx.ink.strokes.Stroke>()
+
     /**
      * Salvataggio asincrono dei nuovi tratti completati nel database.
      */
@@ -38,19 +42,19 @@ class InkInputManager(
         }
     }
 
-    // Tiene traccia di quale pagina appartiene a quale ID di tratto in corso
-    val activeStrokePageMap = ConcurrentHashMap<InProgressStrokeId, Int>()
-
+    /**
+     * Starts a high-performance Ink stroke.
+     */
     fun beginStroke(
         event: MotionEvent,
         pointerId: Int,
-        activeSettings: com.studiomath.drawview.document.tools.BrushSettings,
-        drawManager: DrawManager
+        activeSettings: BrushSettings,
+        motionEventToWorldTransform: Matrix
     ): InProgressStrokeId? {
 
-        val target = drawManager.getTouchTarget(event.x, event.y) ?: return null
-        val tolerancePx = 0.1f
-        val dynamicEpsilon = tolerancePx / target.pixelsPerMm
+        // Epsilon defines the smoothness of the vector curve.
+        // We use a small fixed value for high quality.
+        val dynamicEpsilon = 0.1f
 
         val brush = Brush.createWithColorIntArgb(
             family = activeSettings.family,
@@ -59,21 +63,28 @@ class InkInputManager(
             epsilon = dynamicEpsilon
         )
 
-        val strokeId = startStrokeInProgress?.invoke(
-            event, pointerId, brush, target.screenToMmMatrix, Matrix()
+        // The Stroke-to-World matrix is Identity because we are mapping the inputs directly
+        // via the motionEventToWorldTransform matrix!
+        return startStrokeInProgress?.invoke(
+            event, pointerId, brush, motionEventToWorldTransform, Matrix()
         )
-
-        // Salviamo l'associazione Tratto -> Pagina
-        if (strokeId != null) {
-            activeStrokePageMap[strokeId] = target.pageIndex
-        }
-
-        return strokeId
     }
 
-    // Aggiungi anche un metodo per pulire la mappa se il tratto viene annullato dal sistema
+    /**
+     * Called by the InProgressStrokesView listener when a stroke is natively complete.
+     */
+    fun onStrokeFinished(strokeId: InProgressStrokeId, stroke: androidx.ink.strokes.Stroke) {
+        finishedStrokesBuffer[strokeId] = stroke
+    }
+
+    /**
+     * Retrieves and removes the finished stroke from the buffer to convert it into a Domain Model.
+     */
+    fun getFinishedStroke(strokeId: InProgressStrokeId): androidx.ink.strokes.Stroke? {
+        return finishedStrokesBuffer.remove(strokeId)
+    }
+
     fun cancelStroke(strokeId: InProgressStrokeId, event: MotionEvent) {
-        activeStrokePageMap.remove(strokeId)
         cancelStrokeInProgress?.invoke(strokeId, event)
     }
 }

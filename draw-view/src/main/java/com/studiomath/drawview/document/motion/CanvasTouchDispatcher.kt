@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.view.MotionEvent
 import android.view.View
 import androidx.input.motionprediction.MotionEventPredictor
+import com.studiomath.drawview.document.motion.handler.InkTouchHandler
 import com.studiomath.drawview.document.motion.handler.ViewportTouchHandler
 import com.studiomath.drawview.document.state.DrawEngineViewModel
 import com.studiomath.drawview.document.tools.Tool
@@ -17,38 +18,46 @@ class CanvasTouchDispatcher(
     private val cameraPhysics: CameraPhysicsEngine,
     basePixelsPerMm: Float
 ) {
-    // We initialize the ViewportHandler to test Pan, Zoom, and Physics.
-    // NOTE: InkHandler and SelectionHandler will be re-introduced in Phase 5!
     private val viewportHandler = ViewportTouchHandler(viewModel, cameraPhysics, basePixelsPerMm)
 
+    // IMPORTANTE: Assicurati che InkTouchHandler sia aggiornato per usare il nuovo ViewModel
+    private val inkHandler = InkTouchHandler(viewModel, basePixelsPerMm)
+
     var motionEventPredictor: MotionEventPredictor? = null
+    var isStylusOnlyMode = false // Puoi mappare questa preferenza dal ViewModel
     private var isStylusActive = false
 
     @SuppressLint("ClickableViewAccessibility")
     val onTouchListener = View.OnTouchListener { view, event ->
-        // Grab the latest immutable state snapshot
         val state = viewModel.state.value
-
         motionEventPredictor?.record(event)
 
         if (!isStylusActive && event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS) {
             isStylusActive = true
         }
 
-        val isStylusEvent = event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS
+        val isStylusEvent = event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS ||
+                event.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER
 
-        // For now, to test the Tile Engine integration, we route ALL touches to the ViewportHandler
-        // unless the user is specifically using a Stylus (which we reserve for drawing).
-        if (state.toolState.selectedTool == Tool.PAN || (!isStylusEvent && event.pointerCount > 1)) {
-            return@OnTouchListener viewportHandler.handleTouch(view, event)
+        // Routing Logic: Capiamo se l'utente vuole disegnare
+        val isDrawingInput = if (isStylusOnlyMode) {
+            isStylusEvent && state.toolState.selectedTool != Tool.PAN
+        } else {
+            (isStylusEvent || (event.pointerCount == 1 && !isStylusActive && !viewportHandler.isTransforming)) &&
+                    state.toolState.selectedTool != Tool.PAN
         }
 
-        // Fallback for single-finger panning if StylusOnly is implicitly active
-        if (state.toolState.selectedTool == Tool.PAN || !isStylusEvent) {
-            return@OnTouchListener viewportHandler.handleTouch(view, event)
+        // 1. FAST-PATH: Se è un input di disegno, lo mandiamo dritto all'inchiostro!
+        if (isDrawingInput) {
+            return@OnTouchListener inkHandler.handleTouch(view, event, motionEventPredictor)
         }
 
-        // Return false for unhandled events (e.g., waiting for the InkHandler implementation)
-        false
+        // 2. Sicurezza: Se l'utente appoggia un secondo dito mentre disegnava, annulla il tratto
+        if (!isStylusEvent && event.pointerCount > 1) {
+            inkHandler.cancelCurrentStroke(event)
+        }
+
+        // 3. CAMERA: Tutto il resto è Pan, Zoom e Fisica
+        return@OnTouchListener viewportHandler.handleTouch(view, event)
     }
 }

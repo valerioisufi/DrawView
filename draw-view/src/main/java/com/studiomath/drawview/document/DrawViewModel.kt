@@ -111,10 +111,7 @@ class DrawViewModel(
 
     val eraserManager = EraserManager(
         repository = repository,
-        historyManager = historyManager,
-        pageMaker = pageMaker,
         coroutineScope = viewModelScope,
-        getDrawManager = { drawManager }
     )
 
     var isErasing: Boolean = false
@@ -127,7 +124,7 @@ class DrawViewModel(
         // Estraiamo lo spessore assoluto in Measure (es. 8.mm)
         val eraserThickness = toolManager.activeBrushSettings.size
 
-        eraserManager.eraseStrokesAtLine(documentData, x1Px, y1Px, x2Px, y2Px, eraserThickness)
+//        eraserManager.eraseStrokesAtLine(documentData, x1Px, y1Px, x2Px, y2Px, eraserThickness)
     }
 
     val textEditorManager = TextEditorManager(

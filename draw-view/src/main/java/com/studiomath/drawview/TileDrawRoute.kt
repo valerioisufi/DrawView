@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.ink.authoring.InProgressStrokesView
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -53,6 +54,12 @@ fun TileDrawRoute(
         }
     }
 
+    val inProgressStrokesView = remember(context) {
+        InProgressStrokesView(context).apply {
+            eagerInit()
+        }
+    }
+
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
@@ -62,7 +69,7 @@ fun TileDrawRoute(
             // 3. Render the Tile Engine
             TileDrawScreen(
                 viewModel = viewModel,
-                modifier = Modifier.fillMaxSize()
+                inProgressStrokesView = inProgressStrokesView
             )
 
             // 4. A temporary button to test the import

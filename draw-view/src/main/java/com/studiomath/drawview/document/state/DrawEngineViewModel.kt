@@ -2,12 +2,14 @@ package com.studiomath.drawview.document.state
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.studiomath.drawview.data.repository.DrawDocumentRepository
 import com.studiomath.drawview.document.io.TileMediaImporter
+import com.studiomath.drawview.document.math.DocumentLayoutCalculator
 import com.studiomath.drawview.document.page.Document
+import com.studiomath.drawview.document.tools.EraserManager
 import com.studiomath.drawview.document.tools.Tool
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,6 +27,15 @@ class DrawEngineViewModel(
 
     private val repository = DrawDocumentRepository(application)
     private val mediaImporter = TileMediaImporter(application, repository)
+
+//    val historyManager = HistoryManager()
+     val eraserManager = EraserManager(repository, viewModelScope)
+     private val layoutCalculator = DocumentLayoutCalculator()
+
+    val inkInputManager = com.studiomath.drawview.document.tools.InkInputManager(
+        repository = repository,
+        coroutineScope = viewModelScope
+    )
 
     // Initial dummy state. Will be replaced once the DB loads the real document.
     private val _state = MutableStateFlow(
@@ -65,6 +76,9 @@ class DrawEngineViewModel(
             is DrawEvent.OnTouchMove -> handleTouchMove(event)
             is DrawEvent.OnTouchUp -> handleTouchUp(event)
             is DrawEvent.OnTouchCancel -> handleTouchCancel(event)
+
+            is DrawEvent.SaveStroke -> handleSaveStroke(event)
+            is DrawEvent.EraseAlongLine -> handleEraseAlongLine(event)
         }
     }
 
@@ -242,6 +256,53 @@ class DrawEngineViewModel(
             currentState.copy(
                 documentRevision = currentState.documentRevision + 1
             )
+        }
+    }
+
+    private fun handleSaveStroke(event: DrawEvent.SaveStroke) {
+        _state.update { currentState ->
+            // Find the correct page in the immutable state
+            val targetPage = currentState.document.pages.find { it.dbId == event.pageDbId }
+
+            // Add the new stroke to the pure Domain Model
+            targetPage?.strokeData?.add(event.stroke)
+
+            // Increment the revision to force the TileManager to re-render the affected tiles!
+            currentState.copy(
+                documentRevision = currentState.documentRevision + 1
+            )
+        }
+
+        // Asynchronously save to the Database without blocking the UI
+        viewModelScope.launch(Dispatchers.IO) {
+            // Assicurati di avere questo metodo nel tuo repository!
+            // repository.addStrokeToPage(event.pageDbId, event.stroke)
+        }
+    }
+
+    private fun handleEraseAlongLine(event: DrawEvent.EraseAlongLine) {
+        val currentState = _state.value
+
+        // Dobbiamo sapere dove sono le pagine per dire alla gomma dove colpire
+        val currentLayouts = layoutCalculator.calculateLayout(currentState.document)
+
+        val didErase = eraserManager.eraseStrokesAtLine(
+            document = currentState.document,
+            pageLayouts = currentLayouts,
+            x1WorldMm = event.x1Mm,
+            y1WorldMm = event.y1Mm,
+            x2WorldMm = event.x2Mm,
+            y2WorldMm = event.y2Mm,
+            eraserThicknessMm = currentState.toolState.activeBrush.size.mm
+        )
+
+        // Se la gomma ha effettivamente cancellato un tratto, alziamo la Revisione!
+        // Il TileManager in background si accorgerà che il documento è cambiato e
+        // rigenererà i quadratini del PDF pulendoli dai tratti cancellati.
+        if (didErase) {
+            _state.update { state ->
+                state.copy(documentRevision = state.documentRevision + 1)
+            }
         }
     }
 }

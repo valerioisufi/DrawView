@@ -74,4 +74,10 @@ sealed interface DrawEvent {
 
     /** Internal event fired when the importer finishes extracting pages. */
     data class OnPagesAdded(val newPages: List<Page>) : DrawEvent
+
+    /** Fired when the user lifts the stylus/finger and a stroke is completed. */
+    data class SaveStroke(val pageDbId: Int, val stroke: com.studiomath.drawview.document.page.Stroke) : DrawEvent
+
+    /** Fired when the eraser physically crosses a line segment. */
+    data class EraseAlongLine(val x1Mm: Float, val y1Mm: Float, val x2Mm: Float, val y2Mm: Float) : DrawEvent
 }

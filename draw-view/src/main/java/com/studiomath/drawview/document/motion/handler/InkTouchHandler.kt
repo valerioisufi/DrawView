@@ -5,81 +5,86 @@ import android.view.MotionEvent
 import android.view.View
 import androidx.ink.authoring.InProgressStrokeId
 import androidx.input.motionprediction.MotionEventPredictor
-import com.studiomath.drawview.document.DrawViewModel
-import com.studiomath.drawview.document.render.RenderRequest
+import com.studiomath.drawview.document.page.Stroke
+import com.studiomath.drawview.document.state.DrawEngineViewModel
+import com.studiomath.drawview.document.state.DrawEvent
 import com.studiomath.drawview.document.tools.Tool
 
 /**
  * Handles touch event propagation and stroke orchestration for a drawing surface.
- *
- * This class translates raw [MotionEvent] data into high-level drawing operations,
- * managing the lifecycle of in-progress strokes and integrating motion prediction
- * for low-latency input. It interacts directly with the [DrawViewModel] to update
- * the document state based on user interaction.
- *
- * @property drawViewModel The ViewModel instance used to manage drawing state and stroke data.
+ * PHASE 5 UDF REFACTOR: Now fully disconnected from direct rendering.
+ * It translates pixels to millimeters, feeds the Ink library for low-latency feedback,
+ * and emits UDF events to save the finished mathematical strokes.
  */
-class InkTouchHandler(private val drawViewModel: DrawViewModel) {
+class InkTouchHandler(
+    private val viewModel: DrawEngineViewModel,
+    private val basePixelsPerMm: Float
+) {
 
-    /**
-     * The ID of the pointer currently being tracked for the active stroke.
-     */
     private var currentPointerId: Int? = null
-
-    /**
-     * The unique identifier for the stroke currently being rendered or updated.
-     */
     private var currentStrokeId: InProgressStrokeId? = null
 
-    /**
-     * The last recorded X coordinate of the eraser tool, used for line-segment-based erasing.
-     */
-    private var lastEraserX = 0f
+    // Stored in absolute world millimeters!
+    private var lastEraserXMm = 0f
+    private var lastEraserYMm = 0f
+
+    // Helper matrix to feed the Google Ink library
+    private val motionEventToWorldMatrix = Matrix()
 
     /**
-     * The last recorded Y coordinate of the eraser tool, used for line-segment-based erasing.
+     * Rebuilds the transformation matrix from the current immutable Viewport state.
      */
-    private var lastEraserY = 0f
+    private fun updateTransformMatrix(view: View) {
+        val viewport = viewModel.state.value.viewport
+        val currentPixelsPerMm = basePixelsPerMm * viewport.scale
+
+        motionEventToWorldMatrix.reset()
+        // 1. Shift screen center to 0,0
+        motionEventToWorldMatrix.postTranslate(-view.width / 2f, -view.height / 2f)
+        // 2. Scale from raw pixels to absolute millimeters
+        motionEventToWorldMatrix.postScale(1f / currentPixelsPerMm, 1f / currentPixelsPerMm)
+        // 3. Translate to the exact camera focus point
+        motionEventToWorldMatrix.postTranslate(viewport.focusXMm, viewport.focusYMm)
+    }
 
     /**
-     * Processes incoming touch events to manage stroke creation, movement, and termination.
-     *
-     * This method handles the logic for starting strokes on [MotionEvent.ACTION_DOWN],
-     * updating them on [MotionEvent.ACTION_MOVE] (including eraser logic), and
-     * finalizing them on [MotionEvent.ACTION_UP]. It also configures unbuffered
-     * dispatch for the provided view to improve input responsiveness.
-     *
-     * @param view The [View] receiving the touch events.
-     * @param event The [MotionEvent] to be processed.
-     * @param predictor An optional [MotionEventPredictor] used to provide predicted events for smoother rendering.
-     * @return Always returns true to indicate the touch event has been consumed.
+     * Converts a single point from screen pixels to world millimeters.
      */
+    private fun mapPixelToMillimeter(xPx: Float, yPx: Float): FloatArray {
+        val point = floatArrayOf(xPx, yPx)
+        motionEventToWorldMatrix.mapPoints(point)
+        return point
+    }
+
     fun handleTouch(view: View, event: MotionEvent, predictor: MotionEventPredictor?): Boolean {
-        if (drawViewModel.isReorderingPages) return false
+        val state = viewModel.state.value
+        val activeTool = state.toolState.selectedTool
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                drawViewModel.drawManager.cameraPhysics.stopAllAnimations()
+                // Request Android to send events immediately (bypassing VSYNC) for zero latency
                 view.requestUnbufferedDispatch(event)
-
-                if (drawViewModel.selectedTool == Tool.ERASER) {
-                    drawViewModel.isErasing = true
-                }
-
-                lastEraserX = event.x
-                lastEraserY = event.y
 
                 val pointerId = event.getPointerId(event.actionIndex)
                 currentPointerId = pointerId
-                // 1. Prendi la matrice Screen-to-World
-                val screenToWorld = drawViewModel.drawManager.getScreenToWorldMatrix()
 
-                // 2. Avvia il tratto passando la matrice (nota: accetta una Matrix o un AffineTransform a seconda dell'overload, usa Matrix se disponibile)
-                currentStrokeId = drawViewModel.inkInputManager.beginStroke(
+                // Calculate the exact millimeter coordinates
+                updateTransformMatrix(view)
+                val (xMm, yMm) = mapPixelToMillimeter(event.x, event.y)
+
+                lastEraserXMm = xMm
+                lastEraserYMm = yMm
+
+                // 1. Tell the UDF Brain that a touch has started
+                viewModel.onEvent(DrawEvent.OnTouchDown(pointerId, xMm, yMm))
+
+                // 2. Start the low-latency Ink visual rendering
+                // Note: Ensure your inkInputManager is accessible from the new ViewModel
+                currentStrokeId = viewModel.inkInputManager.beginStroke(
                     event = event,
                     pointerId = pointerId,
-                    activeSettings = drawViewModel.toolManager.activeBrushSettings,
-                    drawManager = drawViewModel.drawManager
+                    activeSettings = state.toolState.activeBrush,
+                    motionEventToWorldTransform = motionEventToWorldMatrix
                 )
             }
             MotionEvent.ACTION_MOVE -> {
@@ -87,35 +92,61 @@ class InkTouchHandler(private val drawViewModel: DrawViewModel) {
                 val strokeId = currentStrokeId ?: return true
                 val predictedEvent = predictor?.predict()
 
-                drawViewModel.inkInputManager.addToStrokeInProgress?.invoke(event, pointerId, strokeId, predictedEvent)
+                // Calculate the exact millimeter coordinates
+                val (xMm, yMm) = mapPixelToMillimeter(event.x, event.y)
 
-                if (drawViewModel.selectedTool == Tool.ERASER) {
+                // 1. Update the UDF Brain
+                viewModel.onEvent(DrawEvent.OnTouchMove(pointerId, xMm, yMm))
+
+                // 2. Feed the Ink Library
+                viewModel.inkInputManager.addToStrokeInProgress?.invoke(event, pointerId, strokeId, predictedEvent)
+
+                // 3. If Erasing, calculate the line segment and dispatch the Erase Event
+                if (activeTool == Tool.ERASER) {
                     for (i in 0 until event.historySize) {
-                        val hx = event.getHistoricalX(i)
-                        val hy = event.getHistoricalY(i)
-                        drawViewModel.eraseStrokesAtLine(lastEraserX, lastEraserY, hx, hy)
-                        lastEraserX = hx
-                        lastEraserY = hy
+                        val (hxMm, hyMm) = mapPixelToMillimeter(event.getHistoricalX(i), event.getHistoricalY(i))
+                        viewModel.onEvent(DrawEvent.EraseAlongLine(lastEraserXMm, lastEraserYMm, hxMm, hyMm))
+                        lastEraserXMm = hxMm
+                        lastEraserYMm = hyMm
                     }
-                    drawViewModel.eraseStrokesAtLine(lastEraserX, lastEraserY, event.x, event.y)
-                    lastEraserX = event.x
-                    lastEraserY = event.y
+                    viewModel.onEvent(DrawEvent.EraseAlongLine(lastEraserXMm, lastEraserYMm, xMm, yMm))
+                    lastEraserXMm = xMm
+                    lastEraserYMm = yMm
                 }
             }
             MotionEvent.ACTION_UP -> {
                 val pointerId = event.getPointerId(event.actionIndex)
+
                 if (pointerId == currentPointerId) {
                     currentStrokeId?.let { strokeId ->
-                        drawViewModel.inkInputManager.finishStrokeInProgress?.invoke(event, pointerId, strokeId)
-                    }
-                    if (drawViewModel.selectedTool == Tool.ERASER) {
-                        drawViewModel.commitEraserHistory()
+                        // 1. Finish the native Ink rendering
+                        viewModel.inkInputManager.finishStrokeInProgress?.invoke(event, pointerId, strokeId)
 
-                        drawViewModel.isErasing = false
-                        drawViewModel.drawManager.requestDraw(
-                            RenderRequest.rebuildViewport(includePdf = true)
-                        )
+                        if (activeTool != Tool.ERASER) {
+                            // 2. Retrieve the finished Vector data from your InkInputManager
+                            // (You will need to implement a method in your InkInputManager to return the finished stroke)
+                            val nativeInkStroke = viewModel.inkInputManager.getFinishedStroke(strokeId)
+
+                            if (nativeInkStroke != null) {
+                                // 3. Build your pure Domain Model
+                                val domainStroke = Stroke(zIndex = 0).apply {
+                                    stroke = nativeInkStroke
+                                    extractProperties()
+                                }
+
+                                // 4. Find which page this stroke belongs to (using Y coordinates or bounds)
+                                // For simplicity, we assume you have a helper or you put it on page 0 for now.
+                                // In a real scenario, you calculate it based on domainStroke.stroke.shape.computeBoundingBox()
+                                val targetPageDbId = state.document.pages.firstOrNull()?.dbId ?: 0
+
+                                // 5. The Magic: Dispatch the Save Event!
+                                viewModel.onEvent(DrawEvent.SaveStroke(targetPageDbId, domainStroke))
+                            }
+                        }
                     }
+
+                    // Tell the UDF Brain we lifted the finger
+                    viewModel.onEvent(DrawEvent.OnTouchUp(pointerId))
                 }
                 resetStrokeState()
             }
@@ -129,24 +160,16 @@ class InkTouchHandler(private val drawViewModel: DrawViewModel) {
         return true
     }
 
-    /**
-     * Aborts the current stroke operation and cleans up associated state.
-     *
-     * This is typically called when a [MotionEvent.ACTION_CANCEL] occurs, ensuring
-     * that the [DrawViewModel] is notified to discard the temporary stroke data.
-     *
-     * @param event The motion event that triggered the cancellation.
-     */
     fun cancelCurrentStroke(event: MotionEvent) {
         currentStrokeId?.let { strokeId ->
-            drawViewModel.inkInputManager.cancelStrokeInProgress?.invoke(strokeId, event)
+            viewModel.inkInputManager.cancelStrokeInProgress?.invoke(strokeId, event)
+
+            // Tell the UDF Brain to abort
+            viewModel.onEvent(DrawEvent.OnTouchCancel(event.getPointerId(0)))
         }
         resetStrokeState()
     }
 
-    /**
-     * Resets the internal tracking variables to their initial null state.
-     */
     private fun resetStrokeState() {
         currentPointerId = null
         currentStrokeId = null

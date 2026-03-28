@@ -67,7 +67,9 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         var pdfBitmap: Bitmap? = null,
         var contentBitmap: Bitmap? = null,
         var matrix: Matrix = Matrix(),
-        var pagesRect: Set<CalcPage.PageRectWithIndex> = mutableSetOf()
+        var pagesRect: Set<CalcPage.PageRectWithIndex> = mutableSetOf(),
+        // Tracks if the current pdfBitmap is perfectly aligned with the matrix
+        var isPdfAligned: Boolean = true
     )
 
     /** Synchronization object to protect [frontState] and [backState] during buffer swaps. */
@@ -93,7 +95,9 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     var onDrawBitmapMatrix = Matrix()
     var pagesRectOnWindow = mutableSetOf<CalcPage.PageRectWithIndex>()
 
-    var jobOnDrawBitmap: Job? = null
+    // Separated jobs for decoupled rendering
+    var jobViewportContent: Job? = null
+    var jobViewportPdf: Job? = null
     var jobCache: Job? = null
 
     // Thread-safe map to track ongoing rendering jobs for each specific page by its database ID
@@ -195,13 +199,13 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                         val document = drawViewModel.documentData ?: return
                         if (onDrawContentBitmap == null) return
 
-                        jobOnDrawBitmap?.cancel()
+                        jobViewportContent?.cancel()
+                        jobViewportPdf?.cancel()
 
                         viewportRenderTicket++
                         val currentTicket = viewportRenderTicket
 
-                        // 1. FIX: Calcoliamo la geometria in modo SINCRONO prima di andare in background.
-                        // Questo previene la Race Condition degli indici se l'utente fa un pan immediato post-eliminazione.
+                        // 1. Synchronous geometry calculation
                         if (calcPage.needToBeUpdated) {
                             calcPage.calcPagesRectOnWindow(
                                 document.pages, windowRect, CalcPage.PagePositionOnWindowOption()
@@ -210,36 +214,25 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                             calcPage.needToBeUpdated = false
                         }
 
-                        // 2. Lanciamo la coroutine pesante in background SOLO per il rendering dei pixel
-                        jobOnDrawBitmap = scope.launch {
-                            val renderMatrix = cameraPhysics.getRenderMatrix()
-                            val newPagesRect = calcPage.getPagesRectOnWindowTransformation(windowRect, renderMatrix)
+                        val renderMatrix = cameraPhysics.getRenderMatrix()
+                        val newPagesRect = calcPage.getPagesRectOnWindowTransformation(windowRect, renderMatrix)
+                        drawViewModel.inkInputManager.maskPath?.invoke(getMaskPath(newPagesRect))
 
-                            drawViewModel.inkInputManager.maskPath?.invoke(getMaskPath(newPagesRect))
-
-                            // Heavy generation happens here...
+                        // 2. FAST PATH: Render only ink, text, and images
+                        jobViewportContent = scope.launch {
                             val tempBitmaps = frontState.contentBitmap?.let { currentBmp ->
                                 drawViewModel.pageMaker.makePagesOnBitmap(
                                     Rect(0, 0, currentBmp.width, currentBmp.height),
                                     newPagesRect,
                                     document,
-                                    existingPdfBitmap = frontState.pdfBitmap,
-                                    renderPdf = renderRequest.includePdfLayer
+                                    existingPdfBitmap = null, // Ignore PDF here
+                                    renderPdf = false         // Skip PDF rendering
                                 )
                             }
 
-                            // 2. Ticket Check: Did the user move the camera while we were rendering?
-                            if (currentTicket != viewportRenderTicket) {
-                                // The render is stale. Discard it completely to prevent rubber-banding.
-                                return@launch
-                            }
+                            if (currentTicket != viewportRenderTicket) return@launch
 
-                            // 3. Replay queue and swap buffers
-                            // We do this inside the lock to avoid micro-race conditions where a stroke
-                            // arrives exactly between the queue drain and the buffer swap.
                             synchronized(renderLock) {
-
-                                // Drain the queue and apply strokes to the newly generated bitmap
                                 tempBitmaps?.content?.let { newContentBmp ->
                                     val canvas = Canvas(newContentBmp)
                                     var pendingMap = pendingViewportStrokes.poll()
@@ -265,32 +258,61 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                                 }
                                             }
                                         }
-                                        // Fetch the next item until the queue is empty
                                         pendingMap = pendingViewportStrokes.poll()
                                     }
                                 }
 
-                                // Now it is 100% safe to swap
-                                backState.pdfBitmap = frontState.pdfBitmap
+                                /// Swap ONLY the content buffer
                                 backState.contentBitmap = frontState.contentBitmap
-
-                                frontState.pdfBitmap = tempBitmaps?.pdf
                                 frontState.contentBitmap = tempBitmaps?.content
                                 frontState.matrix = Matrix(renderMatrix)
                                 frontState.pagesRect = newPagesRect
 
-                                onDrawPdfBitmap = frontState.pdfBitmap
+                                // The matrix just changed! The old PDF bitmap is no longer aligned.
+                                frontState.isPdfAligned = false
+
                                 onDrawContentBitmap = frontState.contentBitmap
                                 onDrawBitmapMatrix = frontState.matrix
                                 pagesRectOnWindow = frontState.pagesRect.toMutableSet()
                             }
 
+                            // Force immediate UI update with the new content
                             updateDrawView(RenderRequest(renderRequest.drawMode).apply {
                                 cacheStrategy = renderRequest.cacheStrategy
                             })
 
                             withContext(Dispatchers.Main) {
                                 drawViewModel.isDocumentShowed = true
+                            }
+                        }
+
+                        // 3. SLOW PATH: Render the PDF layer on the constrained dispatcher
+                        if (renderRequest.includePdfLayer) {
+                            jobViewportPdf = scope.launch(pageRenderDispatcher) {
+                                val tempBitmaps = frontState.contentBitmap?.let { currentBmp ->
+                                    drawViewModel.pageMaker.makePagesOnBitmap(
+                                        Rect(0, 0, currentBmp.width, currentBmp.height),
+                                        newPagesRect,
+                                        document,
+                                        existingPdfBitmap = frontState.pdfBitmap,
+                                        renderPdf = true
+                                    )
+                                }
+
+                                if (currentTicket != viewportRenderTicket) return@launch
+
+                                synchronized(renderLock) {
+                                    // Swap ONLY the PDF buffer
+                                    backState.pdfBitmap = frontState.pdfBitmap
+                                    frontState.pdfBitmap = tempBitmaps?.pdf
+                                    onDrawPdfBitmap = frontState.pdfBitmap
+
+                                    // The new PDF bitmap is now perfectly aligned with the current matrix!
+                                    frontState.isPdfAligned = true
+                                }
+
+                                // Request a light refresh to draw the newly generated PDF layer behind the content
+                                updateDrawView(RenderRequest(RenderRequest.DrawMode.REFRESH))
                             }
                         }
                     }
@@ -381,9 +403,9 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                         renderRequest.newStrokesToBake?.let { strokesMap ->
                             scope.launch(renderDispatcher) {
 
-                                // 1. If a viewport rebuild is active, queue these strokes for replay
-                                // so they are not lost when the buffers are swapped.
-                                if (jobOnDrawBitmap?.isActive == true) {
+                                // 1. Queue strokes ONLY if the fast content layer is still rebuilding.
+                                // We completely ignore jobViewportPdf because it does not affect the content buffer!
+                                if (jobViewportContent?.isActive == true) {
                                     pendingViewportStrokes.add(strokesMap)
                                 }
 
@@ -394,15 +416,14 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                     pageDbId == null || !pageRenderJobs.containsKey(pageDbId)
                                 }
 
-                                // 3. Bake on the current front buffer and stable page caches
+                                // 3. Bake directly onto the current front content buffer and page caches.
                                 if (safeStrokesToBake.isNotEmpty()) {
                                     bakeStrokesIntoCache(safeStrokesToBake)
                                 }
 
-                                // 4. CRITICAL FIX: Determine the correct draw mode to maintain visual stability
-                                // If we are waiting for a viewport rebuild, we MUST stay in TRANSFORM mode
-                                // to continue seeing the edge-fill logic (single page caches) for newly discovered areas.
-                                val nextDrawMode = if (jobOnDrawBitmap?.isActive == true) {
+                                // 4. Maintain visual stability based ONLY on the content job.
+                                // If the unified content buffer is ready, we REFRESH immediately.
+                                val nextDrawMode = if (jobViewportContent?.isActive == true) {
                                     RenderRequest.DrawMode.TRANSFORM
                                 } else {
                                     RenderRequest.DrawMode.REFRESH
@@ -423,7 +444,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
             }
             RenderRequest.DrawMode.TRANSFORM, RenderRequest.DrawMode.ANIMATE -> {
                 if (onDrawContentBitmap == null) return
-                jobOnDrawBitmap?.cancel()
+                jobViewportContent?.cancel()
+                jobViewportPdf?.cancel()
 
                 val renderMatrix = cameraPhysics.getRenderMatrix()
                 pagesRectOnWindow = calcPage.getPagesRectOnWindowTransformation(windowRect, renderMatrix)
@@ -547,7 +569,9 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         val contentBitmap: Bitmap?,
         val matrix: Matrix,
         val pagesRect: Set<CalcPage.PageRectWithIndex>,
-        val currentRenderMatrix: Matrix
+        val currentRenderMatrix: Matrix,
+        // Carry the alignment flag into the render pass
+        val isPdfAligned: Boolean
     )
 
     /**
@@ -581,7 +605,9 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 contentBitmap = frontState.contentBitmap,
                 matrix = Matrix(frontState.matrix),
                 pagesRect = currentPagesRect,
-                currentRenderMatrix = currentRenderMatrix
+                currentRenderMatrix = currentRenderMatrix,
+                // Pass the new flag safely acquired inside the lock
+                isPdfAligned = frontState.isPdfAligned
             )
         }
 
@@ -655,24 +681,38 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
             drawViewModel.pageMaker.makePageBackground(canvas, livePageRect, windowRect, docPage, document, drawViewModel.themeColors)
 
-            if (drawViewModel.isReorderingPages || drawViewModel.isErasing) {
+            // 3. Fallback visual logic: If the unified PDF is not aligned, we MUST use individual PDF caches
+            if (drawViewModel.isReorderingPages || drawViewModel.isErasing || !snapshot.isPdfAligned) {
                 if (drawViewModel.isReorderingPages && pageInfo.index == drawViewModel.draggedPageIndex) {
                     placeholderPaint.color = drawViewModel.themeColors.primaryColor
                     placeholderPaint.alpha = 30
                     canvas.drawRect(livePageRect, placeholderPaint)
                 } else {
+                    // Always draw individual PDF caches if the unified one is stale or we are editing states
                     docPage.pdfBitmapCache?.let { bmp ->
                         canvas.drawBitmap(bmp, null, livePageRect, null)
                     }
-                    docPage.contentBitmapCache?.let { bmp ->
-                        canvas.drawBitmap(bmp, null, livePageRect, null)
+
+                    // Draw individual content caches ONLY if erasing or reordering.
+                    // If we are just waiting for the PDF (!isPdfAligned), we skip this because
+                    // the unified contentBitmap is already updated and we will draw it below!
+                    if (drawViewModel.isReorderingPages || drawViewModel.isErasing) {
+                        docPage.contentBitmapCache?.let { bmp ->
+                            canvas.drawBitmap(bmp, null, livePageRect, null)
+                        }
                     }
                 }
             }
-        }
+        } // Fine del ciclo for (pageInfo in snapshot.pagesRect)
 
         if (!drawViewModel.isReorderingPages && !drawViewModel.isErasing) {
-            snapshot.pdfBitmap?.let { canvas.drawBitmap(it, relativeTransform, bitmapFilterPaint) }
+            // 4. Draw the unified PDF layer ONLY if it has finished generating and is perfectly aligned
+            if (snapshot.isPdfAligned) {
+                snapshot.pdfBitmap?.let { canvas.drawBitmap(it, relativeTransform, bitmapFilterPaint) }
+            }
+
+            // 5. ALWAYS draw the unified content layer.
+            // Thanks to Phase 1, this buffer is rendered instantly and is guaranteed to be aligned with snapshot.matrix
             snapshot.contentBitmap?.let { canvas.drawBitmap(it, relativeTransform, bitmapFilterPaint) }
         }
 
@@ -699,19 +739,34 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
         val document = drawViewModel.documentData
 
-        // FIX 1: DISEGNAMO GLI SFONDI DELLE PAGINE PRIMA DEL CLIP!
+        // Disegniamo gli sfondi delle pagine prima del clip!
         for (pageInfo in snapshot.pagesRect) {
             val docPage = document?.pages?.getOrNull(pageInfo.index) ?: continue
             drawViewModel.pageMaker.makePageBackground(canvas, pageInfo.rect, windowRect, docPage, document, drawViewModel.themeColors)
         }
 
+        // --- LAYER PDF (Cache Singole) ---
         canvas.withSave {
-            // 1. Disable the clip hole if we are erasing, because we need to draw the full individual caches!
+            // Se il PDF è allineato, creiamo un buco al centro per non sovrascrivere il buffer unificato.
+            // Se NON è allineato (sta caricando), ignoriamo il clip e disegniamo le cache ovunque.
+            if (!drawViewModel.isReorderingPages && !drawViewModel.isErasing && snapshot.isPdfAligned && relativeTransform != null && !onDrawBitmapBounds.isEmpty) {
+                clipOutRect(onDrawBitmapBounds)
+            }
+
+            for (pageInfo in snapshot.pagesRect) {
+                val docPage = document?.pages?.getOrNull(pageInfo.index) ?: continue
+                if (!docPage.isPrepared) docPage.prepare()
+                docPage.pdfBitmapCache?.let { drawBitmap(it, null, pageInfo.rect, null) }
+            }
+        }
+
+        // --- LAYER CONTENUTO (Cache Singole) ---
+        canvas.withSave {
+            // Il contenuto veloce è sempre allineato, quindi il buco al centro è sempre attivo
             if (!drawViewModel.isReorderingPages && !drawViewModel.isErasing && relativeTransform != null && !onDrawBitmapBounds.isEmpty) {
                 clipOutRect(onDrawBitmapBounds)
             }
 
-            // Draw the content of the page (strokes, images)
             for (pageInfo in snapshot.pagesRect) {
                 val docPage = document?.pages?.getOrNull(pageInfo.index) ?: continue
 
@@ -720,19 +775,21 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     placeholderPaint.alpha = 30
                     canvas.drawRect(pageInfo.rect, placeholderPaint)
                 } else {
-                    if (!docPage.isPrepared) docPage.prepare()
-
-                    // Draw individual page caches. If isErasing is true, the clip is disabled, so it draws the whole page.
-                    docPage.pdfBitmapCache?.let { drawBitmap(it, null, pageInfo.rect, null) }
                     docPage.contentBitmapCache?.let { drawBitmap(it, null, pageInfo.rect, null) }
                 }
             }
         }
 
-        // 2. Do not draw the static front cache layers if we are in Live Eraser mode
+        // --- LAYER UNIFICATO (Buffers Frontali) ---
         if (!drawViewModel.isReorderingPages && !drawViewModel.isErasing && relativeTransform != null && snapshot.contentBitmap != null) {
             canvas.withClip(windowRect) {
-                snapshot.pdfBitmap?.let { drawBitmap(it, relativeTransform, bitmapFilterPaint) }
+
+                // Disegniamo il PDF unificato SOLO se è sincronizzato con la matrice attuale
+                if (snapshot.isPdfAligned) {
+                    snapshot.pdfBitmap?.let { drawBitmap(it, relativeTransform, bitmapFilterPaint) }
+                }
+
+                // Il buffer dei contenuti è sempre fresco e pronto da disegnare
                 drawBitmap(snapshot.contentBitmap, relativeTransform, bitmapFilterPaint)
             }
         }
@@ -1078,6 +1135,9 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
         // Ensure the hardware canvas loop is stopped
         stopRenderLoop()
+
+        jobViewportContent?.cancel()
+        jobViewportPdf?.cancel()
 
         // Explicitly cancel and clear any tracked page rendering jobs
         pageRenderJobs.values.forEach { it.cancel() }

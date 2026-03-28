@@ -304,7 +304,7 @@ class PageManager(
         coroutineScope.launch {
             repository.updatePagesOrder(currentDoc.pages)
 
-            // NUOVO: Usiamo l'ordine salvato all'inizio!
+            // Usiamo l'ordine salvato all'inizio!
             originalPageOrder?.let { oldOrder ->
                 historyManager.addHistoryAction(ReorderPagesAction(oldOrder, currentDoc.pages.toList()))
             }
@@ -312,11 +312,17 @@ class PageManager(
 
             val drawManager = getDrawManager()
             drawManager.calcPage.needToBeUpdated = true
+
+            // Richiediamo il ricalcolo della Viewport
             drawManager.requestDraw(
                 RenderRequest.rebuildViewport(includePdf = true)
             )
 
-            drawManager.jobOnDrawBitmap?.join()
+            // FIX: Aspettiamo che ENTRAMBI i nuovi Job abbiano finito di scambiare i buffer
+            // prima di uscire ufficialmente dalla modalità di riordino.
+            drawManager.jobViewportContent?.join()
+            drawManager.jobViewportPdf?.join()
+
             isReorderingPages = false
         }
     }

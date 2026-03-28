@@ -44,10 +44,14 @@ class CanvasTouchDispatcher(
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 drawViewModel.drawManager.isUserTouching = true
-                // Spegniamo forzatamente il Pan prima di decidere cosa fare con questo tocco!
                 viewportHandler.resetTransformState()
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_OUTSIDE -> {
+            MotionEvent.ACTION_UP -> {
+                // LOG 1: Il dito si è staccato
+                android.util.Log.d("DrawManagerBake", "--- ACTION_UP: Dito sollevato dallo schermo ---")
+                drawViewModel.drawManager.isUserTouching = false
+            }
+            MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_OUTSIDE -> {
                 drawViewModel.drawManager.isUserTouching = false
             }
         }

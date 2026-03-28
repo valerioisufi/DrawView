@@ -34,6 +34,8 @@ class InkStrokeProcessor(
 
     @UiThread
     override fun onStrokesFinished(strokes: Map<InProgressStrokeId, InkStroke>) {
+        android.util.Log.d("DrawManagerBake", "0. onStrokesFinished chiamato da Ink API. Thread: ${Thread.currentThread().name}")
+
         val document = drawViewModel.documentData ?: return
         val drawManager = getDrawManager()
         val isLasso = drawViewModel.selectedTool == Tool.LAZO
@@ -148,7 +150,11 @@ class InkStrokeProcessor(
         }
 
         // --- GESTIONE INCHIOSTRO (FAST PATH) ---
-        coroutineScope.launch(Dispatchers.Default) {
+        coroutineScope.launch(drawManager.inkProcessingDispatcher) {
+            val startMath = System.currentTimeMillis()
+            // LOG 3: Quando inizia davvero la nostra coroutine
+            android.util.Log.d("DrawManagerBake", "0.1 Coroutine matematica iniziata. Thread: ${Thread.currentThread().name}")
+
             val strokesByPage = mutableMapOf<Int, MutableList<InkStroke>>()
             val historyGroups = mutableListOf<PageStrokeGroup>()
 
@@ -213,6 +219,10 @@ class InkStrokeProcessor(
                     drawViewModel.inkInputManager.saveNewStrokesToDatabase(targetPage.dbId, listOf(domainStroke))
                 }
             }
+
+            val mathTime = System.currentTimeMillis() - startMath
+            // LOG 4: Quanto tempo ci ha messo la matematica
+            android.util.Log.d("DrawManagerBake", "0.2 Matematica completata in ${mathTime}ms. Chiamo requestDraw(BAKE).")
 
             if (historyGroups.isNotEmpty()) {
                 drawViewModel.historyManager.addHistoryAction(AddStrokesAction(historyGroups))

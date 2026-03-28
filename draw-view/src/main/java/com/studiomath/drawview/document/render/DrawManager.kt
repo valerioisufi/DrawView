@@ -24,15 +24,18 @@ import com.studiomath.drawview.document.page.Measure
 import com.studiomath.drawview.document.selection.SelectionOverlayRenderer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
 
 /**
  * The core rendering engine and state manager for the drawing canvas.
@@ -117,6 +120,9 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         coroutineScope = scope,
         getDrawManager = { this }
     )
+
+    // Dispatcher esclusivo per calcolare la matematica dei tratti senza latenza
+    val inkProcessingDispatcher: ExecutorCoroutineDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
 
     /** Component responsible for rendering selection UI and interaction overlays. */
     val selectionOverlayRenderer = SelectionOverlayRenderer(drawViewModel)
@@ -237,7 +243,15 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                     val canvas = Canvas(newContentBmp)
                                     var pendingMap = pendingViewportStrokes.poll()
 
+                                    if (pendingMap != null) {
+                                        android.util.Log.d("DrawManagerBake", "A. jobViewportContent is draining pendingViewportStrokes!")
+                                    }
+
+                                    var drainCount = 0
+                                    val drainStart = System.currentTimeMillis()
+
                                     while (pendingMap != null) {
+                                        drainCount++
                                         for (pageRectWithIndex in newPagesRect) {
                                             val pageStrokes = pendingMap[pageRectWithIndex.index] ?: continue
                                             val page = document.pages.getOrNull(pageRectWithIndex.index) ?: continue
@@ -259,6 +273,10 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                             }
                                         }
                                         pendingMap = pendingViewportStrokes.poll()
+                                    }
+
+                                    if (drainCount > 0) {
+                                        android.util.Log.d("DrawManagerBake", "B. Drained $drainCount batches in ${System.currentTimeMillis() - drainStart}ms")
                                     }
                                 }
 
@@ -401,12 +419,21 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                     }
                     RenderRequest.CacheStrategy.BAKE_NEW_STROKES -> {
                         renderRequest.newStrokesToBake?.let { strokesMap ->
+                            val requestTime = System.currentTimeMillis()
+                            android.util.Log.d("DrawManagerBake", "1. BAKE request received. Calling Thread: ${Thread.currentThread().name}")
+
+                            // Launching on the suspected bottleneck dispatcher
                             scope.launch(renderDispatcher) {
+                                val startTime = System.currentTimeMillis()
+                                android.util.Log.d("DrawManagerBake", "2. BAKE coroutine started. Delay in queue: ${startTime - requestTime}ms. Execution Thread: ${Thread.currentThread().name}")
+
+                                val isContentActive = jobViewportContent?.isActive == true
+                                android.util.Log.d("DrawManagerBake", "3. jobViewportContent active: $isContentActive")
 
                                 // 1. Queue strokes ONLY if the fast content layer is still rebuilding.
-                                // We completely ignore jobViewportPdf because it does not affect the content buffer!
-                                if (jobViewportContent?.isActive == true) {
+                                if (isContentActive) {
                                     pendingViewportStrokes.add(strokesMap)
+                                    android.util.Log.d("DrawManagerBake", "4. Added to pendingViewportStrokes. Queue size: ${pendingViewportStrokes.size}")
                                 }
 
                                 // 2. Filter out pages that are currently being completely rebuilt.
@@ -418,16 +445,27 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
 
                                 // 3. Bake directly onto the current front content buffer and page caches.
                                 if (safeStrokesToBake.isNotEmpty()) {
-                                    bakeStrokesIntoCache(safeStrokesToBake)
+                                    val bakeStart = System.currentTimeMillis()
+
+                                    // I added the synchronized block here to test if accessing frontState without a lock was causing silent clashes
+                                    synchronized(renderLock) {
+                                        val lockTime = System.currentTimeMillis()
+                                        android.util.Log.d("DrawManagerBake", "5. renderLock acquired for baking. Lock wait time: ${lockTime - bakeStart}ms")
+
+                                        bakeStrokesIntoCache(safeStrokesToBake)
+
+                                        android.util.Log.d("DrawManagerBake", "6. Bake execution completed in: ${System.currentTimeMillis() - lockTime}ms")
+                                    }
                                 }
 
                                 // 4. Maintain visual stability based ONLY on the content job.
-                                // If the unified content buffer is ready, we REFRESH immediately.
-                                val nextDrawMode = if (jobViewportContent?.isActive == true) {
+                                val nextDrawMode = if (isContentActive) {
                                     RenderRequest.DrawMode.TRANSFORM
                                 } else {
                                     RenderRequest.DrawMode.REFRESH
                                 }
+
+                                android.util.Log.d("DrawManagerBake", "7. Sending updateDrawView. Total coroutine execution time: ${System.currentTimeMillis() - startTime}ms")
 
                                 updateDrawView(RenderRequest(nextDrawMode).apply {
                                     strokesIdToRemove = renderRequest.strokesIdToRemove
@@ -1148,7 +1186,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         jobViewportContent?.cancel()
         jobViewportPdf?.cancel()
 
-        // Explicitly cancel and clear any tracked page rendering jobs
+        inkProcessingDispatcher.close()
+
         pageRenderJobs.values.forEach { it.cancel() }
         pageRenderJobs.clear()
         pageDirtyFlags.clear()

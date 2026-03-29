@@ -114,7 +114,6 @@ class OnScaleTranslate(
 
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
                 handledFling = true
-                android.util.Log.d("ViewportPerf", "--- 0. FLING DETECTED ---") // <-- NUOVO LOG
 
                 drawViewModel.drawManager.cameraPhysics.onRelease(velocityX, velocityY)
 
@@ -162,13 +161,11 @@ class OnScaleTranslate(
 
         if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL || action == MotionEvent.ACTION_OUTSIDE) {
             if (!handledFling) {
-                android.util.Log.d("ViewportPerf", "--- 0. FINGER LIFTED (ACTION_UP) ---") // <-- NUOVO LOG
                 drawViewModel.drawManager.cameraPhysics.onRelease(0f, 0f)
 
                 if (drawViewModel.drawManager.cameraPhysics.isAnimating()) {
                     drawViewModel.drawManager.requestDraw(RenderRequest(drawMode = DrawMode.ANIMATE))
                 } else {
-                    android.util.Log.d("ViewportPerf", "-> Requesting REBUILD_VIEWPORT") // <-- NUOVO LOG
                     drawViewModel.drawManager.requestDraw(
                         RenderRequest.rebuildViewport(includePdf = true)
                     )

@@ -16,12 +16,14 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.application
 import androidx.lifecycle.viewModelScope
 import com.studiomath.drawview.R
+import com.studiomath.drawview.data.db.BrushSettingsData
 import com.studiomath.drawview.data.repository.DrawDocumentRepository
 import com.studiomath.drawview.document.history.DrawAction
 import com.studiomath.drawview.document.history.HistoryManager
 import com.studiomath.drawview.document.page.Dimension
 import com.studiomath.drawview.document.page.Document
 import com.studiomath.drawview.document.page.Image
+import com.studiomath.drawview.document.page.Measure
 import com.studiomath.drawview.document.page.PageBackground
 import com.studiomath.drawview.document.page.PageMaker
 import com.studiomath.drawview.document.page.PageManager
@@ -541,37 +543,67 @@ class DrawViewModel(
             toolManager.changeActiveBrushColor(value.color)
             toolManager.changeActiveBrushFamily(value.family)
 
-            // 2. Salviamo in background nel Database in base allo strumento attivo
-            viewModelScope.launch(Dispatchers.IO) {
-                // Estraiamo il valore puro in Float dei millimetri
-                val sizeFloat = value.size.mm
+            // 2. Salviamo in background la lista dei preset aggiornata nel Database
+            savePresetsToDb(toolManager.selectedTool)
+        }
 
-                // Mappiamo approssimativamente la BrushFamily a una stringa per il DB
-                val familyString = if (value.family == toolManager.laserBrushFamily) "LASER" else "NATIVE"
+    // --- DATABASE PRESET SYNCHRONIZATION ---
 
-                when (toolManager.selectedTool) {
-                    Tool.INK_PEN -> repository.updatePenSettings(sizeFloat, value.color, familyString)
-                    Tool.INK_HIGHLIGHTER -> repository.updateHighlighterSettings(sizeFloat, value.color, familyString)
-                    Tool.ERASER -> repository.updateEraserSettings(sizeFloat)
-                    else -> {}
-                }
+    /**
+     * Converts a domain list of BrushSettings into a database-ready list of BrushSettingsData.
+     */
+    private fun mapPresetsToDb(tool: Tool, presets: List<BrushSettings>): List<BrushSettingsData> {
+        return presets.map { setting ->
+            val familyStr = toolManager.getFamilyString(tool, setting.family)
+            BrushSettingsData(setting.size.mm, setting.color, familyStr)
+        }
+    }
+
+    /**
+     * Silently saves the current preset list of a specific tool to the Room database.
+     */
+    private fun savePresetsToDb(tool: Tool) {
+        viewModelScope.launch(Dispatchers.IO) {
+            when (tool) {
+                Tool.INK_PEN -> repository.updatePenPresets(mapPresetsToDb(tool, toolManager.penTool.brushList))
+                Tool.INK_HIGHLIGHTER -> repository.updateHighlighterPresets(mapPresetsToDb(tool, toolManager.highlighterTool.brushList))
+                Tool.ERASER -> repository.updateEraserPresets(mapPresetsToDb(tool, toolManager.eraserTool.brushList))
+                Tool.LAZO -> repository.updateLazoPresets(mapPresetsToDb(tool, toolManager.lazoTool.brushList))
+                else -> {}
             }
         }
+    }
+
+    // --- PROXY METHODS FOR COMPOSE UI ---
 
     fun selectToolWithIndex(tool: Tool, index: Int) {
         toolManager.selectTool(tool, index)
-        // Saves the choice asynchronously in the DB
+        // Saves the tool choice asynchronously
         viewModelScope.launch(Dispatchers.IO) {
             repository.updateLastSelectedTool(tool.name)
         }
     }
 
+    fun updateToolPreset(tool: Tool, index: Int, newSize: Measure, newColor: Int) {
+        // 1. Update RAM
+        toolManager.updatePresetAtIndex(tool, index, newSize, newColor)
+        // 2. Save to DB
+        savePresetsToDb(tool)
+    }
+
     fun addToolPreset(settings: BrushSettings) {
+        // 1. Update RAM
         toolManager.addPresetToCurrentTool(settings)
+        // 2. Save to DB
+        savePresetsToDb(toolManager.selectedTool)
     }
 
     fun removeToolPreset(index: Int) {
+        val currentTool = toolManager.selectedTool
+        // 1. Update RAM
         toolManager.removePresetFromCurrentTool(index)
+        // 2. Save to DB
+        savePresetsToDb(currentTool)
     }
 
     // --- INK INPUT MANAGER ---

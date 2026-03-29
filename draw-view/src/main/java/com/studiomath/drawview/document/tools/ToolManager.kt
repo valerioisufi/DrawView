@@ -11,6 +11,7 @@ import androidx.ink.brush.StockBrushes
 import androidx.ink.brush.ExperimentalInkCustomBrushApi
 import androidx.ink.storage.decode
 import com.studiomath.drawview.R
+import com.studiomath.drawview.data.db.BrushSettingsData
 import com.studiomath.drawview.data.db.UserPreferencesEntity
 import com.studiomath.drawview.document.page.Measure
 import com.studiomath.drawview.document.page.mm // Importiamo l'estensione per i millimetri
@@ -163,26 +164,80 @@ class ToolManager(context: Context) {
         }
     }
 
+    // Updates a specific preset without needing to select it first
+    fun updatePresetAtIndex(tool: Tool, index: Int, newSize: Measure, newColor: Int) {
+        val util = when (tool) {
+            Tool.INK_PEN -> penTool
+            Tool.INK_HIGHLIGHTER -> highlighterTool
+            Tool.ERASER -> eraserTool
+            Tool.LAZO -> lazoTool
+            else -> penTool
+        }
+
+        util.updateSize(index, newSize)
+        util.updateColor(index, newColor)
+
+        // If the updated preset happens to be the currently active one, refresh the UI state
+        if (selectedTool == tool && currentBrushIndex == index) {
+            refreshActiveBrushSettings()
+        }
+    }
+
     /**
-     * Sincronizza lo stato degli strumenti in RAM con i dati provenienti dal Database.
+     * Maps a database string back to a native BrushFamily object.
+     */
+    private fun stringToFamily(familyStr: String): BrushFamily {
+        return when (familyStr) {
+            "HIGHLIGHTER" -> StockBrushes.highlighter()
+            "MARKER" -> StockBrushes.marker()
+            "LASER" -> laserBrushFamily
+            "DASHED" -> StockBrushes.dashedLine()
+            "PRESSURE_PEN" -> StockBrushes.pressurePen()
+            else -> StockBrushes.pressurePen()
+        }
+    }
+
+    /**
+     * Maps a native BrushFamily back to a database string.
+     */
+    fun getFamilyString(tool: Tool, family: BrushFamily): String {
+        if (family == laserBrushFamily) return "LASER"
+        return when (tool) {
+            Tool.INK_HIGHLIGHTER -> "HIGHLIGHTER"
+            Tool.LAZO -> "DASHED"
+            else -> "PRESSURE_PEN"
+        }
+    }
+
+    /**
+     * Synchronizes the in-memory tool states with data coming from the Database.
      */
     fun syncWithPreferences(prefs: UserPreferencesEntity) {
-        // Aggiorniamo la Penna
-        penTool.updateSize(0, prefs.penSettings.sizeMm.mm)
-        penTool.updateColor(0, prefs.penSettings.color)
 
-        // Aggiorniamo l'Evidenziatore
-        highlighterTool.updateSize(0, prefs.highlighterSettings.sizeMm.mm)
-        highlighterTool.updateColor(0, prefs.highlighterSettings.color)
+        // Helper to safely update an observable list without breaking Compose references
+        fun updateObservableList(
+            util: ToolUtilities,
+            dbPresets: List<BrushSettingsData>
+        ) {
+            util.brushList.clear()
+            if (dbPresets.isEmpty()) {
+                // Failsafe: if the DB returns an empty list, generate a default one
+                util.getSettings(0)
+            } else {
+                val mappedPresets = dbPresets.map { data ->
+                    BrushSettings(data.sizeMm.mm, data.color, stringToFamily(data.family))
+                }
+                util.brushList.addAll(mappedPresets)
+            }
+        }
 
-        // Aggiorniamo la Gomma (solo dimensione)
-        eraserTool.updateSize(0, prefs.eraserSettings.sizeMm.mm)
+        // 1. Sync all tools
+        updateObservableList(penTool, prefs.penPresets)
+        updateObservableList(highlighterTool, prefs.highlighterPresets)
+        updateObservableList(eraserTool, prefs.eraserPresets)
+        updateObservableList(lazoTool, prefs.lazoPresets)
 
-        // Aggiorniamo il Lazo
-        lazoTool.updateSize(0, prefs.lazoSettings.sizeMm.mm)
-        lazoTool.updateColor(0, prefs.lazoSettings.color)
-
-        // Ripristiniamo l'ultimo strumento selezionato in modo sicuro
+        // 2. Safely restore the last selected tool
         val savedTool = try {
             Tool.valueOf(prefs.lastSelectedTool)
         } catch (e: Exception) {
@@ -193,7 +248,12 @@ class ToolManager(context: Context) {
             selectedTool = savedTool
         }
 
-        // Forza l'aggiornamento del parametro esposto a Compose
+        // 3. Ensure the active index is still within bounds after syncing
+        if (currentBrushIndex >= getCurrentToolUtil().brushList.size) {
+            currentBrushIndex = 0
+        }
+
+        // 4. Force UI refresh
         refreshActiveBrushSettings()
     }
 }

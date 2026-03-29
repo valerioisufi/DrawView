@@ -30,7 +30,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     exportSchema = false
 )
 @TypeConverters(
-    PageBackgroundConverter::class
+    PageBackgroundConverter::class,
+    BrushPresetListConverter::class
 )
 abstract class DrawDatabase : RoomDatabase() {
 

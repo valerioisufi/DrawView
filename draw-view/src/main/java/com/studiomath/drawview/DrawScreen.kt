@@ -421,9 +421,12 @@ fun DrawScreen(
                                                         ColorWheel(
                                                             color = Color(preset.color),
                                                             onColorChanged = { newColor ->
-                                                                // Changing this automatically updates ToolUtilities AND the UI
-                                                                drawViewModel.activeBrushSettings = drawViewModel.activeBrushSettings.copy(
-                                                                    color = newColor.toArgb()
+                                                                // Targets the exact preset index to prevent overwriting the active one
+                                                                drawViewModel.updateToolPreset(
+                                                                    tool = Tool.INK_PEN,
+                                                                    index = index,
+                                                                    newSize = preset.size,
+                                                                    newColor = newColor.toArgb()
                                                                 )
                                                             }
                                                         )
@@ -433,9 +436,12 @@ fun DrawScreen(
                                                         SizeSlider(
                                                             size = preset.size,
                                                             onSizeChanged = { newSize ->
-                                                                // Changing this automatically updates ToolUtilities AND the UI
-                                                                drawViewModel.activeBrushSettings = drawViewModel.activeBrushSettings.copy(
-                                                                    size = newSize
+                                                                // Targets the exact preset index to prevent overwriting the active one
+                                                                drawViewModel.updateToolPreset(
+                                                                    tool = Tool.INK_PEN,
+                                                                    index = index,
+                                                                    newSize = newSize,
+                                                                    newColor = preset.color
                                                                 )
                                                             }
                                                         )

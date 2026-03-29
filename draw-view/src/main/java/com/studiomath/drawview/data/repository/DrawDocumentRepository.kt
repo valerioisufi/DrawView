@@ -639,24 +639,23 @@ class DrawDocumentRepository(context: Context) {
         updatePreferences { it.copy(isStylusOnlyMode = isStylusOnly) }
     }
 
-    suspend fun updatePenSettings(sizeMm: Float, color: Int, family: String) {
-        updatePreferences {
-            it.copy(penSettings = BrushSettingsData(sizeMm, color, family))
-        }
+    suspend fun updatePenPresets(presets: List<BrushSettingsData>) {
+        updatePreferences { it.copy(penPresets = presets) }
     }
 
-    suspend fun updateHighlighterSettings(sizeMm: Float, color: Int, family: String) {
-        updatePreferences {
-            it.copy(highlighterSettings = BrushSettingsData(sizeMm, color, family))
-        }
+    suspend fun updateHighlighterPresets(presets: List<BrushSettingsData>) {
+        updatePreferences { it.copy(highlighterPresets = presets) }
     }
 
-    suspend fun updateEraserSettings(sizeMm: Float) {
-        updatePreferences {
-            // Per la gomma, solitamente cambiamo solo la dimensione, mantenendo inalterati
-            // il colore (trasparente) e la famiglia (LASER) definiti di default.
-            it.copy(eraserSettings = it.eraserSettings.copy(sizeMm = sizeMm))
-        }
+    suspend fun updateEraserPresets(presets: List<BrushSettingsData>) {
+        updatePreferences { it.copy(eraserPresets = presets) }
+    }
+
+    /**
+     * Updates the saved list of Lazo tool presets in the database.
+     */
+    suspend fun updateLazoPresets(presets: List<BrushSettingsData>) {
+        updatePreferences { it.copy(lazoPresets = presets) }
     }
 
     suspend fun updateTextDefaults(fontSize: Float, color: Int, isLatex: Boolean) {

@@ -1,13 +1,11 @@
 package com.studiomath.drawview.data.db
 
-import androidx.room.Embedded
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import android.graphics.Color
 
 /**
- * Modello per i settaggi specifici di ogni strumento.
- * Verrà "appiattito" da Room all'interno della tabella principale.
+ * Model for tool-specific settings.
  */
 data class BrushSettingsData(
     val sizeMm: Float,
@@ -16,36 +14,41 @@ data class BrushSettingsData(
 )
 
 /**
- * Tabella singola per le preferenze globali dell'utente.
- * Forziamo l'id a 1 per garantire che esista sempre e solo una riga.
+ * Single table for global user preferences.
+ * ID is forced to 1 to ensure a single-row configuration.
  */
 @Entity(tableName = "user_preferences")
 data class UserPreferencesEntity(
     @PrimaryKey val id: Int = 1,
 
-    // --- Preferenze Globali ---
+    // --- Global Preferences ---
     val isStylusOnlyMode: Boolean = false,
-
-    // Salviamo gli Enum come Stringhe per semplicità (richiede un TypeConverter o conversione manuale nel Mapper)
     val lastSelectedTool: String = "INK_PEN",
     val lastLassoMode: String = "FREEHAND",
 
-    // --- Preferenze Testo ---
+    // --- Text Preferences ---
     val defaultTextFontSize: Float = 16f,
     val defaultTextColor: Int = Color.BLACK,
     val defaultTextIsLatex: Boolean = false,
 
-    // --- Configurazioni Strumenti ---
-    // Il prefisso previene collisioni di nomi nelle colonne SQL (es. pen_sizeMm, eraser_sizeMm)
-    @Embedded(prefix = "pen_")
-    val penSettings: BrushSettingsData = BrushSettingsData(0.8f, Color.BLUE, "PRESSURE_PEN"),
+    // --- Tool Configurations (Now using Lists for Presets) ---
+    // Room will use BrushPresetListConverter to store these as JSON strings.
+    val penPresets: List<BrushSettingsData> = listOf(
+        BrushSettingsData(0.5f, Color.BLACK, "PRESSURE_PEN"),
+        BrushSettingsData(1.0f, Color.BLUE, "PRESSURE_PEN"),
+        BrushSettingsData(2.0f, Color.RED, "PRESSURE_PEN")
+    ),
 
-    @Embedded(prefix = "highlighter_")
-    val highlighterSettings: BrushSettingsData = BrushSettingsData(4.0f, Color.argb(64, 255, 255, 0), "HIGHLIGHTER"),
+    val highlighterPresets: List<BrushSettingsData> = listOf(
+        BrushSettingsData(4.0f, Color.argb(64, 255, 255, 0), "HIGHLIGHTER"),
+        BrushSettingsData(4.0f, Color.argb(64, 0, 255, 0), "HIGHLIGHTER")
+    ),
 
-    @Embedded(prefix = "eraser_")
-    val eraserSettings: BrushSettingsData = BrushSettingsData(8.0f, Color.argb(200, 255, 141, 161), "LASER"),
+    val eraserPresets: List<BrushSettingsData> = listOf(
+        BrushSettingsData(8.0f, Color.argb(200, 255, 141, 161), "LASER")
+    ),
 
-    @Embedded(prefix = "lazo_")
-    val lazoSettings: BrushSettingsData = BrushSettingsData(0.5f, Color.argb(255, 135, 153, 178), "DASHED")
+    val lazoPresets: List<BrushSettingsData> = listOf(
+        BrushSettingsData(0.5f, Color.argb(255, 135, 153, 178), "DASHED")
+    )
 )

@@ -378,6 +378,8 @@ fun DrawScreen(
                                                     presetColor = Color(preset.color),
                                                     presetSize = preset.size,
                                                     sizeValueRange = 0.1f..15f,
+                                                    linearThreshold = 3f,      // Keeps linear precision up to 3pt
+                                                    linearProportion = 0.5f,   // Dedicates 50% of the slider physical width to 0.1-3.0
                                                     showDeleteOption = penPresets.size > 1,
                                                     onColorChanged = { newColor ->
                                                         drawViewModel.updateToolPreset(Tool.INK_PEN, index, preset.size, newColor.toArgb())
@@ -470,7 +472,9 @@ fun DrawScreen(
                                                     onDismissRequest = { editingHighlighterPresetIndex = null },
                                                     presetColor = Color(preset.color),
                                                     presetSize = preset.size,
-                                                    sizeValueRange = 1f..20f, // Wider range specific to Highlighters
+                                                    sizeValueRange = 1f..30f,  // Much wider range for highlighters
+                                                    linearThreshold = 8f,      // Linear behavior only up to 8pt
+                                                    linearProportion = 0.3f,   // Dedicates only 30% of the track to the linear part
                                                     showDeleteOption = highlighterPresets.size > 1,
                                                     onColorChanged = { newColor ->
                                                         drawViewModel.updateToolPreset(Tool.INK_HIGHLIGHTER, index, preset.size, newColor.toArgb())
@@ -537,7 +541,9 @@ fun DrawScreen(
                                             SizeSlider(
                                                 modifier = Modifier.padding(8.dp),
                                                 size = currentSize,
-                                                valueRange = 1f..30f,
+                                                valueRange = 2f..50f,       // Allows for a massive eraser size
+                                                linearThreshold = 10f,      // Keeps precision only for small corrections
+                                                linearProportion = 0.25f,   // Dedicates only 25% of the slider to the linear part
                                                 onSizeChanged = { newMeasure ->
                                                     currentSize = newMeasure
                                                     drawViewModel.activeBrushSettings =

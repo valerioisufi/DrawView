@@ -35,8 +35,10 @@ import com.studiomath.drawview.document.page.Measure
  * @param onDismissRequest Callback triggered when the user taps outside the menu to close it.
  * @param presetColor The current color of the preset being edited.
  * @param presetSize The current physical size of the preset being edited.
- * @param sizeValueRange The allowed range for the size slider (e.g., 1f..20f for highlighters).
- * @param showDeleteOption If true, the delete button is rendered; if false, it's hidden (to prevent deleting the last preset).
+ * @param sizeValueRange The allowed range for the size slider.
+ * @param linearThreshold The value up to which the slider behaves linearly.
+ * @param linearProportion The percentage of the physical slider track dedicated to the linear part.
+ * @param showDeleteOption If true, the delete button is rendered.
  * @param onColorChanged Callback triggered continuously as the user picks a new color.
  * @param onSizeChanged Callback triggered continuously as the user slides to a new size.
  * @param onDeleteClicked Callback triggered when the user confirms the deletion of this preset.
@@ -48,6 +50,8 @@ fun PresetEditMenu(
     presetColor: Color,
     presetSize: Measure,
     sizeValueRange: ClosedFloatingPointRange<Float> = 0.1f..15f,
+    linearThreshold: Float = 3f,
+    linearProportion: Float = 0.4f,
     showDeleteOption: Boolean,
     onColorChanged: (Color) -> Unit,
     onSizeChanged: (Measure) -> Unit,
@@ -102,6 +106,8 @@ fun PresetEditMenu(
             SizeSlider(
                 size = presetSize,
                 valueRange = sizeValueRange,
+                linearThreshold = linearThreshold,
+                linearProportion = linearProportion,
                 onSizeChanged = onSizeChanged
             )
         }

@@ -20,16 +20,16 @@ import kotlin.math.pow
 import kotlin.math.round
 
 /**
- * A Jetpack Compose UI component that provides a logarithmic slider for selecting dimensional sizes.
- * * This slider maps a normalized linear track position (0f to 1f) to an exponential value scale,
- * making it ideal for adjusting properties like stroke widths or text sizes where finer granularity
- * is required at lower values. The component displays the current size formatted to one decimal place
- * and outputs the adjusted value as a [Measure] in points (pt).
+ * A Jetpack Compose UI component that provides a hybrid linear-exponential slider.
+ * * - The first portion of the slider track maps linearly to provide high precision for small values.
+ * - The remaining portion maps exponentially to quickly cover large values.
  *
  * @param modifier The [Modifier] to be applied to the surrounding [Row] layout.
  * @param onSizeChanged Callback invoked whenever the user drags the slider. It emits the newly calculated, rounded [Measure].
  * @param size The current [Measure] state to reflect on the slider and text display.
- * @param valueRange The allowable minimum and maximum limits for the exponential size calculation.
+ * @param valueRange The allowable minimum and maximum limits for the calculation.
+ * @param linearThreshold The value up to which the slider behaves linearly (e.g., 3.0 pt).
+ * @param linearProportion The percentage of the physical slider track dedicated to the linear part (e.g., 0.4f = 40%).
  */
 @Preview
 @Composable
@@ -37,12 +37,31 @@ fun SizeSlider(
     modifier: Modifier = Modifier,
     onSizeChanged: (Measure) -> Unit = {},
     size: Measure = 6.pt,
-    valueRange: ClosedFloatingPointRange<Float> = 0.1f..15f
+    valueRange: ClosedFloatingPointRange<Float> = 0.1f..15f,
+    linearThreshold: Float = 3f,     // Valore fino al quale il comportamento è lineare
+    linearProportion: Float = 0.4f   // Il 40% dello spazio fisico dello slider è per i valori lineari
 ) {
     val minVal = valueRange.start.coerceAtLeast(0.001f)
     val maxVal = valueRange.endInclusive.coerceAtLeast(minVal + 0.001f)
 
-    val sliderPosition = (ln(size.pt / minVal) / ln(maxVal / minVal)).coerceIn(0f, 1f)
+    // Assicuriamoci che la soglia sia coerente con i limiti
+    val actualThreshold = linearThreshold.coerceIn(minVal + 0.001f, maxVal)
+
+    // ==========================================
+    // 1. Calcolo POSIZIONE SLIDER (da Valore a Posizione 0..1)
+    // ==========================================
+    val sliderPosition = if (maxVal <= actualThreshold) {
+        // Se il range massimo è sotto la soglia, è tutto lineare
+        ((size.pt - minVal) / (maxVal - minVal)).coerceIn(0f, 1f)
+    } else if (size.pt <= actualThreshold) {
+        // ZONA LINEARE: mappiamo [minVal, actualThreshold] -> [0f, linearProportion]
+        val t = (size.pt - minVal) / (actualThreshold - minVal)
+        (t * linearProportion).coerceIn(0f, 1f)
+    } else {
+        // ZONA ESPONENZIALE: mappiamo [actualThreshold, maxVal] -> [linearProportion, 1f]
+        val expT = ln(size.pt / actualThreshold) / ln(maxVal / actualThreshold)
+        (linearProportion + expT * (1f - linearProportion)).coerceIn(0f, 1f)
+    }
 
     Row(
         modifier = modifier
@@ -59,7 +78,21 @@ fun SizeSlider(
             value = sliderPosition,
             valueRange = 0f..1f,
             onValueChange = { t ->
-                val rawValue = minVal * (maxVal / minVal).pow(t)
+                // ==========================================
+                // 2. Calcolo VALORE (da Posizione 0..1 a Valore)
+                // ==========================================
+                val rawValue = if (maxVal <= actualThreshold) {
+                    minVal + t * (maxVal - minVal)
+                } else if (t <= linearProportion) {
+                    // Calcolo inverso per la zona lineare
+                    val normalizedT = t / linearProportion
+                    minVal + normalizedT * (actualThreshold - minVal)
+                } else {
+                    // Calcolo inverso per la zona esponenziale
+                    val normalizedT = (t - linearProportion) / (1f - linearProportion)
+                    actualThreshold * (maxVal / actualThreshold).pow(normalizedT)
+                }
+
                 val roundedValue = round(rawValue * 10f) / 10f
                 onSizeChanged(roundedValue.pt)
             },

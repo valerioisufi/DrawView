@@ -563,12 +563,25 @@ class DrawViewModel(
      * Silently saves the current preset list of a specific tool to the Room database.
      */
     private fun savePresetsToDb(tool: Tool) {
+        // 1. We create an immutable copy of the current list on the main thread.
+        // This prevents ConcurrentModificationException when the background thread reads it.
+        val presetsSnapshot = when (tool) {
+            Tool.INK_PEN -> toolManager.penTool.brushList.toList()
+            Tool.INK_HIGHLIGHTER -> toolManager.highlighterTool.brushList.toList()
+            Tool.ERASER -> toolManager.eraserTool.brushList.toList()
+            Tool.LAZO -> toolManager.lazoTool.brushList.toList()
+            else -> emptyList()
+        }
+
+        // 2. We pass the immutable copy to the background thread for database mapping and saving.
         viewModelScope.launch(Dispatchers.IO) {
+            val mappedData = mapPresetsToDb(tool, presetsSnapshot)
+
             when (tool) {
-                Tool.INK_PEN -> repository.updatePenPresets(mapPresetsToDb(tool, toolManager.penTool.brushList))
-                Tool.INK_HIGHLIGHTER -> repository.updateHighlighterPresets(mapPresetsToDb(tool, toolManager.highlighterTool.brushList))
-                Tool.ERASER -> repository.updateEraserPresets(mapPresetsToDb(tool, toolManager.eraserTool.brushList))
-                Tool.LAZO -> repository.updateLazoPresets(mapPresetsToDb(tool, toolManager.lazoTool.brushList))
+                Tool.INK_PEN -> repository.updatePenPresets(mappedData)
+                Tool.INK_HIGHLIGHTER -> repository.updateHighlighterPresets(mappedData)
+                Tool.ERASER -> repository.updateEraserPresets(mappedData)
+                Tool.LAZO -> repository.updateLazoPresets(mappedData)
                 else -> {}
             }
         }

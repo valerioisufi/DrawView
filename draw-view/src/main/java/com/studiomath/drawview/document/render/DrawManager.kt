@@ -354,19 +354,25 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                         val document = drawViewModel.documentData ?: return
                         val targetId = renderRequest.targetPageId ?: return
 
-                        // 1. Se la pagina sta già calcolando, non cancellarla!
-                        // Marcala come "sporca" così si ricalcolerà subito dopo aver finito.
                         if (pageRenderJobs[targetId]?.isActive == true) {
                             pageDirtyFlags[targetId] = true
                             return
                         }
 
-                        // 2. Avvia il ricalcolo e continua a ciclare finché la pagina rimane sporca
-                        val job = scope.launch(pageRenderDispatcher) {
+                        // FIX: Se la richiesta NON include il PDF (es. la Gomma sta cancellando l'inchiostro),
+                        // usiamo il thread VIP per aggiornare la grafica all'istante scavalcando la coda!
+                        // Altrimenti, usiamo il dispatcher limitato per non bloccare il sistema.
+                        val targetDispatcher = if (!renderRequest.includePdfLayer) {
+                            inkProcessingDispatcher
+                        } else {
+                            pageRenderDispatcher
+                        }
+
+                        val job = scope.launch(targetDispatcher) {
                             val page = document.pages.find { it.dbId == targetId } ?: return@launch
 
                             do {
-                                pageDirtyFlags[targetId] = false // Puliamo il flag prima di iniziare
+                                pageDirtyFlags[targetId] = false
                                 if (!page.isPrepared) page.prepare()
 
                                 page.contentBitmapCache?.let {
@@ -378,12 +384,10 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                                         document,
                                         renderPdf = renderRequest.includePdfLayer
                                     )
-                                    // Salviamo solo se era stato richiesto (per la gomma includePdf è false)
                                     if (renderRequest.includePdfLayer) page.pdfBitmapCache = bitmaps.pdf
                                     page.contentBitmapCache = bitmaps.content
                                 }
 
-                                // 3. Appena la pagina è pronta, diciamo allo schermo di aggiornarsi immediatamente!
                                 updateDrawView(RenderRequest(RenderRequest.DrawMode.REFRESH))
 
                             } while (pageDirtyFlags[targetId] == true)

@@ -3,6 +3,7 @@ package com.studiomath.drawview.document.tools
 import android.content.Context
 import android.graphics.Color
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.ink.brush.BrushFamily
@@ -18,11 +19,6 @@ enum class Tool {
     INK_PEN, INK_HIGHLIGHTER, ERASER, TEXT, LAZO, PAN, SELECT_OBJECT
 }
 
-/**
- * La singola sorgente di verità per la configurazione dello strumento.
- * Usa [Measure] per garantire che la dimensione sia assoluta (es. millimetri fisici sul foglio),
- * indipendentemente dallo schermo o dallo zoom.
- */
 data class BrushSettings(
     var size: Measure,
     var color: Int,
@@ -33,16 +29,21 @@ class ToolUtilities(
     val toolType: Tool,
     private val defaultFamily: BrushFamily
 ) {
-    private var brushList = mutableListOf<BrushSettings>()
+    // We use mutableStateListOf so Jetpack Compose can observe additions, removals, and updates
+    val brushList = mutableStateListOf<BrushSettings>()
+
+    init {
+        // Initialize with default presets to avoid empty states
+        getSettings(0)
+    }
 
     fun getSettings(index: Int): BrushSettings {
         while (index >= brushList.size) {
-            // Impostiamo dimensioni fisiche realistiche in millimetri
             val defaultSetting = when (toolType) {
-                Tool.INK_PEN -> BrushSettings(0.8f.mm, Color.BLUE, defaultFamily) // Penna da 0.8mm
-                Tool.INK_HIGHLIGHTER -> BrushSettings(4.0f.mm, Color.argb(64, 255, 255, 0), defaultFamily) // Evidenziatore da 4mm
-                Tool.ERASER -> BrushSettings(8.0f.mm, Color.argb(200, 255, 141, 161), defaultFamily) // Gomma da 8mm
-                Tool.LAZO -> BrushSettings(0.5f.mm, Color.argb(255, 135, 153, 178), defaultFamily) // Tratteggio fine
+                Tool.INK_PEN -> BrushSettings(0.8f.mm, Color.BLUE, defaultFamily)
+                Tool.INK_HIGHLIGHTER -> BrushSettings(4.0f.mm, Color.argb(64, 255, 255, 0), defaultFamily)
+                Tool.ERASER -> BrushSettings(8.0f.mm, Color.argb(200, 255, 141, 161), defaultFamily)
+                Tool.LAZO -> BrushSettings(0.5f.mm, Color.argb(255, 135, 153, 178), defaultFamily)
                 else -> BrushSettings(1.0f.mm, Color.BLACK, defaultFamily)
             }
             brushList.add(defaultSetting)
@@ -52,19 +53,31 @@ class ToolUtilities(
 
     fun updateFamily(index: Int, newFamily: BrushFamily) {
         if (index < brushList.size) {
-            brushList[index].family = newFamily
+            // Reassign with copy() to trigger Compose state recomposition
+            brushList[index] = brushList[index].copy(family = newFamily)
         }
     }
 
     fun updateSize(index: Int, newSize: Measure) {
         if (index < brushList.size) {
-            brushList[index].size = newSize
+            brushList[index] = brushList[index].copy(size = newSize)
         }
     }
 
     fun updateColor(index: Int, newColor: Int) {
         if (index < brushList.size) {
-            brushList[index].color = newColor
+            brushList[index] = brushList[index].copy(color = newColor)
+        }
+    }
+
+    fun addPreset(setting: BrushSettings) {
+        brushList.add(setting)
+    }
+
+    fun removePreset(index: Int) {
+        // We prevent deleting the very last preset to always have one available
+        if (index < brushList.size && brushList.size > 1) {
+            brushList.removeAt(index)
         }
     }
 }
@@ -82,7 +95,6 @@ class ToolManager(context: Context) {
         }
     }
 
-    // Le utility ora contengono solo dati fisici, niente epsilon o logiche di rendering
     val penTool = ToolUtilities(Tool.INK_PEN, StockBrushes.pressurePen())
     val highlighterTool = ToolUtilities(Tool.INK_HIGHLIGHTER, StockBrushes.highlighter())
     val eraserTool = ToolUtilities(Tool.ERASER, laserBrushFamily)
@@ -90,14 +102,35 @@ class ToolManager(context: Context) {
 
     var selectedTool by mutableStateOf(Tool.INK_PEN)
 
-    // Espone i SETTINGS attivi, non il Brush nativo
-    var activeBrushSettings by mutableStateOf(penTool.getSettings(0))
+    // Make the index observable so the UI knows exactly which preset is selected
+    var currentBrushIndex by mutableStateOf(0)
+        private set
 
-    private var currentBrushIndex = 0
+    var activeBrushSettings by mutableStateOf(penTool.getSettings(0))
 
     fun selectTool(tool: Tool, brushIndex: Int = 0) {
         selectedTool = tool
-        currentBrushIndex = brushIndex
+        val listSize = getCurrentToolUtil().brushList.size
+        // Ensure index is within bounds (e.g., if a preset was deleted)
+        currentBrushIndex = if (brushIndex < listSize) brushIndex else 0
+        refreshActiveBrushSettings()
+    }
+
+    fun addPresetToCurrentTool(settings: BrushSettings) {
+        val util = getCurrentToolUtil()
+        util.addPreset(settings)
+        // Automatically select the newly created preset
+        selectTool(selectedTool, util.brushList.size - 1)
+    }
+
+    fun removePresetFromCurrentTool(index: Int) {
+        val util = getCurrentToolUtil()
+        util.removePreset(index)
+
+        // Adjust the selected index if the current one or a preceding one was deleted
+        if (currentBrushIndex >= util.brushList.size) {
+            currentBrushIndex = util.brushList.size - 1
+        }
         refreshActiveBrushSettings()
     }
 

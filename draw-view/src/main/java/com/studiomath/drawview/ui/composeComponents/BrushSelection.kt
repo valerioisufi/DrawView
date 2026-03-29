@@ -17,59 +17,41 @@ import androidx.compose.ui.unit.dp
 import com.studiomath.drawview.document.page.Measure
 
 /**
- * Renders a circular color swatch for quick color selection.
- * Displays a subtle border if the swatch is currently selected to indicate active state.
+ * Renders a unified preset button displaying both the selected color and relative brush size.
+ * The inner circle's color represents the brush color, while its scaled diameter represents the thickness.
  */
 @Composable
-fun QuickColorSwatch(
+fun QuickPresetButton(
     color: Color,
-    isSelected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Box(
-        modifier = modifier
-            .size(32.dp)
-            .padding(4.dp)
-            .clip(CircleShape)
-            .background(color)
-            .border(
-                width = if (isSelected) 2.dp else 0.dp,
-                color = if (isSelected) MaterialTheme.colorScheme.onSurface else Color.Transparent,
-                shape = CircleShape
-            )
-            .clickable { onClick() }
-    )
-}
-
-/**
- * Renders a circular indicator for quick brush size selection.
- * The inner dot scales proportionally to represent the physical stroke thickness.
- */
-@Composable
-fun QuickSizeIndicator(
     size: Measure,
     isSelected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // Arbitrary visual scaling for the UI dot, keeping it contained within the 32dp bounds
-    val visualSizeDp = (size.mm * 2f).coerceIn(4f, 24f).dp
+    // Maps the physical millimeter size to a bounded UI dimension (e.g., 8dp to 28dp)
+    // to ensure it remains visible and strictly fits within the 40dp touch target.
+    val visualSizeDp = (size.mm * 3f).coerceIn(8f, 28f).dp
 
     Box(
         modifier = modifier
-            .size(32.dp)
-            .padding(2.dp)
+            .size(40.dp)
+            .padding(4.dp)
             .clip(CircleShape)
-            .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+            // Displays a thicker, colored ring when the preset is actively selected
+            .border(
+                width = if (isSelected) 2.dp else 1.dp,
+                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                shape = CircleShape
+            )
             .clickable { onClick() },
         contentAlignment = Alignment.Center
     ) {
+        // The core indicator depicting the actual brush stroke
         Box(
             modifier = Modifier
                 .size(visualSizeDp)
                 .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.onSurface)
+                .background(color)
         )
     }
 }

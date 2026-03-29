@@ -558,6 +558,22 @@ class DrawViewModel(
             }
         }
 
+    fun selectToolWithIndex(tool: Tool, index: Int) {
+        toolManager.selectTool(tool, index)
+        // Saves the choice asynchronously in the DB
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.updateLastSelectedTool(tool.name)
+        }
+    }
+
+    fun addToolPreset(settings: BrushSettings) {
+        toolManager.addPresetToCurrentTool(settings)
+    }
+
+    fun removeToolPreset(index: Int) {
+        toolManager.removePresetFromCurrentTool(index)
+    }
+
     // --- INK INPUT MANAGER ---
     val inkInputManager = InkInputManager(
         repository = repository,

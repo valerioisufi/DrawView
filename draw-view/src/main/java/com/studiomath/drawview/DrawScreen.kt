@@ -22,8 +22,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeContent
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -36,6 +34,8 @@ import androidx.compose.material.icons.automirrored.outlined.Redo
 import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Draw
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.MoreHoriz
@@ -54,7 +54,6 @@ import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -77,8 +76,6 @@ import com.studiomath.drawview.document.DrawComponent
 import com.studiomath.drawview.document.DrawViewModel
 import com.studiomath.drawview.document.page.Dimension
 import com.studiomath.drawview.document.page.PageBackground
-import com.studiomath.drawview.document.page.mm
-import com.studiomath.drawview.document.page.pt
 import com.studiomath.drawview.document.selection.LassoMode
 import com.studiomath.drawview.document.tools.Tool
 import com.studiomath.drawview.ui.composeComponents.ColorWheel
@@ -86,9 +83,9 @@ import com.studiomath.drawview.ui.composeComponents.DocumentInfoSelector
 import com.studiomath.drawview.ui.composeComponents.ExpandableToolButton
 import com.studiomath.drawview.ui.composeComponents.PageGridOverlay
 import com.studiomath.drawview.ui.composeComponents.PageTemplateConfigurator
-import com.studiomath.drawview.ui.composeComponents.QuickColorSwatch
-import com.studiomath.drawview.ui.composeComponents.QuickSizeIndicator
+import com.studiomath.drawview.ui.composeComponents.QuickPresetButton
 import com.studiomath.drawview.ui.composeComponents.SizeSlider
+import com.studiomath.drawview.ui.composeComponents.ToolButton
 
 /**
  * Renders the primary drawing interface, encompassing the top navigation bar,
@@ -318,12 +315,11 @@ fun DrawScreen(
                                     thickness = 2.dp
                                 )
 
-                                // Define quick presets directly in your UI or ViewModel
-                                val penQuickColors = listOf(Color.Black, Color.Blue, Color.Red, Color.Green)
-                                val penQuickSizes = listOf(0.5f.mm, 1.0f.mm, 2.0f.mm)
-
-                                // Manage which tool is expanded (null means none)
+                                // Tracks which tool is currently expanded
                                 var expandedToolSettings by remember { mutableStateOf<Tool?>(null) }
+
+                                // Tracks the index of the preset whose edit menu is currently open
+                                var editingPresetIndex by remember { mutableStateOf<Int?>(null) }
 
                                 ExpandableToolButton(
                                     isExpanded = expandedToolSettings == Tool.INK_PEN,
@@ -332,11 +328,10 @@ fun DrawScreen(
                                         ToolButton(
                                             onClick = {
                                                 if (drawViewModel.selectedTool == Tool.INK_PEN) {
-                                                    // Toggle expansion if already selected
                                                     expandedToolSettings = if (expandedToolSettings == Tool.INK_PEN) null else Tool.INK_PEN
                                                 } else {
-                                                    // Select tool and close any open expansion
-                                                    drawViewModel.selectedTool = Tool.INK_PEN
+                                                    // By default we reactivate the last used preset index for this tool
+                                                    drawViewModel.selectToolWithIndex(Tool.INK_PEN, drawViewModel.toolManager.currentBrushIndex)
                                                     expandedToolSettings = null
                                                 }
                                             },
@@ -353,46 +348,116 @@ fun DrawScreen(
                                         }
                                     },
                                     expandedContent = {
-                                        // Quick Sizes
-                                        penQuickSizes.forEach { sizePreset ->
-                                            QuickSizeIndicator(
-                                                size = sizePreset,
-                                                isSelected = drawViewModel.activeBrushSettings.size.mm == sizePreset.mm,
-                                                onClick = {
-                                                    drawViewModel.activeBrushSettings = drawViewModel.activeBrushSettings.copy(size = sizePreset)
+
+                                        // We read directly from the ToolUtilities observable list!
+                                        val penPresets = drawViewModel.toolManager.penTool.brushList
+
+                                        penPresets.forEachIndexed { index, preset ->
+
+                                            // The preset is selected if we are on the Pen tool AND its index matches the current active index
+                                            val isSelected = drawViewModel.selectedTool == Tool.INK_PEN &&
+                                                    drawViewModel.toolManager.currentBrushIndex == index
+
+                                            Box {
+                                                QuickPresetButton(
+                                                    color = Color(preset.color),
+                                                    size = preset.size,
+                                                    isSelected = isSelected,
+                                                    onClick = {
+                                                        if (isSelected) {
+                                                            // Open edit menu if already selected
+                                                            editingPresetIndex = index
+                                                        } else {
+                                                            // Activate this preset
+                                                            drawViewModel.selectToolWithIndex(Tool.INK_PEN, index)
+                                                        }
+                                                    }
+                                                )
+
+                                                // Edit Dropdown Menu for this specific preset
+                                                DropdownMenu(
+                                                    modifier = modifier
+                                                        .width(300.dp),
+                                                    expanded = editingPresetIndex == index,
+                                                    onDismissRequest = { editingPresetIndex = null },
+                                                    shape = RoundedCornerShape(16.dp),
+                                                    containerColor = MaterialTheme.colorScheme.surface,
+                                                    tonalElevation = 8.dp
+                                                ) {
+                                                    Column(
+                                                        modifier = Modifier.padding(16.dp),
+                                                        horizontalAlignment = Alignment.CenterHorizontally
+                                                    ) {
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Text(
+                                                                text = stringResource(R.string.draw_menu_settings),
+                                                                fontSize = 16.sp,
+                                                                fontWeight = FontWeight.Bold
+                                                            )
+
+                                                            // Ensure we can't delete the very last preset
+                                                            if (penPresets.size > 1) {
+                                                                androidx.compose.material3.IconButton(
+                                                                    onClick = {
+                                                                        drawViewModel.removeToolPreset(index)
+                                                                        editingPresetIndex = null
+                                                                    }
+                                                                ) {
+                                                                    Icon(
+                                                                        imageVector = Icons.Outlined.Delete,
+                                                                        contentDescription = stringResource(R.string.common_action_delete),
+                                                                        tint = MaterialTheme.colorScheme.error
+                                                                    )
+                                                                }
+                                                            }
+                                                        }
+
+                                                        Spacer(modifier = Modifier.height(8.dp))
+
+                                                        ColorWheel(
+                                                            color = Color(preset.color),
+                                                            onColorChanged = { newColor ->
+                                                                // Changing this automatically updates ToolUtilities AND the UI
+                                                                drawViewModel.activeBrushSettings = drawViewModel.activeBrushSettings.copy(
+                                                                    color = newColor.toArgb()
+                                                                )
+                                                            }
+                                                        )
+
+                                                        Spacer(modifier = Modifier.height(16.dp))
+
+                                                        SizeSlider(
+                                                            size = preset.size,
+                                                            onSizeChanged = { newSize ->
+                                                                // Changing this automatically updates ToolUtilities AND the UI
+                                                                drawViewModel.activeBrushSettings = drawViewModel.activeBrushSettings.copy(
+                                                                    size = newSize
+                                                                )
+                                                            }
+                                                        )
+                                                    }
                                                 }
-                                            )
+                                            }
                                         }
 
                                         Spacer(modifier = Modifier.width(8.dp))
-
-                                        // Quick Colors
-                                        penQuickColors.forEach { colorPreset ->
-                                            QuickColorSwatch(
-                                                color = colorPreset,
-                                                isSelected = drawViewModel.activeBrushSettings.color == colorPreset.toArgb(),
-                                                onClick = {
-                                                    drawViewModel.activeBrushSettings = drawViewModel.activeBrushSettings.copy(color = colorPreset.toArgb())
-                                                }
-                                            )
-                                        }
-
-                                        Spacer(modifier = Modifier.width(8.dp))
-
-                                        // "More Options" button triggering the advanced DropdownMenu or BottomSheet
-                                        var showAdvancedPenSettings by remember { mutableStateOf(false) }
 
                                         ToolButton(
-                                            onClick = { showAdvancedPenSettings = true },
-                                            expanded = showAdvancedPenSettings,
-                                            onDismissRequest = { showAdvancedPenSettings = false },
-                                            dropDownMenu = {
-                                                // Your existing ColorWheel and SizeSlider go here!
+                                            onClick = {
+                                                // Duplicates the current active brush as a new preset
+                                                drawViewModel.addToolPreset(drawViewModel.activeBrushSettings.copy())
+
+                                                // Automatically open the editor for the newly created preset
+                                                editingPresetIndex = penPresets.size - 1
                                             }
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Outlined.MoreHoriz,
-                                                contentDescription = stringResource(R.string.common_action_more_options)
+                                                imageVector = Icons.Outlined.Add,
+                                                contentDescription = "Add new preset"
                                             )
                                         }
                                     }
@@ -745,72 +810,4 @@ fun DrawScreen(
     }
 
 
-}
-
-/**
- * A specialized button component designed for the drawing toolbar, providing standard
- * click, long-click, and selection state functionalities.
- *
- * This composable can optionally anchor a dropdown menu, making it suitable for tools
- * that require secondary configuration layers (e.g., selecting brush sizes or colors).
- *
- * @param modifier The [Modifier] to be applied to the outer box containing the button and dropdown.
- * @param onClick Callback executed when the button is tapped.
- * @param onLongClick Callback executed when the button is long-pressed.
- * @param selected Indicates whether the button should be styled in an active/selected state.
- * @param enabled Controls the interactive state of the button.
- * @param dropDownMenu Composable content defining the UI of the attached dropdown menu.
- * @param expanded Determines whether the dropdown menu is currently visible.
- * @param onDismissRequest Callback invoked when the user attempts to dismiss the expanded dropdown menu.
- * @param content The primary visual composable (typically an [Icon]) rendered inside the button.
- */
-@OptIn(ExperimentalFoundationApi::class)
-@Preview
-@Composable
-fun ToolButton(
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit = {},
-    onLongClick: (() -> Unit) = {},
-    selected: Boolean = false,
-    enabled: Boolean = true,
-    dropDownMenu: @Composable () -> Unit = {},
-    expanded: Boolean = false,
-    onDismissRequest: () -> Unit = {},
-    content: @Composable RowScope.() -> Unit = {}
-){
-    Box{
-        val selectedModifier = if (selected) {
-            modifier.background(MaterialTheme.colorScheme.primaryContainer)
-        } else {
-            modifier
-        }
-        Row (
-            modifier = Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .combinedClickable(
-                    onClick = { onClick() },
-                    onLongClick = { onLongClick() },
-                    enabled = enabled,
-                    role = Role.Button,
-                )
-                .then(selectedModifier)
-                .padding(8.dp),
-        ){
-            content()
-        }
-        DropdownMenu(
-            modifier = Modifier
-                .width(300.dp),
-            expanded = expanded,
-            onDismissRequest = { onDismissRequest() },
-            // --- STILE MATERIAL 3 ---
-            shape = RoundedCornerShape(16.dp), // Bordi arrotondati e moderni
-            containerColor = MaterialTheme.colorScheme.surface, // Colore di fondo in risalto
-            tonalElevation = 8.dp, // Aggiunge profondità cromatica
-            shadowElevation = 8.dp // Aggiunge l'ombra fisica
-        ) {
-            dropDownMenu()
-        }
-    }
 }

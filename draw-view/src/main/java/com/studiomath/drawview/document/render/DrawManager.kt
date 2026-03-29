@@ -106,12 +106,6 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
     // Thread-safe map to track ongoing rendering jobs for each specific page by its database ID
     private val pageRenderJobs = ConcurrentHashMap<Int, Job>()
 
-    // Limit background page generation to 2 concurrent threads maximum.
-    // This prevents PDF rendering from monopolizing all CPU cores,
-    // leaving headroom for drawing and UI interactions.
-    @OptIn(ExperimentalCoroutinesApi::class)
-    private val pageRenderDispatcher = Dispatchers.Default.limitedParallelism(2)
-
     private val pageDirtyFlags = ConcurrentHashMap<Int, Boolean>()
 
     /** Processor responsible for handling the lifecycle and rendering of ink strokes. */
@@ -121,8 +115,16 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         getDrawManager = { this }
     )
 
-    // Dispatcher esclusivo per calcolare la matematica dei tratti senza latenza
+    // 1. Thread esclusivo per l'inchiostro (Istantaneo)
     val inkProcessingDispatcher: ExecutorCoroutineDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+
+    // 2. NUOVO: Thread esclusivo SOLO per il PDF visibile a schermo (Salta la coda)
+    val viewportPdfDispatcher: ExecutorCoroutineDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+
+    // 3. Dispatcher limitato per la generazione silenziosa delle pagine in background
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val pageRenderDispatcher = Dispatchers.Default.limitedParallelism(2)
+
 
     /** Component responsible for rendering selection UI and interaction overlays. */
     val selectionOverlayRenderer = SelectionOverlayRenderer(drawViewModel)
@@ -320,9 +322,10 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                             android.util.Log.d("ViewportPerf", "=== VIEWPORT CONTENT JOB FINISHED in ${System.currentTimeMillis() - viewportStartTime}ms ===")
                         }
 
-                        // 3. SLOW PATH: Render the PDF layer on the constrained dispatcher
+                        // 3. SLOW PATH: Render the PDF layer on the dedicated Viewport thread
                         if (renderRequest.includePdfLayer) {
-                            jobViewportPdf = scope.launch(pageRenderDispatcher) {
+                            // FIX: La Viewport a schermo ora scavalca la coda di REBUILD_ALL_PAGES!
+                            jobViewportPdf = scope.launch(viewportPdfDispatcher) {
                                 val tempBitmaps = frontState.contentBitmap?.let { currentBmp ->
                                     drawViewModel.pageMaker.makePagesOnBitmap(
                                         Rect(0, 0, currentBmp.width, currentBmp.height),
@@ -1223,6 +1226,7 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         jobViewportPdf?.cancel()
 
         inkProcessingDispatcher.close()
+        viewportPdfDispatcher.close()
 
         pageRenderJobs.values.forEach { it.cancel() }
         pageRenderJobs.clear()

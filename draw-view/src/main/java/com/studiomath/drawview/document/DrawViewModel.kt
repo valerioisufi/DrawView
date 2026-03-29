@@ -41,6 +41,8 @@ import com.studiomath.drawview.document.tools.TextEditorManager
 import com.studiomath.drawview.document.tools.Tool
 import com.studiomath.drawview.document.tools.ToolManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 
 /**
@@ -653,6 +655,29 @@ class DrawViewModel(
         // Salviamo asincronamente nel Database
         viewModelScope.launch {
             repository.updateStylusMode(isStylusOnly)
+        }
+    }
+
+    // 1. Define an event stream for one-off UI actions (like Toasts)
+    private val _uiEvents = MutableSharedFlow<DrawUiEvent>()
+    val uiEvents = _uiEvents.asSharedFlow()
+
+    // 2. Define the types of events
+    sealed class DrawUiEvent {
+        data class ShowToast(val messageResId: Int) : DrawUiEvent()
+    }
+
+    /**
+     * Called by the dispatcher when a stylus is detected for the first time.
+     */
+    fun onFirstStylusDetected() {
+        if (!isStylusOnlyMode) {
+            updateStylusOnlyMode(true)
+
+            viewModelScope.launch {
+                // Emit the event to the UI
+                _uiEvents.emit(DrawUiEvent.ShowToast(R.string.stylus_mode_activated))
+            }
         }
     }
 

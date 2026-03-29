@@ -85,4 +85,5 @@
     <string name="dialog_override_bg_message">Soll dieser Hintergrund nur für neue Seiten als Standard dienen, oder möchtest du auch Seiten überschreiben, die zuvor einen benutzerdefinierten Hintergrund hatten?</string>
     <string name="dialog_override_bg_confirm">Alle überschreiben</string>
     <string name="dialog_override_bg_dismiss">Nur Standard</string>
+    <string name="stylus_mode_activated">Stiftmodus aktiviert</string>
 </resources>

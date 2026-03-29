@@ -1,6 +1,7 @@
 package com.studiomath.drawview.document
 
 import android.widget.FrameLayout
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -52,6 +53,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
@@ -103,6 +105,19 @@ fun DrawComponent(
             drawViewModel.drawManager.requestDraw(
                 RenderRequest.rebuildViewport()
             )
+        }
+    }
+
+    val context = LocalContext.current
+
+    // Listen for UI events from the ViewModel
+    LaunchedEffect(Unit) {
+        drawViewModel.uiEvents.collect { event ->
+            when (event) {
+                is DrawViewModel.DrawUiEvent.ShowToast -> {
+                    Toast.makeText(context, event.messageResId, Toast.LENGTH_SHORT).show()
+                }
+            }
         }
     }
 

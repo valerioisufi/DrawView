@@ -86,4 +86,5 @@
     <string name="dialog_override_bg_message">Should this background become the default for new pages only, or do you want to overwrite pages that previously had a custom background?</string>
     <string name="dialog_override_bg_confirm">Overwrite All</string>
     <string name="dialog_override_bg_dismiss">Default Only</string>
+    <string name="stylus_mode_activated">Stylus mode activated</string>
 </resources>

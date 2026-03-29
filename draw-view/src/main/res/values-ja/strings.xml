@@ -85,4 +85,5 @@
     <string name="dialog_override_bg_message">この背景を新しいページのデフォルトにするだけですか、それとも以前にカスタム背景が設定されたページも上書きしますか？</string>
     <string name="dialog_override_bg_confirm">すべて上書き</string>
     <string name="dialog_override_bg_dismiss">デフォルトのみ</string>
+    <string name="stylus_mode_activated">ペンモードが有効になりました</string>
 </resources>

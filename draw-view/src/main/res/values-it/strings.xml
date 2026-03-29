@@ -85,4 +85,5 @@
     <string name="dialog_override_bg_message">Vuoi che questo sfondo diventi il predefinito per le nuove pagine o vuoi sovrascrivere anche le pagine a cui avevi dato uno sfondo personalizzato in precedenza?</string>
     <string name="dialog_override_bg_confirm">Sovrascrivi Tutte</string>
     <string name="dialog_override_bg_dismiss">Solo Default</string>
+    <string name="stylus_mode_activated">Modalità penna attivata</string>
 </resources>

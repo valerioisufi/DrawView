@@ -85,4 +85,5 @@
     <string name="dialog_override_bg_message">¿Quieres que este fondo sea el predeterminado solo para las nuevas páginas, o deseas sobrescribir las páginas que ya tenían un fondo personalizado?</string>
     <string name="dialog_override_bg_confirm">Sobrescribir Todas</string>
     <string name="dialog_override_bg_dismiss">Solo Predeterminado</string>
+    <string name="stylus_mode_activated">Modo lápiz activado</string>
 </resources>

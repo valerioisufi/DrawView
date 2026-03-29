@@ -57,8 +57,11 @@ class CanvasTouchDispatcher(
         }
 
         motionEventPredictor?.record(event)
+
+        // Detect the first stylus interaction and notify the ViewModel
         if (!isStylusActive && event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS) {
             isStylusActive = true
+            drawViewModel.onFirstStylusDetected()
         }
 
         // 2. ROUTING DEGLI EVENTI (L'architettura pulita)

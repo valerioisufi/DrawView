@@ -85,4 +85,5 @@
     <string name="dialog_override_bg_message">Voulez-vous que ce fond devienne celui par défaut pour les nouvelles pages, ou souhaitez-vous remplacer les pages qui avaient déjà un fond personnalisé ?</string>
     <string name="dialog_override_bg_confirm">Tout remplacer</string>
     <string name="dialog_override_bg_dismiss">Seulement par défaut</string>
+    <string name="stylus_mode_activated">Mode stylet activé</string>
 </resources>

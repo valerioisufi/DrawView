@@ -365,6 +365,7 @@ fun DrawScreen(
                                                 QuickPresetButton(
                                                     color = Color(preset.color),
                                                     size = preset.size,
+                                                    valueRange = 0.1f..15f,
                                                     isSelected = isSelected,
                                                     onClick = {
                                                         if (isSelected) editingPenPresetIndex = index
@@ -460,6 +461,7 @@ fun DrawScreen(
                                                 QuickPresetButton(
                                                     color = Color(preset.color),
                                                     size = preset.size,
+                                                    valueRange = 1f..30f,
                                                     isSelected = isSelected,
                                                     onClick = {
                                                         if (isSelected) editingHighlighterPresetIndex = index

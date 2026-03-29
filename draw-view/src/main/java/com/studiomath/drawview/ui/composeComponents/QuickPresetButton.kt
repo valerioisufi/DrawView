@@ -24,13 +24,14 @@ import com.studiomath.drawview.document.page.Measure
 fun QuickPresetButton(
     color: Color,
     size: Measure,
+    valueRange: ClosedFloatingPointRange<Float>,
     isSelected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // Maps the physical millimeter size to a bounded UI dimension (e.g., 8dp to 28dp)
-    // to ensure it remains visible and strictly fits within the 40dp touch target.
-    val visualSizeDp = (size.mm * 3f).coerceIn(8f, 28f).dp
+    // Maps the stroke size proportionally between 8dp and 28dp based on its specific min/max range
+    val sizeFraction = ((size.mm - valueRange.start) / (valueRange.endInclusive - valueRange.start)).coerceIn(0f, 1f)
+    val visualSizeDp = (8f + (sizeFraction * 20f)).dp
 
     Box(
         modifier = modifier

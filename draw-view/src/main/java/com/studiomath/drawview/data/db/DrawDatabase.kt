@@ -110,7 +110,6 @@ abstract class DrawDatabase : RoomDatabase() {
                     DrawDatabase::class.java,
                     "draw_database"
                 )
-                    .fallbackToDestructiveMigration(true)
                     .build()
 
                 INSTANCE = instance

@@ -30,7 +30,8 @@ class CanvasTouchDispatcher(
     var palmRejection = PalmRejection()
     var motionEventPredictor: MotionEventPredictor? = null
 
-    private var isStylusActive = false
+    // Flag to track if the automatic stylus mode has already been triggered in this session
+    private var hasStylusTriggeredMode = false
 
     @SuppressLint("ClickableViewAccessibility")
     val onTouchListener = View.OnTouchListener { view, event ->
@@ -59,8 +60,8 @@ class CanvasTouchDispatcher(
         motionEventPredictor?.record(event)
 
         // Detect the first stylus interaction and notify the ViewModel
-        if (!isStylusActive && event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS) {
-            isStylusActive = true
+        if (!hasStylusTriggeredMode && event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS) {
+            hasStylusTriggeredMode = true
             drawViewModel.onFirstStylusDetected()
         }
 
@@ -100,13 +101,13 @@ class CanvasTouchDispatcher(
         val isStylusEvent = event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS ||
                 event.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER
 
-        // IL CUORE DELLA FASE 4: La logica di smistamento in base alle preferenze
+        // Routing logic based strictly on the ViewModel's state
         val isDrawingInput = if (drawViewModel.isStylusOnlyMode) {
-            // Se l'utente ha forzato la Stylus, disegniamo SOLO con la penna.
+            // Strict mode: Only stylus can draw
             isStylusEvent && drawViewModel.selectedTool != Tool.PAN
         } else {
-            // Comportamento ibrido classico: penna o dito singolo (se la penna non è attiva)
-            (isStylusEvent || (event.pointerCount == 1 && !isStylusActive && !viewportHandler.isTransforming)) &&
+            // Hybrid mode: Stylus OR single finger can draw
+            (isStylusEvent || (event.pointerCount == 1 && !viewportHandler.isTransforming)) &&
                     drawViewModel.selectedTool != Tool.PAN
         }
 

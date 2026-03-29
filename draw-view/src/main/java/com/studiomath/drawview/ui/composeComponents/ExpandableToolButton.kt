@@ -7,11 +7,10 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -33,12 +32,22 @@ fun ExpandableToolButton(
     mainIcon: @Composable () -> Unit,
     expandedContent: @Composable () -> Unit
 ) {
+    // Defines the shape for both clipping and the border
+    val buttonShape = RoundedCornerShape(18.dp)
+
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(18.dp))
+            .clip(buttonShape)
+            // 1. Adds a subtle outline only when the component is expanded
+            .border(
+                width = if (isExpanded) 1.dp else 0.dp,
+                color = if (isExpanded) MaterialTheme.colorScheme.outlineVariant else Color.Transparent,
+                shape = buttonShape
+            )
+            // 2. Keeps the primary container background ONLY when selected and closed.
+            // When expanded, the background becomes transparent to let the border stand out.
             .background(
                 if (isSelected && !isExpanded) MaterialTheme.colorScheme.primaryContainer
-                else if (isExpanded) MaterialTheme.colorScheme.surfaceVariant
                 else Color.Transparent
             )
             .padding(horizontal = 4.dp, vertical = 2.dp),

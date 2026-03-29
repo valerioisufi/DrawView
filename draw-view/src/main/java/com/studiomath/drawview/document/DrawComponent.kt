@@ -51,6 +51,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
@@ -220,24 +221,41 @@ fun DrawComponent(
         if (drawViewModel.contextMenuPosition != null && drawViewModel.isDrawingMode) {
             val pos = drawViewModel.contextMenuPosition!!
 
-            // Usiamo una Box con un offset assoluto in pixel per posizionarla dove ha toccato l'utente
-            Box(
+            // Use BoxWithConstraints to get the maximum available screen dimensions
+            BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(0.dp)
             ) {
+                val screenWidth = constraints.maxWidth
+                val screenHeight = constraints.maxHeight
+
+                // State to keep track of the menu's actual size once it is rendered
+                var menuSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
+
+                // Calculate the ideal position based on touch coordinates
+                val idealX = pos.x.toInt() - 100
+                val idealY = pos.y.toInt() - 150
+
+                // Constrain the X and Y coordinates so the menu doesn't go off-screen.
+                // coerceAtLeast(0) prevents crashes if the menu is somehow larger than the screen.
+                val safeX = idealX.coerceIn(0, (screenWidth - menuSize.width).coerceAtLeast(0))
+                val safeY = idealY.coerceIn(0, (screenHeight - menuSize.height).coerceAtLeast(0))
+
                 ElevatedCard(
                     modifier = Modifier
-                        // Posizioniamo il menu partendo dalle coordinate (x,y)
-                        // Spostiamo un po' in alto a sinistra per non coprirlo col dito
-                        .offset { IntOffset(pos.x.toInt() - 100, pos.y.toInt() - 150) },
+                        .onSizeChanged { size ->
+                            // Update the menu size dynamically
+                            menuSize = size
+                        }
+                        .offset { IntOffset(safeX, safeY) },
                     shape = RoundedCornerShape(16.dp),
                     elevation = CardDefaults.elevatedCardElevation(defaultElevation = 8.dp),
                     colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
                 ) {
                     Row(modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)) {
 
-                        // Tasto Incolla (Visibile se abbiamo copiato un gruppo O un'immagine da un'altra app)
+                        // Paste Button
                         if (drawViewModel.canPaste()) {
                             IconButton(onClick = { drawViewModel.pasteSelection(pos.x, pos.y) }) {
                                 Icon(
@@ -248,9 +266,7 @@ fun DrawComponent(
                             }
                         }
 
-                        // Qui potrai aggiungere altri tasti contestuali in futuro!
-                        // Es: "Aggiungi Immagine", "Aggiungi Testo", ecc.
-                        // Pulsanti Gestione Pagina
+                        // Page Management Buttons
                         IconButton(onClick = { drawViewModel.addNewPageAfterTarget() }) {
                             Icon(Icons.Default.Add, contentDescription = stringResource(R.string.context_menu_action_add_page))
                         }
@@ -265,11 +281,9 @@ fun DrawComponent(
                             Icon(Icons.Default.SwapVert, contentDescription = stringResource(R.string.context_menu_action_reorder_page))
                         }
 
-                        // --- NUOVO: BOTTONE SFONDO SINGOLA PAGINA ---
+                        // Single Page Background Button
                         IconButton(onClick = {
-                            // Apriamo il configuratore per la pagina selezionata
                             drawViewModel.showSinglePageConfigurator = true
-                            // Chiudiamo il menu a comparsa
                             drawViewModel.contextMenuPosition = null
                         }) {
                             Icon(

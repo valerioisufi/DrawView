@@ -18,7 +18,6 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -292,41 +291,6 @@ fun ColorWheel(
             )
         }
     }
-}
-
-/**
- * A Jetpack Compose UI component that presents a circular preview of a given [Color].
- * It draws a white border stroke around the colored circle to maintain contrast against any background.
- *
- * @param modifier The [Modifier] to be applied to the preview indicator.
- * @param color The [Color] to be rendered inside the circular indicator.
- */
-@Preview
-@Composable
-fun ShowColor(
-    modifier: Modifier = Modifier,
-    color: Color = Color.Red
-) {
-    Spacer(
-        modifier = modifier
-            .width(48.dp)
-            .padding(4.dp)
-            .aspectRatio(1f)
-            .drawBehind {
-                val strokeWidth = 4.dp.toPx()
-                drawCircle(
-                    Color.White,
-                    radius = (size.width / 2) - (strokeWidth / 2),
-                    center = center,
-                    style = Stroke(strokeWidth)
-                )
-                drawCircle(
-                    color = color,
-                    radius = (size.width / 2) - strokeWidth,
-                    center = center
-                )
-            }
-    )
 }
 
 /**

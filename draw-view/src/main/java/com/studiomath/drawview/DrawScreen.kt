@@ -77,13 +77,17 @@ import com.studiomath.drawview.document.DrawComponent
 import com.studiomath.drawview.document.DrawViewModel
 import com.studiomath.drawview.document.page.Dimension
 import com.studiomath.drawview.document.page.PageBackground
+import com.studiomath.drawview.document.page.mm
 import com.studiomath.drawview.document.page.pt
 import com.studiomath.drawview.document.selection.LassoMode
 import com.studiomath.drawview.document.tools.Tool
 import com.studiomath.drawview.ui.composeComponents.ColorWheel
 import com.studiomath.drawview.ui.composeComponents.DocumentInfoSelector
+import com.studiomath.drawview.ui.composeComponents.ExpandableToolButton
 import com.studiomath.drawview.ui.composeComponents.PageGridOverlay
 import com.studiomath.drawview.ui.composeComponents.PageTemplateConfigurator
+import com.studiomath.drawview.ui.composeComponents.QuickColorSwatch
+import com.studiomath.drawview.ui.composeComponents.QuickSizeIndicator
 import com.studiomath.drawview.ui.composeComponents.SizeSlider
 
 /**
@@ -314,79 +318,85 @@ fun DrawScreen(
                                     thickness = 2.dp
                                 )
 
-                                var penSettingsExpanded by remember { mutableStateOf(false) }
-                                ToolButton(
-                                    onClick = {
-                                        if (drawViewModel.selectedTool == Tool.INK_PEN) {
-                                            penSettingsExpanded = true
-                                        } else {
-                                            drawViewModel.selectedTool = Tool.INK_PEN
-                                        }
-                                    },
-                                    onLongClick = {
-                                        drawViewModel.selectedTool = Tool.INK_PEN
-                                        penSettingsExpanded = true
-                                    },
-                                    selected = drawViewModel.selectedTool == Tool.INK_PEN,
-                                    dropDownMenu = {
-                                        var currentSize by remember(drawViewModel.selectedTool) {
-                                            mutableStateOf(drawViewModel.activeBrushSettings.size)
-                                        }
+                                // Define quick presets directly in your UI or ViewModel
+                                val penQuickColors = listOf(Color.Black, Color.Blue, Color.Red, Color.Green)
+                                val penQuickSizes = listOf(0.5f.mm, 1.0f.mm, 2.0f.mm)
 
-                                        Column(
-                                            modifier = Modifier.padding(16.dp),
-                                            horizontalAlignment = Alignment.CenterHorizontally
+                                // Manage which tool is expanded (null means none)
+                                var expandedToolSettings by remember { mutableStateOf<Tool?>(null) }
+
+                                ExpandableToolButton(
+                                    isExpanded = expandedToolSettings == Tool.INK_PEN,
+                                    isSelected = drawViewModel.selectedTool == Tool.INK_PEN,
+                                    mainIcon = {
+                                        ToolButton(
+                                            onClick = {
+                                                if (drawViewModel.selectedTool == Tool.INK_PEN) {
+                                                    // Toggle expansion if already selected
+                                                    expandedToolSettings = if (expandedToolSettings == Tool.INK_PEN) null else Tool.INK_PEN
+                                                } else {
+                                                    // Select tool and close any open expansion
+                                                    drawViewModel.selectedTool = Tool.INK_PEN
+                                                    expandedToolSettings = null
+                                                }
+                                            },
+                                            onLongClick = {
+                                                drawViewModel.selectedTool = Tool.INK_PEN
+                                                expandedToolSettings = Tool.INK_PEN
+                                            },
+                                            selected = drawViewModel.selectedTool == Tool.INK_PEN && expandedToolSettings != Tool.INK_PEN
                                         ) {
-                                            Text(
-                                                text = stringResource(R.string.common_label_color),
-                                                fontSize = 16.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            Spacer(modifier = Modifier.height(8.dp))
-
-                                            ColorWheel(
-                                                // 2. Leggiamo il colore direttamente dai settings
-                                                color = Color(drawViewModel.activeBrushSettings.color),
-                                                onColorChanged = {
-                                                    // 3. Aggiorniamo i settings clonando la data class
-                                                    drawViewModel.activeBrushSettings =
-                                                        drawViewModel.activeBrushSettings.copy(color = it.toArgb())
-                                                }
-                                            )
-
-                                            Spacer(modifier = Modifier.height(16.dp))
-
-                                            Text(
-                                                text = stringResource(R.string.draw_toolbar_label_brush_size),
-                                                fontSize = 16.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            Spacer(modifier = Modifier.height(8.dp))
-
-                                            SizeSlider(
-                                                modifier = Modifier.padding(8.dp),
-                                                size = currentSize, // Passiamo direttamente l'oggetto Measure
-                                                onSizeChanged = { newMeasure ->
-                                                    currentSize =
-                                                        newMeasure // Aggiorniamo la UI di Compose
-
-                                                    // Aggiorniamo i settaggi del ViewModel passando l'oggetto Measure
-                                                    drawViewModel.activeBrushSettings =
-                                                        drawViewModel.activeBrushSettings.copy(
-                                                            size = newMeasure
-                                                        )
-                                                }
+                                            Icon(
+                                                painter = painterResource(id = R.drawable.icon_ink_pen),
+                                                contentDescription = stringResource(R.string.draw_toolbar_action_ink_pen)
                                             )
                                         }
                                     },
-                                    expanded = penSettingsExpanded,
-                                    onDismissRequest = { penSettingsExpanded = false }
-                                ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.icon_ink_pen),
-                                        contentDescription = stringResource(R.string.draw_toolbar_action_ink_pen),
-                                    )
-                                }
+                                    expandedContent = {
+                                        // Quick Sizes
+                                        penQuickSizes.forEach { sizePreset ->
+                                            QuickSizeIndicator(
+                                                size = sizePreset,
+                                                isSelected = drawViewModel.activeBrushSettings.size.mm == sizePreset.mm,
+                                                onClick = {
+                                                    drawViewModel.activeBrushSettings = drawViewModel.activeBrushSettings.copy(size = sizePreset)
+                                                }
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.width(8.dp))
+
+                                        // Quick Colors
+                                        penQuickColors.forEach { colorPreset ->
+                                            QuickColorSwatch(
+                                                color = colorPreset,
+                                                isSelected = drawViewModel.activeBrushSettings.color == colorPreset.toArgb(),
+                                                onClick = {
+                                                    drawViewModel.activeBrushSettings = drawViewModel.activeBrushSettings.copy(color = colorPreset.toArgb())
+                                                }
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.width(8.dp))
+
+                                        // "More Options" button triggering the advanced DropdownMenu or BottomSheet
+                                        var showAdvancedPenSettings by remember { mutableStateOf(false) }
+
+                                        ToolButton(
+                                            onClick = { showAdvancedPenSettings = true },
+                                            expanded = showAdvancedPenSettings,
+                                            onDismissRequest = { showAdvancedPenSettings = false },
+                                            dropDownMenu = {
+                                                // Your existing ColorWheel and SizeSlider go here!
+                                            }
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.MoreHoriz,
+                                                contentDescription = stringResource(R.string.common_action_more_options)
+                                            )
+                                        }
+                                    }
+                                )
 
                                 var highlighterSettingsExpanded by remember { mutableStateOf(false) }
                                 ToolButton(

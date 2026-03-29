@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -22,11 +21,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -48,6 +45,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
@@ -65,9 +63,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -83,6 +79,7 @@ import com.studiomath.drawview.ui.composeComponents.DocumentInfoSelector
 import com.studiomath.drawview.ui.composeComponents.ExpandableToolButton
 import com.studiomath.drawview.ui.composeComponents.PageGridOverlay
 import com.studiomath.drawview.ui.composeComponents.PageTemplateConfigurator
+import com.studiomath.drawview.ui.composeComponents.PresetEditMenu
 import com.studiomath.drawview.ui.composeComponents.QuickPresetButton
 import com.studiomath.drawview.ui.composeComponents.SizeSlider
 import com.studiomath.drawview.ui.composeComponents.ToolButton
@@ -101,7 +98,8 @@ import com.studiomath.drawview.ui.composeComponents.ToolButton
  * @param inProgressStrokesView The view component handling the low-latency rendering of active ink strokes before they are committed to the canvas.
  * @param onNavigateBack Callback invoked when the user triggers the back navigation action.
  */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class,
+@OptIn(
+    ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class,
     ExperimentalFoundationApi::class
 )
 @Composable
@@ -127,6 +125,9 @@ fun DrawScreen(
             drawViewModel.importImageFromUri(uri)
         }
     }
+
+    // Tracks which tool's quick-settings ribbon is currently expanded (null = none)
+    var expandedToolSettings by remember { mutableStateOf<Tool?>(null) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -183,7 +184,10 @@ fun DrawScreen(
                             modifier = Modifier
                         ) {
                             ToolButton(
-                                onClick = { drawViewModel.toggleDrawingMode() },
+                                onClick = {
+                                    expandedToolSettings = null
+                                    drawViewModel.toggleDrawingMode()
+                                },
                                 selected = drawViewModel.isDrawingMode
                             ) {
                                 Icon(
@@ -315,11 +319,10 @@ fun DrawScreen(
                                     thickness = 2.dp
                                 )
 
-                                // Tracks which tool is currently expanded
-                                var expandedToolSettings by remember { mutableStateOf<Tool?>(null) }
-
-                                // Tracks the index of the preset whose edit menu is currently open
-                                var editingPresetIndex by remember { mutableStateOf<Int?>(null) }
+                                // ==========================================
+                                // 1. INK PEN
+                                // ==========================================
+                                var editingPenPresetIndex by remember { mutableStateOf<Int?>(null) }
 
                                 ExpandableToolButton(
                                     isExpanded = expandedToolSettings == Tool.INK_PEN,
@@ -328,10 +331,13 @@ fun DrawScreen(
                                         ToolButton(
                                             onClick = {
                                                 if (drawViewModel.selectedTool == Tool.INK_PEN) {
-                                                    expandedToolSettings = if (expandedToolSettings == Tool.INK_PEN) null else Tool.INK_PEN
+                                                    expandedToolSettings =
+                                                        if (expandedToolSettings == Tool.INK_PEN) null else Tool.INK_PEN
                                                 } else {
-                                                    // By default we reactivate the last used preset index for this tool
-                                                    drawViewModel.selectToolWithIndex(Tool.INK_PEN, drawViewModel.toolManager.currentBrushIndex)
+                                                    drawViewModel.selectToolWithIndex(
+                                                        Tool.INK_PEN,
+                                                        drawViewModel.toolManager.currentBrushIndex
+                                                    )
                                                     expandedToolSettings = null
                                                 }
                                             },
@@ -339,7 +345,7 @@ fun DrawScreen(
                                                 drawViewModel.selectedTool = Tool.INK_PEN
                                                 expandedToolSettings = Tool.INK_PEN
                                             },
-                                            selected = drawViewModel.selectedTool == Tool.INK_PEN && expandedToolSettings != Tool.INK_PEN
+                                            selected = drawViewModel.selectedTool == Tool.INK_PEN
                                         ) {
                                             Icon(
                                                 painter = painterResource(id = R.drawable.icon_ink_pen),
@@ -348,15 +354,12 @@ fun DrawScreen(
                                         }
                                     },
                                     expandedContent = {
-
-                                        // We read directly from the ToolUtilities observable list!
                                         val penPresets = drawViewModel.toolManager.penTool.brushList
 
                                         penPresets.forEachIndexed { index, preset ->
-
-                                            // The preset is selected if we are on the Pen tool AND its index matches the current active index
-                                            val isSelected = drawViewModel.selectedTool == Tool.INK_PEN &&
-                                                    drawViewModel.toolManager.currentBrushIndex == index
+                                            val isSelected =
+                                                drawViewModel.selectedTool == Tool.INK_PEN &&
+                                                        drawViewModel.toolManager.currentBrushIndex == index
 
                                             Box {
                                                 QuickPresetButton(
@@ -364,101 +367,36 @@ fun DrawScreen(
                                                     size = preset.size,
                                                     isSelected = isSelected,
                                                     onClick = {
-                                                        if (isSelected) {
-                                                            // Open edit menu if already selected
-                                                            editingPresetIndex = index
-                                                        } else {
-                                                            // Activate this preset
-                                                            drawViewModel.selectToolWithIndex(Tool.INK_PEN, index)
-                                                        }
+                                                        if (isSelected) editingPenPresetIndex = index
+                                                        else drawViewModel.selectToolWithIndex(Tool.INK_PEN, index)
                                                     }
                                                 )
 
-                                                // Edit Dropdown Menu for this specific preset
-                                                DropdownMenu(
-                                                    modifier = modifier
-                                                        .width(300.dp),
-                                                    expanded = editingPresetIndex == index,
-                                                    onDismissRequest = { editingPresetIndex = null },
-                                                    shape = RoundedCornerShape(16.dp),
-                                                    containerColor = MaterialTheme.colorScheme.surface,
-                                                    tonalElevation = 8.dp
-                                                ) {
-                                                    Column(
-                                                        modifier = Modifier.padding(16.dp),
-                                                        horizontalAlignment = Alignment.CenterHorizontally
-                                                    ) {
-                                                        Row(
-                                                            modifier = Modifier.fillMaxWidth(),
-                                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                                            verticalAlignment = Alignment.CenterVertically
-                                                        ) {
-                                                            Text(
-                                                                text = stringResource(R.string.draw_menu_settings),
-                                                                fontSize = 16.sp,
-                                                                fontWeight = FontWeight.Bold
-                                                            )
-
-                                                            // Ensure we can't delete the very last preset
-                                                            if (penPresets.size > 1) {
-                                                                androidx.compose.material3.IconButton(
-                                                                    onClick = {
-                                                                        drawViewModel.removeToolPreset(index)
-                                                                        editingPresetIndex = null
-                                                                    }
-                                                                ) {
-                                                                    Icon(
-                                                                        imageVector = Icons.Outlined.Delete,
-                                                                        contentDescription = stringResource(R.string.common_action_delete),
-                                                                        tint = MaterialTheme.colorScheme.error
-                                                                    )
-                                                                }
-                                                            }
-                                                        }
-
-                                                        Spacer(modifier = Modifier.height(8.dp))
-
-                                                        ColorWheel(
-                                                            color = Color(preset.color),
-                                                            onColorChanged = { newColor ->
-                                                                // Targets the exact preset index to prevent overwriting the active one
-                                                                drawViewModel.updateToolPreset(
-                                                                    tool = Tool.INK_PEN,
-                                                                    index = index,
-                                                                    newSize = preset.size,
-                                                                    newColor = newColor.toArgb()
-                                                                )
-                                                            }
-                                                        )
-
-                                                        Spacer(modifier = Modifier.height(16.dp))
-
-                                                        SizeSlider(
-                                                            size = preset.size,
-                                                            onSizeChanged = { newSize ->
-                                                                // Targets the exact preset index to prevent overwriting the active one
-                                                                drawViewModel.updateToolPreset(
-                                                                    tool = Tool.INK_PEN,
-                                                                    index = index,
-                                                                    newSize = newSize,
-                                                                    newColor = preset.color
-                                                                )
-                                                            }
-                                                        )
+                                                PresetEditMenu(
+                                                    expanded = editingPenPresetIndex == index,
+                                                    onDismissRequest = { editingPenPresetIndex = null },
+                                                    presetColor = Color(preset.color),
+                                                    presetSize = preset.size,
+                                                    sizeValueRange = 0.1f..15f,
+                                                    showDeleteOption = penPresets.size > 1,
+                                                    onColorChanged = { newColor ->
+                                                        drawViewModel.updateToolPreset(Tool.INK_PEN, index, preset.size, newColor.toArgb())
+                                                    },
+                                                    onSizeChanged = { newSize ->
+                                                        drawViewModel.updateToolPreset(Tool.INK_PEN, index, newSize, preset.color)
+                                                    },
+                                                    onDeleteClicked = {
+                                                        drawViewModel.removeToolPreset(index)
+                                                        editingPenPresetIndex = null
                                                     }
-                                                }
+                                                )
                                             }
                                         }
-
                                         Spacer(modifier = Modifier.width(8.dp))
-
                                         ToolButton(
                                             onClick = {
-                                                // Duplicates the current active brush as a new preset
                                                 drawViewModel.addToolPreset(drawViewModel.activeBrushSettings.copy())
-
-                                                // Automatically open the editor for the newly created preset
-                                                editingPresetIndex = penPresets.size - 1
+                                                editingPenPresetIndex = penPresets.size - 1
                                             }
                                         ) {
                                             Icon(
@@ -469,82 +407,107 @@ fun DrawScreen(
                                     }
                                 )
 
-                                var highlighterSettingsExpanded by remember { mutableStateOf(false) }
-                                ToolButton(
-                                    onClick = {
-                                        if (drawViewModel.selectedTool == Tool.INK_HIGHLIGHTER) {
-                                            highlighterSettingsExpanded = true
-                                        } else {
-                                            drawViewModel.selectedTool = Tool.INK_HIGHLIGHTER
-                                        }
-                                    },
-                                    onLongClick = {
-                                        drawViewModel.selectedTool = Tool.INK_HIGHLIGHTER
-                                        highlighterSettingsExpanded = true
-                                    },
-                                    selected = drawViewModel.selectedTool == Tool.INK_HIGHLIGHTER,
-                                    dropDownMenu = {
-                                        var currentSize by remember(drawViewModel.selectedTool) {
-                                            mutableStateOf(drawViewModel.activeBrushSettings.size)
-                                        }
-
-                                        Column(
-                                            modifier = Modifier.padding(16.dp),
-                                            horizontalAlignment = Alignment.CenterHorizontally
-                                        ) {
-                                            Text(
-                                                text = stringResource(R.string.draw_toolbar_label_highlighter_color),
-                                                fontSize = 16.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            Spacer(modifier = Modifier.height(8.dp))
-
-                                            ColorWheel(
-                                                color = Color(drawViewModel.activeBrushSettings.color),
-                                                onColorChanged = {
-                                                    drawViewModel.activeBrushSettings =
-                                                        drawViewModel.activeBrushSettings.copy(color = it.toArgb())
-                                                }
-                                            )
-
-                                            Spacer(modifier = Modifier.height(16.dp))
-
-                                            Text(
-                                                text = stringResource(R.string.draw_toolbar_label_highlighter_size),
-                                                fontSize = 16.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            Spacer(modifier = Modifier.height(8.dp))
-
-                                            SizeSlider(
-                                                modifier = Modifier.padding(8.dp),
-                                                size = currentSize, // Passiamo direttamente l'oggetto Measure
-                                                valueRange = 1f..20f, // Range più ampio
-                                                onSizeChanged = { newMeasure ->
-                                                    currentSize =
-                                                        newMeasure // Aggiorniamo la UI di Compose
-
-                                                    // Aggiorniamo i settaggi del ViewModel passando l'oggetto Measure
-                                                    drawViewModel.activeBrushSettings =
-                                                        drawViewModel.activeBrushSettings.copy(
-                                                            size = newMeasure
-                                                        )
-                                                }
-                                            )
-                                        }
-                                    },
-                                    expanded = highlighterSettingsExpanded,
-                                    onDismissRequest = { highlighterSettingsExpanded = false }
-                                ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.icon_ink_highlighter),
-                                        contentDescription = stringResource(R.string.draw_toolbar_action_highlighter),
+                                // ==========================================
+                                // 2. INK HIGHLIGHTER
+                                // ==========================================
+                                var editingHighlighterPresetIndex by remember {
+                                    mutableStateOf<Int?>(
+                                        null
                                     )
                                 }
 
+                                ExpandableToolButton(
+                                    isExpanded = expandedToolSettings == Tool.INK_HIGHLIGHTER,
+                                    isSelected = drawViewModel.selectedTool == Tool.INK_HIGHLIGHTER,
+                                    mainIcon = {
+                                        ToolButton(
+                                            onClick = {
+                                                if (drawViewModel.selectedTool == Tool.INK_HIGHLIGHTER) {
+                                                    expandedToolSettings =
+                                                        if (expandedToolSettings == Tool.INK_HIGHLIGHTER) null else Tool.INK_HIGHLIGHTER
+                                                } else {
+                                                    drawViewModel.selectToolWithIndex(
+                                                        Tool.INK_HIGHLIGHTER,
+                                                        drawViewModel.toolManager.currentBrushIndex
+                                                    )
+                                                    expandedToolSettings = null
+                                                }
+                                            },
+                                            onLongClick = {
+                                                drawViewModel.selectedTool = Tool.INK_HIGHLIGHTER
+                                                expandedToolSettings = Tool.INK_HIGHLIGHTER
+                                            },
+                                            selected = drawViewModel.selectedTool == Tool.INK_HIGHLIGHTER
+                                        ) {
+                                            Icon(
+                                                painter = painterResource(id = R.drawable.icon_ink_highlighter),
+                                                contentDescription = stringResource(R.string.draw_toolbar_action_highlighter)
+                                            )
+                                        }
+                                    },
+                                    expandedContent = {
+                                        val highlighterPresets =
+                                            drawViewModel.toolManager.highlighterTool.brushList
+
+                                        highlighterPresets.forEachIndexed { index, preset ->
+                                            val isSelected =
+                                                drawViewModel.selectedTool == Tool.INK_HIGHLIGHTER &&
+                                                        drawViewModel.toolManager.currentBrushIndex == index
+
+                                            Box {
+                                                QuickPresetButton(
+                                                    color = Color(preset.color),
+                                                    size = preset.size,
+                                                    isSelected = isSelected,
+                                                    onClick = {
+                                                        if (isSelected) editingHighlighterPresetIndex = index
+                                                        else drawViewModel.selectToolWithIndex(Tool.INK_HIGHLIGHTER, index)
+                                                    }
+                                                )
+
+                                                PresetEditMenu(
+                                                    expanded = editingHighlighterPresetIndex == index,
+                                                    onDismissRequest = { editingHighlighterPresetIndex = null },
+                                                    presetColor = Color(preset.color),
+                                                    presetSize = preset.size,
+                                                    sizeValueRange = 1f..20f, // Wider range specific to Highlighters
+                                                    showDeleteOption = highlighterPresets.size > 1,
+                                                    onColorChanged = { newColor ->
+                                                        drawViewModel.updateToolPreset(Tool.INK_HIGHLIGHTER, index, preset.size, newColor.toArgb())
+                                                    },
+                                                    onSizeChanged = { newSize ->
+                                                        drawViewModel.updateToolPreset(Tool.INK_HIGHLIGHTER, index, newSize, preset.color)
+                                                    },
+                                                    onDeleteClicked = {
+                                                        drawViewModel.removeToolPreset(index)
+                                                        editingHighlighterPresetIndex = null
+                                                    }
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        ToolButton(
+                                            onClick = {
+                                                drawViewModel.addToolPreset(drawViewModel.activeBrushSettings.copy())
+                                                editingHighlighterPresetIndex =
+                                                    highlighterPresets.size - 1
+                                            }
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.Add,
+                                                contentDescription = "Add new preset"
+                                            )
+                                        }
+                                    }
+                                )
+
+                                // ==========================================
+                                // 3. ERASER
+                                // ==========================================
                                 var eraserSettingsExpanded by remember { mutableStateOf(false) }
                                 ToolButton(
                                     onClick = {
+                                        expandedToolSettings = null // Auto-close other expansions
                                         if (drawViewModel.selectedTool == Tool.ERASER) {
                                             eraserSettingsExpanded = true
                                         } else {
@@ -552,6 +515,7 @@ fun DrawScreen(
                                         }
                                     },
                                     onLongClick = {
+                                        expandedToolSettings = null
                                         drawViewModel.selectedTool = Tool.ERASER
                                         eraserSettingsExpanded = true
                                     },
@@ -560,7 +524,6 @@ fun DrawScreen(
                                         var currentSize by remember(drawViewModel.selectedTool) {
                                             mutableStateOf(drawViewModel.activeBrushSettings.size)
                                         }
-
                                         Column(
                                             modifier = Modifier.padding(16.dp),
                                             horizontalAlignment = Alignment.CenterHorizontally
@@ -571,20 +534,14 @@ fun DrawScreen(
                                                 fontWeight = FontWeight.Bold
                                             )
                                             Spacer(modifier = Modifier.height(8.dp))
-
                                             SizeSlider(
                                                 modifier = Modifier.padding(8.dp),
-                                                size = currentSize, // Passiamo direttamente l'oggetto Measure
-                                                valueRange = 1f..30f, // Range più ampio per la gomma
+                                                size = currentSize,
+                                                valueRange = 1f..30f,
                                                 onSizeChanged = { newMeasure ->
-                                                    currentSize =
-                                                        newMeasure // Aggiorniamo la UI di Compose
-
-                                                    // Aggiorniamo i settaggi del ViewModel passando l'oggetto Measure
+                                                    currentSize = newMeasure
                                                     drawViewModel.activeBrushSettings =
-                                                        drawViewModel.activeBrushSettings.copy(
-                                                            size = newMeasure
-                                                        )
+                                                        drawViewModel.activeBrushSettings.copy(size = newMeasure)
                                                 }
                                             )
                                         }
@@ -598,10 +555,14 @@ fun DrawScreen(
                                     )
                                 }
 
+                                // ==========================================
+                                // 4. LAZO
+                                // ==========================================
                                 var lazoSettingsExpanded by remember { mutableStateOf(false) }
 
                                 ToolButton(
                                     onClick = {
+                                        expandedToolSettings = null // Auto-close other expansions
                                         if (drawViewModel.selectedTool == Tool.LAZO) {
                                             lazoSettingsExpanded = true
                                         } else {
@@ -609,6 +570,7 @@ fun DrawScreen(
                                         }
                                     },
                                     onLongClick = {
+                                        expandedToolSettings = null
                                         drawViewModel.selectedTool = Tool.LAZO
                                         lazoSettingsExpanded = true
                                     },
@@ -637,7 +599,7 @@ fun DrawScreen(
                                                     )
                                                     .padding(vertical = 8.dp, horizontal = 4.dp)
                                             ) {
-                                                androidx.compose.material3.RadioButton(
+                                                RadioButton(
                                                     selected = drawViewModel.lassoMode == LassoMode.ALL,
                                                     onClick = {
                                                         drawViewModel.lassoMode = LassoMode.ALL
@@ -660,7 +622,7 @@ fun DrawScreen(
                                                     )
                                                     .padding(vertical = 8.dp, horizontal = 4.dp)
                                             ) {
-                                                androidx.compose.material3.RadioButton(
+                                                RadioButton(
                                                     selected = drawViewModel.lassoMode == LassoMode.IMAGES_ONLY,
                                                     onClick = {
                                                         drawViewModel.lassoMode =
@@ -681,8 +643,12 @@ fun DrawScreen(
                                     )
                                 }
 
+                                // ==========================================
+                                // 5. PAN
+                                // ==========================================
                                 ToolButton(
                                     onClick = {
+                                        expandedToolSettings = null // Auto-close other expansions
                                         drawViewModel.selectedTool = Tool.PAN
                                     },
                                     selected = drawViewModel.selectedTool == Tool.PAN
@@ -741,8 +707,10 @@ fun DrawScreen(
         // 2. AGGIUNGI L'OVERLAY DELLA GRIGLIA ALLA FINE DELLA BOX
         AnimatedVisibility(
             visible = drawViewModel.isPageGridVisible,
-            enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically(initialOffsetY = { it / 2 }),
-            exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutVertically(targetOffsetY = { it / 2 }),
+            enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically(
+                initialOffsetY = { it / 2 }),
+            exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutVertically(
+                targetOffsetY = { it / 2 }),
             modifier = Modifier
                 .fillMaxSize()
                 .zIndex(10f)
@@ -757,7 +725,8 @@ fun DrawScreen(
 
     // 1. Bottom Sheet per la SINGOLA PAGINA
     if (drawViewModel.showSinglePageConfigurator) {
-        val targetPage = drawViewModel.documentData?.pages?.getOrNull(drawViewModel.contextMenuTargetPageIndex)
+        val targetPage =
+            drawViewModel.documentData?.pages?.getOrNull(drawViewModel.contextMenuTargetPageIndex)
 
         ModalBottomSheet(onDismissRequest = { drawViewModel.showSinglePageConfigurator = false }) {
             PageTemplateConfigurator(

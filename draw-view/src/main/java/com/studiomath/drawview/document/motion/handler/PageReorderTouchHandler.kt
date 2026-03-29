@@ -7,12 +7,12 @@ import com.studiomath.drawview.document.DrawViewModel
 class PageReorderTouchHandler(
     private val drawViewModel: DrawViewModel
 ) {
-    // Offset per mantenere la pagina agganciata esattamente dove l'utente l'ha toccata
+    // Offset to keep the dragged page anchored exactly where the user touched it
     private var dragTouchOffsetX = 0f
     private var dragTouchOffsetY = 0f
 
     fun handleTouch(view: View, event: MotionEvent): Boolean {
-        // Se c'è un'animazione di drop in corso, ignoriamo i tocchi
+        // Ignore touches if a drop animation is currently running
         if (drawViewModel.isDropAnimating) return true
 
         val pageManager = drawViewModel.pageManager
@@ -21,22 +21,17 @@ class PageReorderTouchHandler(
             MotionEvent.ACTION_DOWN -> {
                 val pageInfo = drawViewModel.drawManager.pagesRectOnWindow.find { it.rect.contains(event.x, event.y) }
                 if (pageInfo != null) {
-                    // Calcoliamo la distanza tra il tocco e l'angolo della pagina
+                    // Calculate the distance between the touch point and the top-left corner of the page
                     dragTouchOffsetX = event.x - pageInfo.rect.left
                     dragTouchOffsetY = event.y - pageInfo.rect.top
 
-                    // Deleghiamo l'inizio del drag al Manager
                     pageManager.startDraggingPage(pageInfo.index, pageInfo.rect)
                 }
             }
 
             MotionEvent.ACTION_MOVE -> {
                 if (drawViewModel.draggedPageIndex != -1) {
-                    // 1. Calcoliamo la nuova posizione fisica del rettangolo
-                    val newLeft = event.x - dragTouchOffsetX
-                    val newTop = event.y - dragTouchOffsetY
-
-                    // 2. Calcoliamo se siamo vicini ai bordi per l'auto-scroll
+                    // Calculate auto-scroll delta if the user is dragging near the screen edges
                     val edgeMargin = 150f
                     var scrollDelta = 0f
 
@@ -46,14 +41,20 @@ class PageReorderTouchHandler(
                         scrollDelta = -((event.y - (view.height - edgeMargin)) * 0.4f)
                     }
 
-                    // 3. Passiamo i dati grezzi al Manager che si occuperà di muovere la UI
-                    pageManager.updateDragPosition(view, newLeft, newTop, scrollDelta)
+                    // Pass raw touch data and offsets. The Manager handles the geometry safely.
+                    pageManager.updateDragPosition(
+                        view = view,
+                        rawX = event.x,
+                        rawY = event.y,
+                        touchOffsetX = dragTouchOffsetX,
+                        touchOffsetY = dragTouchOffsetY,
+                        scrollDelta = scrollDelta
+                    )
                 }
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 if (drawViewModel.draggedPageIndex != -1) {
-                    // L'utente ha sollevato il dito: il Manager calcola l'atterraggio
                     pageManager.releaseDraggedPage(view)
                 }
             }

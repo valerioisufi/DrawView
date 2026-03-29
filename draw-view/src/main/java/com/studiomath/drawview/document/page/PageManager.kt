@@ -22,10 +22,10 @@ class PageManager(
     private val historyManager: HistoryManager,
     private val coroutineScope: CoroutineScope,
     private val getDrawManager: () -> DrawManager,
-    private val getDocumentData: () -> Document?, // Aggiunto per l'auto-scroll
+    private val getDocumentData: () -> Document?,
     private val clearSelectionCallback: () -> Unit
 ) {
-    // --- STATO RIORDINO PAGINE (DRAG & DROP) ---
+    // --- PAGE REORDER STATE (DRAG & DROP) ---
     var contextMenuTargetPageIndex by mutableIntStateOf(-1)
     var isReorderingPages by mutableStateOf(false)
     var isDropAnimating = false
@@ -36,28 +36,28 @@ class PageManager(
 
     var floatingPageRect by mutableStateOf<RectF?>(null)
 
-    // --- VARIABILI PER AUTO-SCROLL ---
+    // --- AUTO-SCROLL VARIABLES ---
     private var isAutoScrolling = false
     private var autoScrollDeltaY = 0f
     private var attachedView: View? = null
 
-    // NUOVO: Fotografia dell'ordine originale prima del Drag & Drop
+    // Snapshot of the original order before Drag & Drop for History undo/redo
     private var originalPageOrder: List<Page>? = null
 
-    // Motore a 60fps per far scorrere la pagina ai bordi
+    // 60fps engine to scroll the viewport when dragging near screen edges
     private val autoScrollRunnable = object : Runnable {
         override fun run() {
             if (!isAutoScrolling) return
             val view = attachedView ?: return
             val drawManager = getDrawManager()
 
-            // 1. Spinge la telecamera
+            // 1. Push the camera
             drawManager.cameraPhysics.onDrag(
                 0f, autoScrollDeltaY, 1f,
                 view.width / 2f, view.height / 2f
             )
 
-            // 2. Controlliamo se la pagina trascinata ha superato un'altra pagina
+            // 2. Check for intersections during the scroll
             if (isReorderingPages) {
                 performSwapLogic()
             }
@@ -70,7 +70,7 @@ class PageManager(
     }
 
     // ==========================================================
-    // METODI CHIAMATI DAL TOUCH HANDLER PER IL DRAG & DROP
+    // TOUCH HANDLER DELEGATES (DRAG & DROP)
     // ==========================================================
 
     fun startDraggingPage(pageIndex: Int, originalRect: RectF) {
@@ -84,17 +84,15 @@ class PageManager(
         draggedContentBitmap = doc.pages[pageIndex].contentBitmapCache
 
         floatingPageRect = RectF(originalRect)
-        getDrawManager().cameraPhysics.stopAllAnimations()
 
-        getDrawManager().requestDraw(
-            RenderRequest(RenderRequest.DrawMode.REFRESH)
-        )
+        // Stop animations but let the first ACTION_MOVE trigger the visual refresh
+        getDrawManager().cameraPhysics.stopAllAnimations()
     }
 
-    fun updateDragPosition(view: View, newLeft: Float, newTop: Float, scrollDelta: Float) {
+    fun updateDragPosition(view: View, rawX: Float, rawY: Float, touchOffsetX: Float, touchOffsetY: Float, scrollDelta: Float) {
         attachedView = view
-        floatingPageRect?.offsetTo(newLeft, newTop)
 
+        // 1. Handle Auto-Scroll triggers
         if (scrollDelta != 0f) {
             autoScrollDeltaY = scrollDelta
             if (!isAutoScrolling) {
@@ -106,8 +104,24 @@ class PageManager(
                 isAutoScrolling = false
                 view.removeCallbacks(autoScrollRunnable)
             }
+        }
+
+        // 2. Precisely update the floating rectangle relative to the raw touch
+        val drawManager = getDrawManager()
+        val currentRect = floatingPageRect ?: return
+
+        val width = currentRect.width()
+        val height = currentRect.height()
+
+        val newLeft = rawX - touchOffsetX
+        val newTop = rawY - touchOffsetY
+
+        currentRect.set(newLeft, newTop, newLeft + width, newTop + height)
+
+        // 3. Execute swap logic and trigger a visual update if not handled by auto-scroll
+        if (!isAutoScrolling) {
             performSwapLogic()
-            getDrawManager().requestDraw(
+            drawManager.requestDraw(
                 RenderRequest(RenderRequest.DrawMode.REFRESH)
             )
         }
@@ -190,16 +204,27 @@ class PageManager(
 
         if (targetInfo != null && targetInfo.index != draggedPageIndex) {
             synchronized(drawManager.renderLock) {
+                // 1. Swap the pages in memory
                 val draggedPage = doc.pages.removeAt(draggedPageIndex)
                 doc.pages.add(targetInfo.index, draggedPage)
                 draggedPageIndex = targetInfo.index
-                drawManager.calcPage.needToBeUpdated = true
+
+                // 2. Synchronous Geometric Fix: Instantly recalculate physical layouts
+                // to prevent the Canvas from drawing new pages on old coordinates during a live frame.
+                drawManager.calcPage.calcPagesRectOnWindow(
+                    doc.pages,
+                    drawManager.windowRect,
+                    CalcPage.PagePositionOnWindowOption()
+                )
+                drawManager.contentConstraintsOnWindow = drawManager.calcPage.getContentConstraintsOnWindow(drawManager.windowRect)
+
+                drawManager.calcPage.needToBeUpdated = false
             }
         }
     }
 
     // ==========================================================
-    // METODI ORIGINALI
+    // ORIGINAL METHODS
     // ==========================================================
 
     fun addNewPageAtBottom(documentData: Document?) {
@@ -251,7 +276,6 @@ class PageManager(
                 currentDoc.pages[i].index = i
             }
 
-            // NUOVO: Inseriamo l'azione nella history!
             historyManager.addHistoryAction(
                 AddPageAction(actualDocId, newPage, newPageIndex)
             )
@@ -291,7 +315,6 @@ class PageManager(
 
     fun startPageReorderMode(clearContextMenuPosition: () -> Unit) {
         isReorderingPages = true
-        // NUOVO: Salviamo l'ordine iniziale
         originalPageOrder = getDocumentData()?.pages?.toList()
         clearContextMenuPosition()
         clearSelectionCallback()
@@ -304,22 +327,21 @@ class PageManager(
         coroutineScope.launch {
             repository.updatePagesOrder(currentDoc.pages)
 
-            // Usiamo l'ordine salvato all'inizio!
             originalPageOrder?.let { oldOrder ->
                 historyManager.addHistoryAction(ReorderPagesAction(oldOrder, currentDoc.pages.toList()))
             }
-            originalPageOrder = null // Puliamo la memoria
+            originalPageOrder = null
 
             val drawManager = getDrawManager()
             drawManager.calcPage.needToBeUpdated = true
 
-            // Richiediamo il ricalcolo della Viewport
+            // Request viewport rebuild after the final drop
             drawManager.requestDraw(
                 RenderRequest.rebuildViewport(includePdf = true)
             )
 
-            // FIX: Aspettiamo che ENTRAMBI i nuovi Job abbiano finito di scambiare i buffer
-            // prima di uscire ufficialmente dalla modalità di riordino.
+            // Wait for the decoupled rendering jobs to finish buffer swapping
+            // before exiting reorder mode entirely.
             drawManager.jobViewportContent?.join()
             drawManager.jobViewportPdf?.join()
 
@@ -328,21 +350,18 @@ class PageManager(
     }
 
     /**
-     * Sposta puramente in memoria una pagina da un indice all'altro.
-     * Funzione disaccoppiata dalla View, ideale per il Drag & Drop nativo in Jetpack Compose.
+     * Purely moves a page in memory.
+     * Useful for decoupled UI actions like Jetpack Compose Drag & Drop grids.
      */
     fun movePage(documentData: Document?, fromIndex: Int, toIndex: Int) {
         val currentDoc = documentData ?: return
 
-        // Controlli di sicurezza
         if (fromIndex !in currentDoc.pages.indices || toIndex !in currentDoc.pages.indices) return
         if (fromIndex == toIndex) return
 
-        // 1. Spostiamo fisicamente l'oggetto nella lista
         val pageToMove = currentDoc.pages.removeAt(fromIndex)
         currentDoc.pages.add(toIndex, pageToMove)
 
-        // 2. Diciamo al motore di calcolo che i rettangoli andranno ricalcolati
         getDrawManager().calcPage.needToBeUpdated = true
     }
 

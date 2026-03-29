@@ -625,7 +625,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         val pagesRect: Set<CalcPage.PageRectWithIndex>,
         val currentRenderMatrix: Matrix,
         // Carry the alignment flag into the render pass
-        val isPdfAligned: Boolean
+        val isPdfAligned: Boolean,
+        val areRectsLive: Boolean
     )
 
     val bitmapFilterPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
@@ -664,7 +665,8 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
                 matrix = Matrix(frontState.matrix),
                 pagesRect = currentPagesRect,
                 currentRenderMatrix = currentRenderMatrix,
-                isPdfAligned = frontState.isPdfAligned
+                isPdfAligned = frontState.isPdfAligned,
+                areRectsLive = useLiveRects
             )
         }
 
@@ -712,9 +714,11 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         for (pageInfo in snapshot.pagesRect) {
             val docPage = document?.pages?.getOrNull(pageInfo.index) ?: continue
 
-            // 2. Map the old static rect to the live camera coordinates
+            // 2. Map the old static rect to the live camera coordinates (SOLO SE NON SONO GIÀ LIVE!)
             val livePageRect = RectF(pageInfo.rect)
-            relativeTransform.mapRect(livePageRect)
+            if (!snapshot.areRectsLive) {
+                relativeTransform.mapRect(livePageRect)
+            }
 
             drawViewModel.pageMaker.makePageBackground(canvas, livePageRect, windowRect, docPage, document, drawViewModel.themeColors)
 
@@ -755,9 +759,11 @@ class DrawManager(var drawViewModel: DrawViewModel, displayMetrics: DisplayMetri
         for (pageInfo in snapshot.pagesRect) {
             val docPage = document?.pages?.getOrNull(pageInfo.index) ?: continue
 
-            // 2. Shift the static rect into live physics space
+            // 2. Shift the static rect into live physics space (SOLO SE NON SONO GIÀ LIVE!)
             val livePageRect = RectF(pageInfo.rect)
-            relativeTransform.mapRect(livePageRect)
+            if (!snapshot.areRectsLive) {
+                relativeTransform.mapRect(livePageRect)
+            }
 
             drawViewModel.pageMaker.makePageBackground(canvas, livePageRect, windowRect, docPage, document, drawViewModel.themeColors)
 

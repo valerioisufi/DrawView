@@ -26,6 +26,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenu
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
@@ -57,7 +58,6 @@ import com.studiomath.drawview.R
 import com.studiomath.drawview.document.page.Dimension
 import com.studiomath.drawview.document.page.PageBackground
 import com.studiomath.drawview.document.page.mm
-import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
